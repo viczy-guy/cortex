@@ -12,8 +12,9 @@ with one click, without leaving what you are doing.
 
 ---
 
-> **Status: early development.** Cortex is being built in the open. Nothing here
-> is ready for daily use yet — follow the [roadmap](ROADMAP.md).
+> **Status: early development.** The core loop works on macOS — live sessions,
+> approvals, questions and the hook installer — and builds on Windows and
+> Linux. There are no packaged releases yet; follow the [roadmap](ROADMAP.md).
 
 ## Why
 
@@ -77,6 +78,17 @@ npm run tauri dev
 
 Linux also needs the WebKitGTK development packages — see
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+**Try it without touching your agent.** With the app running:
+
+```bash
+scripts/demo.sh            # simulates a session, then a permission request
+scripts/demo.sh question   # … then a question
+```
+
+**Connect Claude Code.** Click **Connect Claude Code** in the idle island: it
+shows the exact change to `~/.claude/settings.json`, saves a dated backup and
+writes only after you confirm.
 
 ## License
 
