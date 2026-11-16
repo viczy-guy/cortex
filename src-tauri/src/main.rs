@@ -60,6 +60,18 @@ fn hooks_install(token: String) -> Result<hooks::Installed, String> {
     hooks::install(&token)
 }
 
+/// The exact change removing the hooks would make. Writes nothing.
+#[tauri::command]
+fn hooks_uninstall_preview() -> Result<hooks::Preview, String> {
+    hooks::preview_uninstall()
+}
+
+/// Remove the hooks the user just reviewed (`token` from `hooks_uninstall_preview`).
+#[tauri::command]
+fn hooks_uninstall(token: String) -> Result<hooks::Installed, String> {
+    hooks::uninstall(&token)
+}
+
 /// Island width in logical points. Must match `WINDOW_WIDTH` in the UI and
 /// the window width in `tauri.conf.json`.
 const ISLAND_WIDTH: f64 = 460.0;
@@ -99,7 +111,9 @@ fn main() {
             answer,
             hooks_status,
             hooks_preview,
-            hooks_install
+            hooks_install,
+            hooks_uninstall_preview,
+            hooks_uninstall
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -109,5 +109,8 @@ export const api = {
     invoke<void>("answer", { requestId, answers }),
   hooksStatus: () => invoke<HooksStatus>("hooks_status"),
   hooksPreview: () => invoke<HooksPreview>("hooks_preview"),
+  hooksUninstallPreview: () => invoke<HooksPreview>("hooks_uninstall_preview"),
+  hooksUninstall: (token: string) =>
+    invoke<HooksInstalled>("hooks_uninstall", { token }),
   hooksInstall: (token: string) => invoke<HooksInstalled>("hooks_install", { token }),
 };

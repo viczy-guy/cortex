@@ -3,7 +3,8 @@
 //!
 //! Guarantees (docs/SPEC.md — "Hook installer"):
 //! - The settings file is never written without an explicit `install(token)`
-//!   call, and only if it still is the exact file the user reviewed.
+//!   or `uninstall(token)` call, and only if it still is the exact file the
+//!   user reviewed.
 //! - A dated backup is made before any write.
 //! - Writes are atomic (temp file + rename).
 
@@ -32,10 +33,10 @@ pub struct Status {
 pub struct Preview {
     /// The exact change, line by line.
     pub diff: Vec<DiffLine>,
-    /// Identifies the reviewed file; `install` refuses anything else.
+    /// Identifies the reviewed file; install and uninstall refuse anything else.
     pub token: String,
     pub settings_path: String,
-    /// `false` when the hooks are already installed (nothing to write).
+    /// `false` when the proposed settings match the current text.
     pub changes: bool,
 }
 
@@ -56,9 +57,19 @@ pub fn status() -> Result<Status, String> {
 }
 
 pub fn preview() -> Result<Preview, String> {
-    let settings_path = settings_path()?;
-    let (original_text, settings) = read_settings(&settings_path)?;
-    let proposed = proposed_text(&settings)?;
+    preview_at(&settings_path()?, proposed_text)
+}
+
+pub fn preview_uninstall() -> Result<Preview, String> {
+    preview_at(&settings_path()?, uninstalled_text)
+}
+
+fn preview_at(
+    settings_path: &Path,
+    transform: impl FnOnce(&Value) -> Result<String, String>,
+) -> Result<Preview, String> {
+    let (original_text, settings) = read_settings(settings_path)?;
+    let proposed = transform(&settings)?;
 
     let diff = diff::lines(&original_text, &proposed);
     let changes = diff.iter().any(|l| l.kind != LineKind::Same);
@@ -71,22 +82,33 @@ pub fn preview() -> Result<Preview, String> {
 }
 
 pub fn install(token: &str) -> Result<Installed, String> {
-    let settings_path = settings_path()?;
-    let (original_text, settings) = read_settings(&settings_path)?;
+    apply_at(&settings_path()?, token, proposed_text)
+}
+
+pub fn uninstall(token: &str) -> Result<Installed, String> {
+    apply_at(&settings_path()?, token, uninstalled_text)
+}
+
+fn apply_at(
+    settings_path: &Path,
+    token: &str,
+    transform: impl FnOnce(&Value) -> Result<String, String>,
+) -> Result<Installed, String> {
+    let (original_text, settings) = read_settings(settings_path)?;
     if token_of(&original_text) != token {
         return Err("The settings file changed since you reviewed it. Review it again.".into());
     }
-    let proposed = proposed_text(&settings)?;
+    let proposed = transform(&settings)?;
 
     let backup_path = if settings_path.exists() {
-        let backup = backup_path_for(&settings_path, now_secs());
-        std::fs::copy(&settings_path, &backup).map_err(|e| format!("backup failed: {e}"))?;
+        let backup = unused_path(backup_path_for(settings_path, now_secs()));
+        std::fs::copy(settings_path, &backup).map_err(|e| format!("backup failed: {e}"))?;
         Some(backup.display().to_string())
     } else {
         None
     };
 
-    write_atomic(&settings_path, &proposed).map_err(|e| format!("write failed: {e}"))?;
+    write_atomic(settings_path, &proposed).map_err(|e| format!("write failed: {e}"))?;
     Ok(Installed { backup_path })
 }
 
@@ -131,7 +153,16 @@ fn hook_command() -> Result<String, String> {
 
 fn proposed_text(settings: &Value) -> Result<String, String> {
     let merged = merge::install(settings, &hook_command()?).map_err(|e| e.to_string())?;
-    let mut text = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
+    settings_text(&merged)
+}
+
+fn uninstalled_text(settings: &Value) -> Result<String, String> {
+    let removed = merge::uninstall(settings).map_err(|e| e.to_string())?;
+    settings_text(&removed)
+}
+
+fn settings_text(settings: &Value) -> Result<String, String> {
+    let mut text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     text.push('\n');
     Ok(text)
 }
@@ -197,6 +228,23 @@ fn backup_path_for(settings: &Path, unix_secs: u64) -> PathBuf {
     settings.with_file_name(name)
 }
 
+/// A backup is never overwritten: two writes within the same second get
+/// distinct names (`…-152301`, `…-152301-2`, …).
+fn unused_path(path: PathBuf) -> PathBuf {
+    let mut candidate = path.clone();
+    let mut n = 2;
+    while candidate.exists() {
+        let mut name = path
+            .file_name()
+            .map(|f| f.to_os_string())
+            .unwrap_or_default();
+        name.push(format!("-{n}"));
+        candidate = path.with_file_name(name);
+        n += 1;
+    }
+    candidate
+}
+
 /// Days since the Unix epoch → (year, month, day). Howard Hinnant's algorithm.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -254,6 +302,100 @@ fn data_dir() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TempSettings(PathBuf);
+
+    impl TempSettings {
+        fn new(contents: &str) -> Self {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "cortex-hooks-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("settings.json");
+            std::fs::write(&path, contents).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempSettings {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
+        }
+    }
+
+    fn installed_text(settings: &Value) -> Result<String, String> {
+        settings_text(&merge::install(settings, "cortex-hook").map_err(|e| e.to_string())?)
+    }
+
+    #[test]
+    fn uninstall_restores_settings_and_backs_up_reviewed_content() {
+        let original = r#"{"permissions":{"allow":["Read"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"other-hook"}]}]}}"#;
+        let file = TempSettings::new(original);
+        let review = preview_at(&file.0, installed_text).unwrap();
+        let installed = apply_at(&file.0, &review.token, installed_text).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(installed.backup_path.unwrap()).unwrap(),
+            original
+        );
+        let before_uninstall = std::fs::read_to_string(&file.0).unwrap();
+        let review = preview_at(&file.0, uninstalled_text).unwrap();
+        assert!(review.changes);
+        let removed = apply_at(&file.0, &review.token, uninstalled_text).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(removed.backup_path.unwrap()).unwrap(),
+            before_uninstall
+        );
+        assert_eq!(
+            read_settings(&file.0).unwrap().1,
+            serde_json::from_str::<Value>(original).unwrap()
+        );
+    }
+
+    #[test]
+    fn same_second_writes_never_overwrite_a_backup() {
+        let file = TempSettings::new("{}");
+        let review = preview_at(&file.0, installed_text).unwrap();
+        let first = apply_at(&file.0, &review.token, installed_text).unwrap();
+        let review = preview_at(&file.0, uninstalled_text).unwrap();
+        let second = apply_at(&file.0, &review.token, uninstalled_text).unwrap();
+
+        let (first, second) = (first.backup_path.unwrap(), second.backup_path.unwrap());
+        assert_ne!(first, second);
+        // The first backup still holds the original file.
+        assert_eq!(std::fs::read_to_string(first).unwrap(), "{}");
+    }
+
+    #[test]
+    fn uninstall_keeps_empty_settings_file() {
+        let file = TempSettings::new("{}");
+        let review = preview_at(&file.0, installed_text).unwrap();
+        apply_at(&file.0, &review.token, installed_text).unwrap();
+        let review = preview_at(&file.0, uninstalled_text).unwrap();
+        apply_at(&file.0, &review.token, uninstalled_text).unwrap();
+        assert_eq!(std::fs::read_to_string(&file.0).unwrap(), "{}\n");
+    }
+
+    #[test]
+    fn uninstall_refuses_stale_token_without_writing_or_backing_up() {
+        let file = TempSettings::new("{}");
+        let review = preview_at(&file.0, uninstalled_text).unwrap();
+        std::fs::write(&file.0, "{ \n}").unwrap();
+        let error = apply_at(&file.0, &review.token, uninstalled_text).unwrap_err();
+        assert!(error.contains("changed since you reviewed"));
+        assert_eq!(std::fs::read_to_string(&file.0).unwrap(), "{ \n}");
+        assert_eq!(
+            std::fs::read_dir(file.0.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
 
     #[test]
     fn civil_dates_are_correct() {
