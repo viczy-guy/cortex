@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/cortex-core", "crates/cortex-hook", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/viczy-guy/cortex"
+authors = ["viczy-guy"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Smaller, faster release binaries (matters for cortex-hook startup time).
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -1,0 +1,15 @@
+[package]
+name = "cortex-hook"
+description = "Tiny relay between agent hooks and the Cortex app. Exits instantly when the app is not running — it never blocks the agent."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cortex-hook"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "cortex-app"
+description = "The Cortex desktop app: Tauri shell, socket server, island windows."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cortex-core = { path = "../crates/cortex-core" }
