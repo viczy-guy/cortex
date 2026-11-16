@@ -147,6 +147,10 @@ impl SessionBoard {
                     session.push_step(now_ms, truncate(p, 120));
                 }
             }
+            EventKind::PreToolUse if ev.is_question() => {
+                session.state = SessionState::WaitingApproval;
+                session.push_step(now_ms, "has a question for you");
+            }
             EventKind::PreToolUse => {
                 session.state = SessionState::Working;
                 let label = tool_label(ev);

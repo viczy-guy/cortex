@@ -4,8 +4,9 @@
 //! 1. Read one JSON event from stdin, inject `cortex_agent` (from `--agent`)
 //!    and a fresh `cortex_request_id`.
 //! 2. Forward it, newline-terminated, to the Cortex endpoint.
-//! 3. For blocking events (`PermissionRequest`), wait for one decision line on
-//!    the same connection and translate it to the agent's hook output.
+//! 3. For blocking events (a `PermissionRequest`, or the `PreToolUse` of
+//!    `AskUserQuestion`), wait for one response line on the same connection
+//!    and translate it to the agent's hook output.
 //! 4. **Never block the agent**: if Cortex is absent, slow or confusing, exit
 //!    with code 0 and no output, so the agent proceeds exactly as if no hook
 //!    was installed.
@@ -16,7 +17,9 @@ use std::time::Duration;
 use serde_json::Value;
 
 /// How long we wait for the user's decision before giving up (the agent's own
-/// terminal then takes over). Claude Code's default hook timeout is 60 s.
+/// terminal then takes over). While we wait the terminal shows no prompt of
+/// its own, so this stays short; it must also stay below the `timeout` the
+/// installer writes for blocking hooks (60 s).
 const DECISION_TIMEOUT: Duration = Duration::from_secs(50);
 /// Connect/write budget. If the app is running, this is milliseconds; if it is
 /// not, connecting fails instantly anyway.
@@ -51,19 +54,18 @@ fn run() -> Option<()> {
     let request_id = fresh_request_id();
     obj.insert("cortex_request_id".into(), Value::String(request_id));
 
-    let blocking = obj
-        .get("hook_event_name")
-        .and_then(Value::as_str)
-        .is_some_and(is_blocking_event);
+    let blocking = blocking_kind(&event);
 
     let mut line = serde_json::to_string(&event).ok()?;
     line.push('\n');
 
-    let response = transport::send(&line, blocking)?;
+    let response = transport::send(&line, blocking.is_some())?;
 
-    if blocking {
-        let decision = parse_decision(&response?)?;
-        emit_hook_output(&event, decision);
+    if let Some(kind) = blocking {
+        let response: Value = serde_json::from_str(response?.trim()).ok()?;
+        if let Some(output) = hook_output(kind, &event, &response) {
+            println!("{output}");
+        }
     }
     Some(())
 }
@@ -84,9 +86,24 @@ fn parse_agent_arg(mut args: impl Iterator<Item = String>) -> Option<String> {
     None
 }
 
-/// Must stay in sync with `cortex_core::EventKind::is_blocking`.
-fn is_blocking_event(name: &str) -> bool {
-    name == "PermissionRequest"
+/// The two events where the agent waits for the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Blocking {
+    /// `PermissionRequest`: allow or deny a tool call.
+    Permission,
+    /// `PreToolUse` of `AskUserQuestion`: answer a question.
+    Question,
+}
+
+/// Must stay in sync with `cortex_core::HookEvent::is_blocking`.
+fn blocking_kind(event: &Value) -> Option<Blocking> {
+    let name = event.get("hook_event_name")?.as_str()?;
+    let tool = event.get("tool_name").and_then(Value::as_str);
+    match (name, tool) {
+        ("PermissionRequest", _) => Some(Blocking::Permission),
+        ("PreToolUse", Some("AskUserQuestion")) => Some(Blocking::Question),
+        _ => None,
+    }
 }
 
 /// Unique enough to correlate a request with its decision: this process never
@@ -100,38 +117,46 @@ fn fresh_request_id() -> String {
     format!("{:x}-{:x}", nanos, std::process::id())
 }
 
-/// `{"decision":"allow|deny|ask"}` → the decision, if well-formed.
-fn parse_decision(line: &str) -> Option<&'static str> {
-    let v: Value = serde_json::from_str(line.trim()).ok()?;
-    match v.get("decision")?.as_str()? {
-        "allow" => Some("allow"),
-        "deny" => Some("deny"),
-        "ask" => Some("ask"),
+/// Translate Cortex's response line into the agent's hook output, following
+/// the Claude Code hooks reference (code.claude.com/docs/en/hooks). This is
+/// the single place that encodes those schemas.
+///
+/// `None` means "print nothing": the agent asks in its own terminal, which is
+/// always a safe outcome. That is what happens for `ask` and for anything
+/// malformed.
+fn hook_output(kind: Blocking, event: &Value, response: &Value) -> Option<Value> {
+    let decision = response.get("decision")?.as_str()?;
+    match (kind, decision) {
+        (Blocking::Permission, "allow") => Some(serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": { "behavior": "allow" }
+            }
+        })),
+        (Blocking::Permission, "deny") => Some(serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": { "behavior": "deny", "message": "Denied from Cortex." }
+            }
+        })),
+        (Blocking::Question, "allow") => {
+            // The tool only runs without prompting when the original
+            // `questions` are echoed back together with the `answers`.
+            let questions = event.get("tool_input")?.get("questions")?;
+            let answers = response.get("answers")?.as_object()?;
+            if answers.is_empty() || !answers.values().all(Value::is_string) {
+                return None;
+            }
+            Some(serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": { "questions": questions, "answers": answers }
+                }
+            }))
+        }
         _ => None,
     }
-}
-
-/// Translate the user's decision into the agent's hook output format.
-///
-/// `ask` (or anything unexpected upstream) prints nothing: the agent asks in
-/// its own terminal, which is always a safe outcome.
-///
-/// NOTE(verify-against-docs): the exact PermissionRequest output schema is
-/// re-checked against the published Claude Code hooks reference in Phase 3;
-/// this function is the single place that encodes it.
-fn emit_hook_output(event: &Value, decision: &str) {
-    if decision == "ask" {
-        return;
-    }
-    let behavior = if decision == "allow" { "allow" } else { "deny" };
-    let _ = event;
-    let output = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": { "behavior": behavior }
-        }
-    });
-    println!("{output}");
 }
 
 /// Platform transport. Returns `Some(response)` on success; the inner Option
@@ -260,12 +285,73 @@ mod tests {
     }
 
     #[test]
-    fn decisions_parse_strictly() {
-        assert_eq!(parse_decision(r#"{"decision":"allow"}"#), Some("allow"));
-        assert_eq!(parse_decision(r#"{"decision":"deny"}"#), Some("deny"));
-        assert_eq!(parse_decision(r#"{"decision":"ask"}"#), Some("ask"));
-        assert_eq!(parse_decision(r#"{"decision":"yes"}"#), None);
-        assert_eq!(parse_decision("junk"), None);
+    fn only_approvals_and_questions_block() {
+        let kind = |json: &str| blocking_kind(&serde_json::from_str(json).unwrap());
+        assert_eq!(
+            kind(r#"{"hook_event_name":"PermissionRequest"}"#),
+            Some(Blocking::Permission)
+        );
+        assert_eq!(
+            kind(r#"{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion"}"#),
+            Some(Blocking::Question)
+        );
+        assert_eq!(
+            kind(r#"{"hook_event_name":"PreToolUse","tool_name":"Bash"}"#),
+            None
+        );
+        assert_eq!(kind(r#"{"hook_event_name":"Stop"}"#), None);
+    }
+
+    #[test]
+    fn permission_output_follows_the_hooks_reference() {
+        let event = serde_json::json!({});
+        let out = |d: &str| {
+            hook_output(
+                Blocking::Permission,
+                &event,
+                &serde_json::json!({ "decision": d }),
+            )
+        };
+        assert_eq!(
+            out("allow").unwrap()["hookSpecificOutput"]["decision"]["behavior"],
+            "allow"
+        );
+        assert_eq!(
+            out("deny").unwrap()["hookSpecificOutput"]["decision"]["behavior"],
+            "deny"
+        );
+        // `ask` and anything unexpected print nothing: the terminal decides.
+        assert!(out("ask").is_none());
+        assert!(out("yes").is_none());
+    }
+
+    #[test]
+    fn question_output_echoes_questions_with_answers() {
+        let event = serde_json::json!({
+            "tool_input": { "questions": [{ "question": "Which framework?" }] }
+        });
+        let response = serde_json::json!({
+            "decision": "allow",
+            "answers": { "Which framework?": "React" }
+        });
+        let out = hook_output(Blocking::Question, &event, &response).unwrap();
+        let specific = &out["hookSpecificOutput"];
+        assert_eq!(specific["hookEventName"], "PreToolUse");
+        assert_eq!(specific["permissionDecision"], "allow");
+        assert_eq!(
+            specific["updatedInput"]["questions"],
+            event["tool_input"]["questions"]
+        );
+        assert_eq!(
+            specific["updatedInput"]["answers"]["Which framework?"],
+            "React"
+        );
+
+        // An allow without answers must not let the tool run unanswered.
+        let bare = serde_json::json!({ "decision": "allow" });
+        assert!(hook_output(Blocking::Question, &event, &bare).is_none());
+        let ask = serde_json::json!({ "decision": "ask" });
+        assert!(hook_output(Blocking::Question, &event, &ask).is_none());
     }
 
     #[test]
@@ -297,7 +383,7 @@ mod tests {
         std::env::set_var("CORTEX_SOCKET", sock.to_str().unwrap());
         let event = "{\"hook_event_name\":\"PermissionRequest\",\"session_id\":\"s\"}\n";
         let response = transport::send(event, true).unwrap().unwrap();
-        assert_eq!(parse_decision(&response), Some("allow"));
+        assert!(response.contains("\"allow\""));
 
         let received = server.join().unwrap();
         assert!(received.contains("PermissionRequest"));

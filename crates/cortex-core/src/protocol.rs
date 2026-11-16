@@ -2,6 +2,8 @@
 //! events: a single JSON line `{"decision": "..."}` sent back on the same
 //! connection.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// A user decision on a blocking event.
@@ -16,20 +18,30 @@ pub enum Decision {
     Ask,
 }
 
+/// Answers to a question card: question text → chosen answer.
+pub type Answers = BTreeMap<String, String>;
+
 /// Response line for a blocking event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecisionResponse {
     pub decision: Decision,
-    /// Optional human-readable reason, shown by some agents.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    /// Present only when answering a question (`decision` is then `allow`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Answers>,
 }
 
 impl DecisionResponse {
     pub fn new(decision: Decision) -> Self {
         Self {
             decision,
-            reason: None,
+            answers: None,
+        }
+    }
+
+    pub fn answered(answers: Answers) -> Self {
+        Self {
+            decision: Decision::Allow,
+            answers: Some(answers),
         }
     }
 
@@ -56,6 +68,21 @@ mod tests {
             assert!(line.ends_with('\n'));
             assert_eq!(DecisionResponse::parse(&line).unwrap().decision, d);
         }
+    }
+
+    #[test]
+    fn answers_travel_with_an_allow() {
+        let mut answers = Answers::new();
+        answers.insert("Which framework?".into(), "React".into());
+        let line = DecisionResponse::answered(answers.clone()).to_line();
+        assert_eq!(
+            line,
+            "{\"decision\":\"allow\",\"answers\":{\"Which framework?\":\"React\"}}\n"
+        );
+        assert_eq!(
+            DecisionResponse::parse(&line).unwrap().answers,
+            Some(answers)
+        );
     }
 
     #[test]

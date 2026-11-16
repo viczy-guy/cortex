@@ -1,8 +1,11 @@
 /**
- * Typed contract with the Rust core. These mirror the `Serialize` shapes in
- * `cortex-core` — if Rust changes a field, `npm run check` fails here instead
- * of the UI silently breaking.
+ * Typed contract with the Rust core. The interfaces mirror the `Serialize`
+ * shapes in `cortex-core` / `cortex-app`, and `api` is the only place the UI
+ * calls into Rust — if a command or field changes, `npm run check` fails here
+ * instead of the UI silently breaking.
  */
+
+import { invoke } from "@tauri-apps/api/core";
 
 export type SessionState =
   | "idle"
@@ -41,11 +44,25 @@ export interface SessionView {
   last_event_ms: number;
 }
 
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface Question {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multi_select: boolean;
+}
+
+/** A card waiting for the user: an approval, or a question when `questions` is not empty. */
 export interface PendingApproval {
   request_id: string;
   session: SessionKey;
   tool_name: string;
   detail: string;
+  questions: Question[];
   created_ms: number;
 }
 
@@ -57,5 +74,40 @@ export interface Snapshot {
 /** Decisions the UI can send for a pending approval. */
 export type UiDecision = "allow" | "deny" | "always" | "ask";
 
+/** Question text → chosen label (multi-select: labels joined by ", "). */
+export type Answers = Record<string, string>;
+
+export interface DiffLine {
+  kind: "same" | "added" | "removed";
+  text: string;
+}
+
+export interface HooksStatus {
+  installed: boolean;
+  settings_path: string;
+}
+
+export interface HooksPreview {
+  diff: DiffLine[];
+  token: string;
+  settings_path: string;
+  changes: boolean;
+}
+
+export interface HooksInstalled {
+  backup_path: string | null;
+}
+
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
+
+export const api = {
+  snapshot: () => invoke<Snapshot>("snapshot"),
+  respond: (requestId: string, decision: UiDecision) =>
+    invoke<void>("respond", { requestId, decision }),
+  answer: (requestId: string, answers: Answers) =>
+    invoke<void>("answer", { requestId, answers }),
+  hooksStatus: () => invoke<HooksStatus>("hooks_status"),
+  hooksPreview: () => invoke<HooksPreview>("hooks_preview"),
+  hooksInstall: (token: string) => invoke<HooksInstalled>("hooks_install", { token }),
+};

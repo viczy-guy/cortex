@@ -31,18 +31,27 @@ Newline-terminated JSON, one event per line:
 - Unknown fields are ignored. Malformed lines are dropped. An event never
   crashes or blocks Cortex.
 
-## Blocking events (approvals)
+## Blocking events (approvals and questions)
 
-For `PreToolUse`, the connection may stay open: Cortex replies on the same
-connection with a single JSON line once the user decides —
+Two events keep the connection open; Cortex replies on it with a single JSON
+line once the user decides:
 
-```json
-{"decision": "allow"}        // or "deny", or "ask" (fall back to the terminal)
-```
+| Event | Card | Reply |
+|---|---|---|
+| `PermissionRequest` | Allow / Deny / Always | `{"decision": "allow"}`, `"deny"` or `"ask"` |
+| `PreToolUse` with `tool_name: "AskUserQuestion"` | the question's options | `{"decision": "allow", "answers": {"<question>": "<label>"}}` or `{"decision": "ask"}` |
 
-If Cortex is not running, or the user does not decide in time, the relay exits
-with no output and the agent asks in its own terminal. **Cortex never blocks an
-agent.**
+`ask` means "no decision": the agent asks in its own terminal. For multi-select
+questions the answer is the chosen labels joined by `", "`.
+
+If Cortex is not running, the user does not decide within 50 s, or the
+connection closes (the user answered in the terminal), the card disappears, the
+relay exits with no output and the agent carries on by itself. **Cortex never
+blocks an agent.**
+
+The relay translates these replies to the Claude Code hook output formats
+(`hookSpecificOutput.decision.behavior` for permissions; `permissionDecision:
+"allow"` + `updatedInput` with `questions` and `answers` for questions).
 
 ## The `cortex-hook` relay
 

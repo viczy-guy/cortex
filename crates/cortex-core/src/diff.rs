@@ -63,6 +63,75 @@ fn lcs_len(a: &[&str], b: &[&str]) -> usize {
     prev[b.len()]
 }
 
+/// One line of a rendered diff.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct DiffLine {
+    pub kind: LineKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineKind {
+    Same,
+    Added,
+    Removed,
+}
+
+/// Cells of the LCS table above which [`lines`] stops being exact.
+const RENDER_CELL_LIMIT: usize = 4_000_000;
+
+/// A full line-by-line diff, for showing the user exactly what will change
+/// (used by the hook installer). Exact for normal files; for huge inputs it
+/// degrades to "everything removed, everything added", which is still true.
+pub fn lines(old: &str, new: &str) -> Vec<DiffLine> {
+    let a = non_empty_lines(old);
+    let b = non_empty_lines(new);
+    let line = |kind, text: &str| DiffLine {
+        kind,
+        text: text.to_owned(),
+    };
+
+    if a.len().saturating_mul(b.len()) > RENDER_CELL_LIMIT {
+        return a
+            .iter()
+            .map(|t| line(LineKind::Removed, t))
+            .chain(b.iter().map(|t| line(LineKind::Added, t)))
+            .collect();
+    }
+
+    // table[i][j] = LCS length of a[i..] and b[j..].
+    let mut table = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            table[i][j] = if a[i] == b[j] {
+                table[i + 1][j + 1] + 1
+            } else {
+                table[i + 1][j].max(table[i][j + 1])
+            };
+        }
+    }
+
+    let mut out = Vec::with_capacity(a.len().max(b.len()));
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        if a[i] == b[j] {
+            out.push(line(LineKind::Same, a[i]));
+            i += 1;
+            j += 1;
+        } else if table[i + 1][j] >= table[i][j + 1] {
+            out.push(line(LineKind::Removed, a[i]));
+            i += 1;
+        } else {
+            out.push(line(LineKind::Added, b[j]));
+            j += 1;
+        }
+    }
+    out.extend(a[i..].iter().map(|t| line(LineKind::Removed, t)));
+    out.extend(b[j..].iter().map(|t| line(LineKind::Added, t)));
+    out
+}
+
 /// Matching lines at the start plus at the end (without overlap).
 fn common_affix(a: &[&str], b: &[&str]) -> usize {
     let max = a.len().min(b.len());
@@ -80,6 +149,31 @@ fn common_affix(a: &[&str], b: &[&str]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rendered_diff_marks_each_line() {
+        let kinds: Vec<(LineKind, String)> = lines("a\nb\nc", "a\nx\nc\nd")
+            .into_iter()
+            .map(|l| (l.kind, l.text))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (LineKind::Same, "a".to_string()),
+                (LineKind::Removed, "b".to_string()),
+                (LineKind::Added, "x".to_string()),
+                (LineKind::Same, "c".to_string()),
+                (LineKind::Added, "d".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rendered_diff_of_identical_text_has_no_changes() {
+        assert!(lines("a\nb", "a\nb")
+            .iter()
+            .all(|l| l.kind == LineKind::Same));
+    }
 
     #[test]
     fn identical_is_zero() {

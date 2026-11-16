@@ -6,12 +6,11 @@
 
 use std::time::Duration;
 
-use cortex_core::protocol::DecisionResponse;
-use cortex_core::{Decision, HookEvent};
+use cortex_core::{Decision, DecisionResponse, HookEvent};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::state::AppState;
+use crate::state::{AppState, Blocking};
 
 pub const STATE_EVENT: &str = "cortex://state";
 
@@ -48,7 +47,7 @@ where
             continue;
         };
 
-        if event.kind.is_blocking() {
+        if event.is_blocking() {
             // The hook always injects a request id; synthesize one defensively.
             let request_id = event
                 .request_id
@@ -56,17 +55,18 @@ where
                 .unwrap_or_else(|| format!("anon-{:x}", crate::state::now_ms()));
 
             let state = app.state::<AppState>();
-            let (immediate, receiver) = state.register_blocking(&event, request_id.clone());
+            let blocking = state.register_blocking(&event, request_id.clone());
             emit_state(&app);
 
-            let decision = match (immediate, receiver) {
-                (Some(decision), _) => decision,
-                (None, Some(mut rx)) => {
+            let ask = || DecisionResponse::new(Decision::Ask);
+            let response = match blocking {
+                Blocking::Immediate(response) => response,
+                Blocking::Wait(mut rx) => {
                     let guard = tokio::time::sleep(DECISION_GUARD);
                     tokio::pin!(guard);
                     loop {
                         tokio::select! {
-                            decided = &mut rx => break decided.unwrap_or(Decision::Ask),
+                            decided = &mut rx => break decided.unwrap_or_else(|_| ask()),
                             read = lines.next_line() => match read {
                                 // Stray input while waiting is ignored.
                                 Ok(Some(_)) => continue,
@@ -81,15 +81,14 @@ where
                             },
                             _ = &mut guard => {
                                 app.state::<AppState>().cancel(&request_id);
-                                break Decision::Ask;
+                                break ask();
                             }
                         }
                     }
                 }
-                (None, None) => Decision::Ask,
             };
 
-            let response = DecisionResponse::new(decision).to_line();
+            let response = response.to_line();
             let _ = write_half.write_all(response.as_bytes()).await;
             let _ = write_half.flush().await;
             emit_state(&app);

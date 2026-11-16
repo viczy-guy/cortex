@@ -31,6 +31,8 @@ allow = [
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
+# Our own workspace crates depend on each other by path; they are never published.
+allow-wildcard-paths = true
 
 [sources]
 # Only crates.io. No git dependencies, no alternative registries.

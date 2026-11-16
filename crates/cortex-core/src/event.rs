@@ -72,13 +72,11 @@ impl EventKind {
             other => Self::Other(other.to_owned()),
         }
     }
-
-    /// Events where the sender may wait for a user decision on the same
-    /// connection. Must stay in sync with `cortex-hook`.
-    pub fn is_blocking(&self) -> bool {
-        matches!(self, Self::PermissionRequest)
-    }
 }
+
+/// The tool whose `PreToolUse` carries a question for the user. Answering it
+/// from a hook is the documented way to reply to `AskUserQuestion`.
+pub const QUESTION_TOOL: &str = "AskUserQuestion";
 
 /// A parsed, validated hook event.
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +160,17 @@ impl HookEvent {
             cwd: get_str("cwd"),
         })
     }
+
+    /// A question for the user (`PreToolUse` of [`QUESTION_TOOL`]).
+    pub fn is_question(&self) -> bool {
+        self.kind == EventKind::PreToolUse && self.tool_name.as_deref() == Some(QUESTION_TOOL)
+    }
+
+    /// Events where the sender waits for a user decision on the same
+    /// connection. Must stay in sync with `cortex-hook`.
+    pub fn is_blocking(&self) -> bool {
+        self.kind == EventKind::PermissionRequest || self.is_question()
+    }
 }
 
 #[cfg(test)]
@@ -237,9 +246,17 @@ mod tests {
     }
 
     #[test]
-    fn only_permission_request_blocks() {
-        assert!(EventKind::PermissionRequest.is_blocking());
-        assert!(!EventKind::PreToolUse.is_blocking());
-        assert!(!EventKind::Stop.is_blocking());
+    fn only_approvals_and_questions_block() {
+        let ev = |json: &str| HookEvent::parse(json).unwrap();
+        assert!(ev(r#"{"hook_event_name":"PermissionRequest","session_id":"s"}"#).is_blocking());
+        assert!(ev(
+            r#"{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion"}"#
+        )
+        .is_blocking());
+        assert!(
+            !ev(r#"{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash"}"#)
+                .is_blocking()
+        );
+        assert!(!ev(r#"{"hook_event_name":"Stop","session_id":"s"}"#).is_blocking());
     }
 }

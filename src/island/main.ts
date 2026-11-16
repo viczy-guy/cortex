@@ -1,199 +1,155 @@
 /**
- * The island renderer. Dumb by design: it draws the latest snapshot from Rust
- * and forwards clicks back. No business logic lives here.
- *
- * Security: all dynamic data is set via `textContent` — never innerHTML.
+ * The island. Dumb by design: it draws the latest snapshot from Rust and
+ * forwards clicks back. The only state kept here is view state (what is
+ * expanded, which options are ticked, where the onboarding flow is).
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
-import {
-  type PendingApproval,
-  type SessionView,
-  type Snapshot,
-  STATE_EVENT,
-  type UiDecision,
-} from "../shared/ipc";
+import { api, type SessionView, type Snapshot, STATE_EVENT } from "../shared/ipc";
+import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
+import { button, el } from "./dom";
+import { type Onboarding, onboardingCard } from "./onboarding";
 
+/** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
 const WINDOW_WIDTH = 460;
-const BAR_HEIGHT = 50;
-const PANEL_MAX_HEIGHT = 400;
+const MAX_HEIGHT = 440;
 
 const root = document.getElementById("island")!;
+
+let snapshot: Snapshot = { sessions: [], approvals: [] };
 let expanded = false;
 /** True when the panel was opened by an approval, not by the user. */
 let autoExpanded = false;
-let lastSnapshot: Snapshot = { sessions: [], approvals: [] };
+/** `null` until Rust answers; the "Connect" chip shows only on a definite `false`. */
+let hooksInstalled: boolean | null = null;
+let onboarding: Onboarding = { phase: "closed" };
 
 // ---------------------------------------------------------------------------
 // Rendering
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function render(snap: Snapshot): void {
-  lastSnapshot = snap;
-  const hasApprovals = snap.approvals.length > 0;
-  // An approval demands eyes: open the panel, and fold it back once the
-  // approval is gone — unless the user opened it themselves.
-  if (hasApprovals && !expanded) {
+function render(): void {
+  const hasCards = snapshot.approvals.length > 0;
+  // A card demands eyes: open the panel, and fold it back once the card is
+  // gone — unless the user opened it themselves.
+  if (hasCards && !expanded) {
     expanded = true;
     autoExpanded = true;
-  } else if (!hasApprovals && autoExpanded) {
+  } else if (!hasCards && autoExpanded) {
     expanded = false;
     autoExpanded = false;
   }
+  pruneSelections(new Set(snapshot.approvals.map((a) => a.request_id)));
 
-  root.replaceChildren(renderBar(snap));
-  if (expanded && (snap.sessions.length > 0 || hasApprovals)) {
-    root.append(renderPanel(snap));
+  root.replaceChildren(bar());
+  const panel = panelContent();
+  if (panel.length > 0) {
+    const node = el("div", "panel");
+    node.append(...panel);
+    root.append(node);
   }
-  void resizeToContent();
+  void fitWindowToContent();
 }
 
-function renderBar(snap: Snapshot): HTMLElement {
-  const bar = el("div", "bar");
-  bar.append(el("span", "brand-dot"));
+function bar(): HTMLElement {
+  const node = el("div", "bar");
+  node.append(el("span", "brand-dot"));
 
-  if (snap.sessions.length === 0 && snap.approvals.length === 0) {
-    bar.append(el("span", "bar-idle", "cortex"));
-    return bar;
+  if (snapshot.sessions.length === 0 && snapshot.approvals.length === 0) {
+    node.append(el("span", "bar-idle", "cortex"));
+    if (hooksInstalled === false && onboarding.phase === "closed") {
+      node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
+    }
+    return node;
   }
 
-  for (const session of snap.sessions.slice(0, 3)) {
-    bar.append(renderPill(session));
+  for (const session of snapshot.sessions.slice(0, 3)) {
+    node.append(pill(session));
   }
-  bar.addEventListener("click", () => {
+  node.addEventListener("click", () => {
     expanded = !expanded;
     autoExpanded = false;
-    render(lastSnapshot);
+    render();
   });
-  return bar;
+  return node;
 }
 
-function renderPill(session: SessionView): HTMLElement {
-  const pill = el("div", "pill");
-  pill.append(el("span", `state-dot state-${session.state}`));
-  pill.append(el("span", "agent", session.key.agent));
-  const label =
-    session.current ??
-    session.ticker.at(-1)?.label ??
-    stateLabel(session.state);
-  pill.append(el("span", "ticker", label));
-  return pill;
+function pill(session: SessionView): HTMLElement {
+  const node = el("div", "pill");
+  node.append(el("span", `state-dot state-${session.state}`));
+  node.append(el("span", "agent", session.key.agent));
+  const label = session.current ?? session.ticker.at(-1)?.label ?? stateLabel(session.state);
+  node.append(el("span", "ticker", label));
+  return node;
 }
 
-function renderPanel(snap: Snapshot): HTMLElement {
-  const panel = el("div", "panel");
-  for (const approval of snap.approvals) {
-    panel.append(renderApproval(approval));
+function panelContent(): HTMLElement[] {
+  if (onboarding.phase !== "closed") {
+    return [
+      onboardingCard(onboarding, {
+        install: (token) => void installHooks(token),
+        close: () => {
+          onboarding = { phase: "closed" };
+          render();
+        },
+      }),
+    ];
   }
-  for (const session of snap.sessions) {
-    panel.append(renderSession(session));
-  }
-  return panel;
+  if (!expanded) return [];
+
+  const cards = snapshot.approvals.map((approval) =>
+    approval.questions.length > 0 ? questionCard(approval, render) : approvalCard(approval),
+  );
+  return [...cards, ...snapshot.sessions.map(sessionCard)];
 }
 
-function renderSession(session: SessionView): HTMLElement {
-  const card = el("div", "card");
-
-  const head = el("div", "card-head");
-  head.append(el("span", `state-dot state-${session.state}`));
-  head.append(el("span", "title", session.key.agent));
-  head.append(el("span", "meta", stateLabel(session.state)));
-  card.append(head);
-
-  if (session.ticker.length > 0) {
-    const steps = el("div", "steps");
-    for (const step of session.ticker.slice(-4)) {
-      steps.append(el("div", "step", step.label));
-    }
-    card.append(steps);
-  }
-
-  if (session.changes.length > 0) {
-    const changes = el("div", "changes");
-    for (const change of session.changes.slice(-6)) {
-      const row = el("div", "change");
-      row.append(el("span", "add", `+${change.added}`));
-      row.append(el("span", "del", `−${change.removed}`));
-      row.append(el("span", "path", change.path));
-      changes.append(row);
-    }
-    card.append(changes);
-  }
-
-  return card;
-}
-
-function renderApproval(approval: PendingApproval): HTMLElement {
-  const card = el("div", "card approval");
-
-  const head = el("div", "card-head");
-  head.append(el("span", "state-dot state-waiting_approval"));
-  head.append(el("span", "title", `${approval.tool_name} needs approval`));
-  head.append(el("span", "meta", approval.session.agent));
-  card.append(head);
-
-  if (approval.detail) {
-    card.append(el("div", "detail", approval.detail));
-  }
-
-  const actions = el("div", "actions");
-  const button = (cls: string, label: string, decision: UiDecision) => {
-    const b = el("button", `btn ${cls}`, label);
-    b.addEventListener("click", () => void respond(approval.request_id, decision));
-    return b;
-  };
-  actions.append(button("btn-deny", "Deny", "deny"));
-  actions.append(button("btn-allow", "Allow", "allow"));
-  actions.append(button("btn-neutral", "Always", "always"));
-  const terminal = el("span", "terminal-link", "answer in terminal");
-  terminal.addEventListener("click", () => void respond(approval.request_id, "ask"));
-  actions.append(terminal);
-  card.append(actions);
-
-  return card;
-}
-
-function stateLabel(state: SessionView["state"]): string {
-  switch (state) {
-    case "idle": return "idle";
-    case "thinking": return "thinking…";
-    case "working": return "working";
-    case "waiting_approval": return "needs you";
-    case "waiting_input": return "needs you";
-    case "finished": return "done";
-    case "error": return "error";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Rust bridge
-
-async function respond(requestId: string, decision: UiDecision): Promise<void> {
-  await invoke("respond", { requestId, decision });
-}
-
-async function resizeToContent(): Promise<void> {
-  const height = expanded ? BAR_HEIGHT + PANEL_MAX_HEIGHT : BAR_HEIGHT;
+/** Size the window to what is drawn, so no invisible area eats clicks. */
+async function fitWindowToContent(): Promise<void> {
+  const height = Math.min(MAX_HEIGHT, Math.ceil(root.getBoundingClientRect().height) + 8);
   await getCurrentWindow().setSize(new LogicalSize(WINDOW_WIDTH, height));
 }
 
+// ---------------------------------------------------------------------------
+// Onboarding flow
+
+async function refreshHooksStatus(): Promise<void> {
+  try {
+    hooksInstalled = (await api.hooksStatus()).installed;
+  } catch {
+    hooksInstalled = null; // unknown: do not nag
+  }
+}
+
+async function openOnboarding(): Promise<void> {
+  try {
+    onboarding = { phase: "review", preview: await api.hooksPreview() };
+  } catch (error) {
+    onboarding = { phase: "error", message: String(error) };
+  }
+  render();
+}
+
+async function installHooks(token: string): Promise<void> {
+  try {
+    const result = await api.hooksInstall(token);
+    onboarding = { phase: "done", backupPath: result.backup_path };
+    hooksInstalled = true;
+  } catch (error) {
+    onboarding = { phase: "error", message: String(error) };
+  }
+  render();
+}
+
+// ---------------------------------------------------------------------------
+
 async function start(): Promise<void> {
-  await listen<Snapshot>(STATE_EVENT, (event) => render(event.payload));
-  const initial = await invoke<Snapshot>("snapshot");
-  render(initial);
+  await listen<Snapshot>(STATE_EVENT, (event) => {
+    snapshot = event.payload;
+    render();
+  });
+  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus()]);
+  render();
 }
 
 void start();

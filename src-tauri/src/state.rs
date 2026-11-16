@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cortex_core::{ApprovalQueue, Decision, HookEvent, PendingApproval, SessionBoard};
+use cortex_core::{
+    Answers, ApprovalQueue, Decision, DecisionResponse, HookEvent, PendingApproval, Registered,
+    SessionBoard,
+};
 use serde::Serialize;
 use tokio::sync::{oneshot, Notify};
 
@@ -14,6 +17,14 @@ use tokio::sync::{oneshot, Notify};
 pub struct Snapshot {
     pub sessions: Vec<cortex_core::Session>,
     pub approvals: Vec<PendingApproval>,
+}
+
+/// What a connection does after registering a blocking event.
+pub enum Blocking {
+    /// Reply right away (Always rule, or nothing Cortex can show).
+    Immediate(DecisionResponse),
+    /// A card is up: wait for the user on this receiver.
+    Wait(oneshot::Receiver<DecisionResponse>),
 }
 
 #[derive(Default)]
@@ -26,7 +37,7 @@ struct Domain {
 pub struct AppState {
     domain: Mutex<Domain>,
     /// Connections parked on a pending request, keyed by request id.
-    responders: Mutex<HashMap<String, oneshot::Sender<Decision>>>,
+    responders: Mutex<HashMap<String, oneshot::Sender<DecisionResponse>>>,
     /// Wakes the janitor task when there is something to clean later.
     pub janitor: Notify,
 }
@@ -49,21 +60,24 @@ impl AppState {
         changed
     }
 
-    /// Register a blocking event. `Some(decision)` means answer immediately
-    /// (an Always rule matched); `None` means a card is up and the connection
-    /// should await its oneshot.
-    pub fn register_blocking(
-        &self,
-        event: &HookEvent,
-        request_id: String,
-    ) -> (Option<Decision>, Option<oneshot::Receiver<Decision>>) {
+    /// Register a blocking event (approval or question).
+    pub fn register_blocking(&self, event: &HookEvent, request_id: String) -> Blocking {
         let mut domain = self.domain.lock().expect("state poisoned");
         let now = now_ms();
-        domain.board.apply(event, now);
 
         match domain.approvals.register(event, request_id.clone(), now) {
-            None => (Some(Decision::Allow), None),
-            Some(_) => {
+            Registered::AutoAllow => {
+                domain.board.apply(event, now);
+                let key = cortex_core::SessionKey {
+                    agent: event.agent.clone(),
+                    session_id: event.session_id.clone(),
+                };
+                domain.board.approval_closed(&key);
+                Blocking::Immediate(DecisionResponse::new(Decision::Allow))
+            }
+            Registered::Skip => Blocking::Immediate(DecisionResponse::new(Decision::Ask)),
+            Registered::Card(_) => {
+                domain.board.apply(event, now);
                 let (tx, rx) = oneshot::channel();
                 drop(domain);
                 self.responders
@@ -71,12 +85,12 @@ impl AppState {
                     .expect("responders poisoned")
                     .insert(request_id, tx);
                 self.janitor.notify_one();
-                (None, Some(rx))
+                Blocking::Wait(rx)
             }
         }
     }
 
-    /// Resolve a pending request from the UI. `always` records a rule.
+    /// Resolve a pending approval from the UI. `always` records a rule.
     /// Returns `false` for unknown/stale ids (nothing is sent anywhere).
     pub fn resolve(&self, request_id: &str, ui_decision: &str) -> bool {
         let decision = match ui_decision {
@@ -95,16 +109,53 @@ impl AppState {
             let Some(approval) = taken else {
                 return false;
             };
+            // A question cannot be "allowed" without answers.
+            if !approval.questions.is_empty() && decision == Decision::Allow {
+                domain.board.approval_closed(&approval.session);
+                drop(domain);
+                self.send(request_id, DecisionResponse::new(Decision::Ask));
+                return true;
+            }
             domain.board.approval_closed(&approval.session);
         }
-        self.send_decision(request_id, decision);
+        self.send(request_id, DecisionResponse::new(decision));
+        true
+    }
+
+    /// Answer a pending question from the UI. Every answer must belong to a
+    /// question of that exact card; otherwise nothing happens.
+    pub fn answer(&self, request_id: &str, answers: Answers) -> bool {
+        {
+            let mut domain = self.domain.lock().expect("state poisoned");
+            let valid = domain.approvals.pending().iter().any(|p| {
+                p.request_id == request_id
+                    && !p.questions.is_empty()
+                    && answers.len() == p.questions.len()
+                    && p.questions.iter().all(|q| {
+                        answers
+                            .get(&q.question)
+                            .is_some_and(|a| is_valid_answer(a, q))
+                    })
+            });
+            if !valid {
+                return false;
+            }
+            let Some(approval) = domain.approvals.take(request_id) else {
+                return false;
+            };
+            domain.board.approval_closed(&approval.session);
+        }
+        self.send(request_id, DecisionResponse::answered(answers));
         true
     }
 
     /// The waiting connection died (hook timed out, or the user answered in
     /// the terminal): drop the card. Returns `true` when something was removed.
     pub fn cancel(&self, request_id: &str) -> bool {
-        self.forget_responder(request_id);
+        self.responders
+            .lock()
+            .expect("responders poisoned")
+            .remove(request_id);
         let mut domain = self.domain.lock().expect("state poisoned");
         match domain.approvals.take(request_id) {
             Some(approval) => {
@@ -130,7 +181,7 @@ impl AppState {
             (gc_changed || !expired.is_empty(), expired, empty)
         };
         for approval in expired {
-            self.send_decision(&approval.request_id, Decision::Ask);
+            self.send(&approval.request_id, DecisionResponse::new(Decision::Ask));
         }
         (changed, empty)
     }
@@ -143,8 +194,8 @@ impl AppState {
         }
     }
 
-    /// Hand the decision to the parked connection, if it is still there.
-    fn send_decision(&self, request_id: &str, decision: Decision) {
+    /// Hand the response to the parked connection, if it is still there.
+    fn send(&self, request_id: &str, response: DecisionResponse) {
         let sender = self
             .responders
             .lock()
@@ -152,14 +203,18 @@ impl AppState {
             .remove(request_id);
         if let Some(tx) = sender {
             // The connection may have died; that is fine.
-            let _ = tx.send(decision);
+            let _ = tx.send(response);
         }
     }
+}
 
-    fn forget_responder(&self, request_id: &str) {
-        self.responders
-            .lock()
-            .expect("responders poisoned")
-            .remove(request_id);
+/// An answer is one of the option labels — or, for multi-select, a
+/// comma-separated list of them.
+fn is_valid_answer(answer: &str, question: &cortex_core::approval::Question) -> bool {
+    let is_label = |s: &str| question.options.iter().any(|o| o.label == s);
+    if question.multi_select {
+        !answer.is_empty() && answer.split(", ").all(is_label)
+    } else {
+        is_label(answer)
     }
 }

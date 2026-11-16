@@ -11,7 +11,8 @@ authors = ["viczy-guy"]
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order: the hook installer must not reorder the user's settings keys.
+serde_json = { version = "1", features = ["preserve_order"] }
 
 # Smaller, faster release binaries (matters for cortex-hook startup time).
 [profile.release]

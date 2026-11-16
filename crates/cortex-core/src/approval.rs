@@ -9,13 +9,19 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::event::HookEvent;
+use crate::event::{HookEvent, QUESTION_TOOL};
 use crate::session::SessionKey;
 
 /// A pending request expires after this long and resolves to `Ask`.
 pub const PENDING_TTL_MS: u64 = 55 * 1000;
 
-/// What the user sees on an approval card.
+/// Display limits for questions: anything beyond is dropped, not rendered.
+const MAX_QUESTIONS: usize = 4;
+const MAX_OPTIONS: usize = 8;
+const MAX_TEXT_CHARS: usize = 300;
+
+/// What the user sees on a card: a permission to approve, or — when
+/// `questions` is not empty — a question to answer.
 #[derive(Debug, Clone, Serialize)]
 pub struct PendingApproval {
     pub request_id: String,
@@ -23,7 +29,34 @@ pub struct PendingApproval {
     pub tool_name: String,
     /// Human-readable detail: the command, the file path, …
     pub detail: String,
+    pub questions: Vec<Question>,
     pub created_ms: u64,
+}
+
+/// One question of an `AskUserQuestion` request, validated for display.
+#[derive(Debug, Clone, Serialize)]
+pub struct Question {
+    pub question: String,
+    pub header: String,
+    pub options: Vec<QuestionOption>,
+    pub multi_select: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QuestionOption {
+    pub label: String,
+    pub description: String,
+}
+
+/// Outcome of registering a blocking event.
+#[derive(Debug)]
+pub enum Registered {
+    /// Show this card and wait for the user.
+    Card(PendingApproval),
+    /// An Always rule answers it: reply `Allow` right away.
+    AutoAllow,
+    /// Nothing Cortex can show for it: reply `Ask`, the terminal handles it.
+    Skip,
 }
 
 /// An "Always allow" rule, stored locally by Cortex.
@@ -52,20 +85,27 @@ impl ApprovalQueue {
         }
     }
 
-    /// Register a blocking event. Returns the card to display, or `None` when
-    /// an Always rule already answers it (the caller replies `Allow` directly).
-    pub fn register(
-        &mut self,
-        ev: &HookEvent,
-        request_id: String,
-        now_ms: u64,
-    ) -> Option<PendingApproval> {
+    /// Register a blocking event and decide what happens to it.
+    pub fn register(&mut self, ev: &HookEvent, request_id: String, now_ms: u64) -> Registered {
         let tool_name = ev.tool_name.clone().unwrap_or_else(|| "tool".into());
-        let detail = detail_of(ev);
 
-        if self.matches_rule(&tool_name, &detail) {
-            return None;
-        }
+        let (detail, questions) = if ev.is_question() {
+            let questions = questions_of(ev);
+            if questions.is_empty() {
+                return Registered::Skip;
+            }
+            (String::new(), questions)
+        } else if tool_name == QUESTION_TOOL {
+            // A permission prompt for the question tool: the question flow
+            // already ran at PreToolUse, never show a second card.
+            return Registered::Skip;
+        } else {
+            let detail = detail_of(ev);
+            if self.matches_rule(&tool_name, &detail) {
+                return Registered::AutoAllow;
+            }
+            (detail, Vec::new())
+        };
 
         let approval = PendingApproval {
             request_id: request_id.clone(),
@@ -75,10 +115,11 @@ impl ApprovalQueue {
             },
             tool_name,
             detail,
+            questions,
             created_ms: now_ms,
         };
         self.pending.insert(request_id, approval.clone());
-        Some(approval)
+        Registered::Card(approval)
     }
 
     /// Close a request by its exact id and hand it back. Unknown or
@@ -88,10 +129,13 @@ impl ApprovalQueue {
     }
 
     /// "Always allow": close this request AND remember a rule for next time.
+    /// Questions never create rules.
     pub fn take_always(&mut self, request_id: &str) -> Option<PendingApproval> {
         let approval = self.pending.remove(request_id)?;
-        self.rules
-            .push(rule_for(&approval.tool_name, &approval.detail));
+        if approval.questions.is_empty() {
+            self.rules
+                .push(rule_for(&approval.tool_name, &approval.detail));
+        }
         Some(approval)
     }
 
@@ -137,6 +181,58 @@ fn detail_of(ev: &HookEvent) -> String {
         .unwrap_or_default()
 }
 
+/// Validated questions of an `AskUserQuestion` input. Malformed entries are
+/// skipped; sizes are capped so a hostile payload cannot flood the island.
+fn questions_of(ev: &HookEvent) -> Vec<Question> {
+    let Some(raw) = ev
+        .tool_input
+        .as_ref()
+        .and_then(|i| i.get("questions"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+
+    let text = |v: &Value, key: &str| -> String {
+        v.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .chars()
+            .take(MAX_TEXT_CHARS)
+            .collect()
+    };
+
+    raw.iter()
+        .take(MAX_QUESTIONS)
+        .filter_map(|q| {
+            let question = text(q, "question");
+            let options: Vec<QuestionOption> = q
+                .get("options")
+                .and_then(Value::as_array)?
+                .iter()
+                .take(MAX_OPTIONS)
+                .map(|o| QuestionOption {
+                    label: text(o, "label"),
+                    description: text(o, "description"),
+                })
+                .filter(|o| !o.label.is_empty())
+                .collect();
+            if question.is_empty() || options.is_empty() {
+                return None;
+            }
+            Some(Question {
+                question,
+                header: text(q, "header"),
+                options,
+                multi_select: q
+                    .get("multiSelect")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
 /// The rule a detail generalizes to. Conservative on purpose: for commands only
 /// the first word (the program) is kept; everything else must match exactly.
 fn rule_for(tool_name: &str, detail: &str) -> AlwaysRule {
@@ -168,10 +264,14 @@ mod tests {
         .unwrap()
     }
 
+    fn is_card(r: &Registered) -> bool {
+        matches!(r, Registered::Card(_))
+    }
+
     #[test]
     fn decision_is_bound_to_the_exact_id() {
         let mut q = ApprovalQueue::new();
-        q.register(&bash_event("ls"), "req-1".into(), 0).unwrap();
+        assert!(is_card(&q.register(&bash_event("ls"), "req-1".into(), 0)));
 
         assert!(q.take("wrong-id").is_none());
         assert_eq!(q.take("req-1").unwrap().request_id, "req-1");
@@ -182,8 +282,7 @@ mod tests {
     #[test]
     fn always_creates_a_rule_that_auto_allows_next_time() {
         let mut q = ApprovalQueue::new();
-        q.register(&bash_event("cargo test"), "r1".into(), 0)
-            .unwrap();
+        q.register(&bash_event("cargo test"), "r1".into(), 0);
         assert!(q.take_always("r1").is_some());
         assert_eq!(
             q.rules(),
@@ -193,20 +292,79 @@ mod tests {
             }]
         );
 
-        // Same program, different args: auto-allowed (register returns None).
-        assert!(q
-            .register(&bash_event("cargo build"), "r2".into(), 1)
-            .is_none());
+        // Same program, different args: auto-allowed.
+        assert!(matches!(
+            q.register(&bash_event("cargo build"), "r2".into(), 1),
+            Registered::AutoAllow
+        ));
         // Different program: still asks.
-        assert!(q
-            .register(&bash_event("rm -rf x"), "r3".into(), 2)
-            .is_some());
+        assert!(is_card(&q.register(
+            &bash_event("rm -rf x"),
+            "r3".into(),
+            2
+        )));
+    }
+
+    fn question_event(kind: &str, questions: &str) -> HookEvent {
+        HookEvent::parse(&format!(
+            r#"{{"hook_event_name":"{kind}","session_id":"s1","tool_name":"AskUserQuestion","tool_input":{{"questions":{questions}}}}}"#
+        ))
+        .unwrap()
+    }
+
+    const ONE_QUESTION: &str = r#"[{"question":"Which framework?","header":"Framework","multiSelect":false,
+        "options":[{"label":"React","description":"Component library"},{"label":"Vue","description":"Progressive"}]}]"#;
+
+    #[test]
+    fn questions_become_cards_with_validated_options() {
+        let mut q = ApprovalQueue::new();
+        let Registered::Card(card) =
+            q.register(&question_event("PreToolUse", ONE_QUESTION), "q1".into(), 0)
+        else {
+            panic!("a valid question must produce a card");
+        };
+        assert_eq!(card.questions.len(), 1);
+        assert_eq!(card.questions[0].question, "Which framework?");
+        assert_eq!(card.questions[0].options[1].label, "Vue");
+        assert!(!card.questions[0].multi_select);
+    }
+
+    #[test]
+    fn malformed_or_duplicate_question_requests_are_skipped() {
+        let mut q = ApprovalQueue::new();
+        // No usable options: nothing to show.
+        assert!(matches!(
+            q.register(
+                &question_event("PreToolUse", r#"[{"question":"?","options":[]}]"#),
+                "q1".into(),
+                0
+            ),
+            Registered::Skip
+        ));
+        // A permission prompt for the question tool never gets a second card.
+        assert!(matches!(
+            q.register(
+                &question_event("PermissionRequest", ONE_QUESTION),
+                "q2".into(),
+                0
+            ),
+            Registered::Skip
+        ));
+        assert!(q.pending().is_empty());
+    }
+
+    #[test]
+    fn questions_never_create_always_rules() {
+        let mut q = ApprovalQueue::new();
+        q.register(&question_event("PreToolUse", ONE_QUESTION), "q1".into(), 0);
+        assert!(q.take_always("q1").is_some());
+        assert!(q.rules().is_empty());
     }
 
     #[test]
     fn pending_requests_expire_to_ask() {
         let mut q = ApprovalQueue::new();
-        q.register(&bash_event("ls"), "r1".into(), 0).unwrap();
+        q.register(&bash_event("ls"), "r1".into(), 0);
         assert!(q.expire(PENDING_TTL_MS - 1).is_empty());
         let expired = q.expire(PENDING_TTL_MS);
         assert_eq!(expired.len(), 1);

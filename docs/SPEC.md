@@ -34,24 +34,35 @@ Sessions stale for 30 min with no events are garbage-collected.
 
 ## Approvals
 
-- A `PreToolUse` carrying a pending permission shows a card: tool, detail (command
-  / file path), **Allow / Deny / Always** and "Answer in terminal".
+- A `PermissionRequest` shows a card: tool, detail (command / file path),
+  **Allow / Deny / Always** and "Answer in terminal".
 - The decision is bound to the exact request id; anything else (timeout, stale
   id, duplicate) resolves to "no decision" and the terminal takes over.
-- "Always" stores a local rule (tool + pattern) applied by Cortex, never written
-  into the agent's own settings.
+- The card disappears the moment its connection closes (hook timeout, or the
+  user answered in the terminal). The wait is 50 s: while the hook waits, the
+  terminal shows no prompt of its own, so the island must not hold it long.
+- "Always" stores a rule (tool + pattern; for Bash, the program name) applied
+  by Cortex, never written into the agent's own settings. Rules currently live
+  for the app session only.
 
 ## Questions
 
-`AskUserQuestion` payloads render their options as buttons (single or
-multi-select, up to 4 questions); the chosen answer is returned on the same
-connection. "Answer in terminal" returns no decision.
+The `PreToolUse` of `AskUserQuestion` renders its options as buttons (single
+or multi-select, up to 4 questions, 8 options each). A lone single-choice
+question is answered by one click; otherwise "Send answer" enables once every
+question has a choice. Answers are validated in Rust against the card's own
+options before anything is sent. "Answer in terminal" returns no decision.
 
 ## Hook installer
 
-Settings → Claude Code → Install hooks: reads `~/.claude/settings.json`, writes a
-dated backup next to it, merges Cortex entries (never touching existing ones),
-shows the exact diff, and writes only after the user confirms.
+When the hooks are missing, the idle island offers **Connect Claude Code**. It
+reads `~/.claude/settings.json`, shows the exact line diff of the merge (Cortex
+entries only — existing entries and key order are untouched) and writes only
+after the user clicks Install: dated backup first
+(`settings.json.cortex-backup-YYYYMMDD-HHMMSS`), then an atomic write. If the
+file changed between review and install, the install is refused. Invalid JSON
+is reported, never "repaired". Hooks point at a stable copy of the relay in the
+app's data directory, refreshed on every launch.
 
 ## Resource budget (enforced, not aspirational)
 

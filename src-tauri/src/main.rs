@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod hooks;
 mod server;
 mod state;
 
@@ -25,6 +26,38 @@ fn respond(app: AppHandle, state: State<'_, AppState>, request_id: String, decis
     if state.resolve(&request_id, &decision) {
         server::emit_state(&app);
     }
+}
+
+/// The user answered a pending question card.
+/// `answers`: question text → chosen option label(s).
+#[tauri::command]
+fn answer(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request_id: String,
+    answers: cortex_core::Answers,
+) {
+    if state.answer(&request_id, answers) {
+        server::emit_state(&app);
+    }
+}
+
+/// Whether the Claude Code hooks are installed.
+#[tauri::command]
+fn hooks_status() -> Result<hooks::Status, String> {
+    hooks::status()
+}
+
+/// The exact change installing the hooks would make. Writes nothing.
+#[tauri::command]
+fn hooks_preview() -> Result<hooks::Preview, String> {
+    hooks::preview()
+}
+
+/// Install the hooks the user just reviewed (`token` from `hooks_preview`).
+#[tauri::command]
+fn hooks_install(token: String) -> Result<hooks::Installed, String> {
+    hooks::install(&token)
 }
 
 /// Island width in logical points. Must match `WINDOW_WIDTH` in the UI and
@@ -53,16 +86,21 @@ fn position_island(app: &AppHandle) {
 }
 
 fn main() {
-    let mut builder = tauri::Builder::default();
+    let builder = tauri::Builder::default();
 
     #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_nspanel::init());
-    }
+    let builder = builder.plugin(tauri_nspanel::init());
 
     builder
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![snapshot, respond])
+        .invoke_handler(tauri::generate_handler![
+            snapshot,
+            respond,
+            answer,
+            hooks_status,
+            hooks_preview,
+            hooks_install
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -72,6 +110,11 @@ fn main() {
             }
 
             position_island(&handle);
+
+            // Keep the relay at a stable path so installed hooks survive updates.
+            if let Err(err) = hooks::ensure_hook_binary() {
+                eprintln!("cortex: relay not installed to its stable path: {err}");
+            }
 
             // The hook endpoint.
             let server_handle = handle.clone();

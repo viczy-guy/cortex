@@ -7,10 +7,11 @@
 pub mod approval;
 pub mod diff;
 pub mod event;
+pub mod hooks;
 pub mod protocol;
 pub mod session;
 
-pub use approval::{AlwaysRule, ApprovalQueue, PendingApproval};
+pub use approval::{AlwaysRule, ApprovalQueue, PendingApproval, Registered};
 pub use event::{AgentId, EventKind, HookEvent};
-pub use protocol::Decision;
+pub use protocol::{Answers, Decision, DecisionResponse};
 pub use session::{Session, SessionBoard, SessionKey, SessionState};
