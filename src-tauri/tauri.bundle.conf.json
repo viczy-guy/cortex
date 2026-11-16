@@ -1,0 +1,12 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build && node scripts/prepare-sidecar.mjs"
+  },
+  "bundle": {
+    "externalBin": ["binaries/cortex-hook"],
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

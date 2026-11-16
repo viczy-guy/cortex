@@ -16,8 +16,12 @@ What is planned beyond the current version. Order within a section is not a comm
 - [x] Settings window: connect / disconnect Claude Code, Always rules, quit
 - [ ] Full diff view per file
 - [x] The island folds into a handle when there is nothing to show; hover brings it back
-- [ ] Packaging (dmg / msi / AppImage / deb / rpm)
-- [ ] Signed auto-updates (project key, free) or update notice with download link
+- [x] Packaging: `npm run bundle` embeds the relay; a tag builds dmg / msi /
+      exe / AppImage / deb / rpm and drafts a release with checksums
+      (verified on macOS; Windows and Linux installers get their first real
+      run with the first tag)
+- [ ] First tagged release (v0.1.0): check the Windows and Linux installers
+- [ ] Signed auto-updates, opt-in — once the repository is public (ADR 0004)
 - [ ] GitHub integration (PRs, requested reviews, CI status) — first service pill
 
 ## v2+

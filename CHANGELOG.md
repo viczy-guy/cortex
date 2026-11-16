@@ -9,3 +9,17 @@ follows [Semantic Versioning](https://semver.org).
 ### Added
 - Project foundation: Cargo workspace (`cortex-core`, `cortex-hook`, `cortex-app`),
   Tauri 2 application shell, CI on the three platforms.
+- The island: live Claude Code sessions, approvals (Allow / Deny / Always),
+  `AskUserQuestion` answers, and a hook installer that shows the exact diff and
+  keeps a dated backup.
+- Settings window: connect or disconnect Claude Code, review and remove Always
+  rules, quit.
+- Always rules persist across restarts and are re-validated when loaded.
+- The island folds into a small handle when there is nothing to show.
+- Installers (`npm run bundle`) with the relay embedded; a release workflow
+  that builds them from a tag and drafts a release with SHA-256 checksums.
+
+### Security
+- An Always rule for a shell command covers one program and never a command
+  line that chains, pipes, redirects or substitutes; such commands always ask.
+- The island's web view can no longer move or resize windows.

@@ -13,8 +13,9 @@ with one click, without leaving what you are doing.
 ---
 
 > **Status: early development.** The core loop works on macOS — live sessions,
-> approvals, questions and the hook installer — and builds on Windows and
-> Linux. There are no packaged releases yet; follow the [roadmap](ROADMAP.md).
+> approvals, questions, Always rules, Settings and the hook installer — and
+> builds on Windows and Linux. Installers are built by CI from a tag; there is
+> no published release yet. Follow the [roadmap](ROADMAP.md).
 
 ## Why
 
@@ -88,7 +89,37 @@ scripts/demo.sh question   # … then a question
 
 **Connect Claude Code.** Click **Connect Claude Code** in the idle island: it
 shows the exact change to `~/.claude/settings.json`, saves a dated backup and
-writes only after you confirm.
+writes only after you confirm. Removing the hooks works the same way, from
+Settings (the gear in the island).
+
+## Install
+
+Installers are attached to each [release](https://github.com/viczy-guy/cortex/releases),
+next to `SHA256SUMS.txt` — check the download against it:
+
+```bash
+shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+```
+
+| Platform | File |
+|---|---|
+| macOS (Apple Silicon / Intel) | `Cortex_<version>_aarch64.dmg` / `_x64.dmg` |
+| Windows | `Cortex_<version>_x64-setup.exe` or `.msi` |
+| Linux | `.AppImage`, `.deb` or `.rpm` |
+
+**macOS: the first launch needs your approval.** Cortex is not yet signed with
+an Apple Developer ID (see [ADR 0004](docs/adr/0004-updates.md)), so macOS
+blocks it once. After copying it to Applications, either open it, then go to
+System Settings → Privacy & Security → **Open Anyway**, or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Cortex.app
+```
+
+Windows shows a similar SmartScreen notice (**More info → Run anyway**).
+
+**Build the installers yourself:** `npm run bundle` (output in
+`target/release/bundle/`). The relay is built and embedded automatically.
 
 ## License
 
