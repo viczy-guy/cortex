@@ -31,6 +31,39 @@ permissions and answer questions. Read `docs/SPEC.md` before changing behavior.
 - Don't restyle or restructure what you were not asked to touch. Keep diffs small.
 - Comments state constraints the code can't show — not what the next line does.
 
+## How to work
+
+- Read the code you are about to change, and its tests, before editing. Match
+  the style already in the file.
+- Smallest diff that does the job. Findings outside the task go in your final
+  summary, not in the diff.
+- Verify, don't assume. If a check cannot run in your sandbox (the
+  `cortex-hook` socket test needs to bind a socket), say so explicitly — never
+  report it as passed.
+- If the task is ambiguous or looks wrong on anything touching security or
+  user files, stop and say so in the summary instead of guessing.
+
+## Patterns in this codebase
+
+- **Time is an argument.** Core functions take `now_ms: u64`; nothing in
+  `cortex-core` reads a clock. That is what makes the tests deterministic.
+- **Untrusted input.** Parse leniently on unknown fields, strictly on the ones
+  we use; cap every size (see the `MAX_*` constants); invalid input is dropped
+  or `None`, never a panic.
+- **Errors.** Small enums with a manual `Display` in core; `Result<T, String>`
+  at the Tauri command boundary. No `unwrap`/`expect` outside tests, except on
+  invariants (a poisoned mutex).
+- **File writes.** A private helper takes the path explicitly and writes via
+  temp file + rename; the public function only resolves the real path. Tests
+  run against a temp directory, never the real home.
+- **UI.** State comes from Rust snapshots; TypeScript holds view state only.
+  DOM is built with `el()` / `button()`; colors and sizes come from
+  `src/theme/tokens.css`, never hardcoded.
+- **Tests** ship with the change and are named as sentences
+  (`a_moved_binary_updates_entries_in_place`).
+- **Two places know which events block:** `HookEvent::is_blocking` in
+  `cortex-core` and `blocking_kind` in `cortex-hook`. Change both together.
+
 ## Before you finish
 
 All of these must pass; warnings are errors:
