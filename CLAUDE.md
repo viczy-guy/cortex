@@ -8,6 +8,7 @@ to every AI agent working here, Claude included.
 - **What is done and what is next:** `ROADMAP.md` (checkboxes), then `git log`.
 - **How it must behave:** `docs/SPEC.md`. **Why it is built this way:** `docs/adr/`.
 - **Try it:** `npm run tauri dev`, then `scripts/demo.sh` in another terminal.
+  `CORTEX_DEV_OPEN_SETTINGS=1` (debug builds) opens Settings at launch.
 
 ## How we work
 

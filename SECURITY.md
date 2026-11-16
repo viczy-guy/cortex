@@ -16,7 +16,7 @@ a gatekeeper, and is designed as one:
 |---|---|
 | Hook socket / named pipe | Restricted to your OS user (0600 on Unix, per-user pipe on Windows). `CORTEX_SOCKET` lets you relocate it, never widen it. |
 | Hook payloads | Treated as untrusted input: schema-validated in Rust before anything reaches the UI; unknown fields ignored; malformed events dropped, never crash the app. |
-| Approval decisions | Bound to the exact request the agent is waiting on (request id + session). A late or replayed decision approves nothing. No automatic approval of anything. |
+| Approval decisions | Bound to the exact request the agent is waiting on (request id + session). A late or replayed decision approves nothing. Nothing is approved automatically except by an "Always" rule you created with a click; a rule covers one tool and one exact target (for shell commands, one program) and never a command that chains, pipes, redirects or substitutes. Rules are listed and removable in Settings. |
 | WebView | Strict CSP, no remote content, the UI never interpolates external data as HTML. Tauri capabilities expose the minimum set of commands. |
 | Secrets | OS vault only (Keychain / Credential Manager / Secret Service). Never on disk, never in logs, never in git. |
 | Network | None, except services you explicitly configure. No telemetry, no account. |
@@ -25,7 +25,8 @@ a gatekeeper, and is designed as one:
 
 ## What Cortex never does
 
-- Approve a permission without an explicit click.
+- Approve a permission without an explicit click — yours on the card, or the
+  one that created the "Always" rule it matches.
 - Overwrite your agent settings: the hook installer makes a dated backup, merges,
   shows the diff and writes only after you confirm.
 - Phone home.

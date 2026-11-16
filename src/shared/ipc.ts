@@ -106,10 +106,18 @@ export interface HooksInstalled {
   backup_path: string | null;
 }
 
+export const RULES_EVENT = "cortex://rules";
+export const HOOKS_EVENT = "cortex://hooks";
+
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
 export const api = {
+  rulesList: () => invoke<AlwaysRule[]>("rules_list"),
+  ruleRemove: (rule: AlwaysRule) => invoke<void>("rule_remove", { rule }),
+  rulesClear: () => invoke<void>("rules_clear"),
+  openSettings: () => invoke<void>("open_settings"),
+  quit: () => invoke<void>("quit"),
   snapshot: () => invoke<Snapshot>("snapshot"),
   respond: (requestId: string, decision: UiDecision) =>
     invoke<void>("respond", { requestId, decision }),

@@ -18,6 +18,8 @@ use cortex_core::hooks as merge;
 use serde::Serialize;
 use serde_json::Value;
 
+pub const HOOKS_EVENT: &str = "cortex://hooks";
+
 #[cfg(windows)]
 const HOOK_BINARY: &str = "cortex-hook.exe";
 #[cfg(not(windows))]
@@ -276,7 +278,7 @@ fn hook_binary_path() -> Result<PathBuf, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn data_dir() -> Result<PathBuf, String> {
+pub(crate) fn data_dir() -> Result<PathBuf, String> {
     Ok(home()?
         .join("Library")
         .join("Application Support")
@@ -284,7 +286,7 @@ fn data_dir() -> Result<PathBuf, String> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn data_dir() -> Result<PathBuf, String> {
+pub(crate) fn data_dir() -> Result<PathBuf, String> {
     match std::env::var_os("XDG_DATA_HOME").filter(|d| !d.is_empty()) {
         Some(dir) => Ok(PathBuf::from(dir).join("cortex")),
         None => Ok(home()?.join(".local").join("share").join("cortex")),
@@ -292,7 +294,7 @@ fn data_dir() -> Result<PathBuf, String> {
 }
 
 #[cfg(windows)]
-fn data_dir() -> Result<PathBuf, String> {
+pub(crate) fn data_dir() -> Result<PathBuf, String> {
     match std::env::var_os("LOCALAPPDATA").filter(|d| !d.is_empty()) {
         Some(dir) => Ok(PathBuf::from(dir).join("Cortex")),
         None => Ok(home()?.join("AppData").join("Local").join("Cortex")),

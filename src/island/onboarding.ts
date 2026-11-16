@@ -4,8 +4,9 @@
  * can read — the write itself is done (and re-checked) by Rust.
  */
 
+import { diffView } from "../shared/diff-view";
 import type { HooksPreview } from "../shared/ipc";
-import { button, el } from "./dom";
+import { button, el } from "../shared/dom";
 
 export type Onboarding =
   | { phase: "closed" }
@@ -44,7 +45,7 @@ export function onboardingCard(
           `Cortex will add its hooks to ${preview.settings_path}. A dated backup is saved first; nothing else in the file changes.`,
         ),
       );
-      card.append(diffView(preview));
+      card.append(diffView(preview.diff));
       footer.append(button("btn-neutral", "Cancel", actions.close));
       footer.append(button("btn-allow", "Install hooks", () => actions.install(preview.token)));
       break;
@@ -66,30 +67,4 @@ export function onboardingCard(
 
   card.append(footer);
   return card;
-}
-
-/** The diff, opened at the first change. Unchanged lines far from a change are folded. */
-function diffView(preview: HooksPreview): HTMLElement {
-  const CONTEXT = 2;
-  const view = el("div", "diff");
-  const { diff } = preview;
-
-  const nearChange = diff.map((_, i) =>
-    diff
-      .slice(Math.max(0, i - CONTEXT), i + CONTEXT + 1)
-      .some((line) => line.kind !== "same"),
-  );
-
-  let folded = false;
-  diff.forEach((line, i) => {
-    if (!nearChange[i]) {
-      if (!folded) view.append(el("div", "diff-line diff-fold", "⋯"));
-      folded = true;
-      return;
-    }
-    folded = false;
-    const sign = line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " ";
-    view.append(el("div", `diff-line diff-${line.kind}`, `${sign} ${line.text}`));
-  });
-  return view;
 }

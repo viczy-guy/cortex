@@ -11,8 +11,11 @@ What is planned beyond the current version. Order within a section is not a comm
 - [x] Approvals (Allow / Deny / Always) bound to the exact pending request
 - [x] AskUserQuestion answers from the island
 - [x] Safe hook installer (dated backup, merge, diff, explicit confirm)
-- [ ] Full diff view per file, persisted Always rules, hook uninstall from the UI
-- [ ] Settings window, island behavior, packaging (dmg / msi / AppImage / deb / rpm)
+- [x] Always rules: persisted, re-validated on load, never matching a compound
+      shell command; reviewed and removed in Settings
+- [x] Settings window: connect / disconnect Claude Code, Always rules, quit
+- [ ] Full diff view per file
+- [ ] Island behavior (auto-hide when empty), packaging (dmg / msi / AppImage / deb / rpm)
 - [ ] Signed auto-updates (project key, free) or update notice with download link
 - [ ] GitHub integration (PRs, requested reviews, CI status) — first service pill
 

@@ -50,7 +50,8 @@ Sessions stale for 30 min with no events are garbage-collected.
     runner (`sudo`, `sh`, `env`, `xargs`, …) always shows a card and offers no
     Always.
   - Every other tool must match its detail exactly.
-  - Rules currently live for the app session only.
+  - Rules persist in `rules.json` in the app data directory, are re-validated
+    on load, and can be reviewed and removed in Settings.
 
 ## Questions
 
@@ -70,6 +71,16 @@ after the user clicks Install: dated backup first
 file changed between review and install, the install is refused. Invalid JSON
 is reported, never "repaired". Hooks point at a stable copy of the relay in the
 app's data directory, refreshed on every launch.
+
+## Settings
+
+The gear in the island opens a separate, opaque Settings window:
+
+- **Claude Code** shows hook status and offers reviewed installation or removal,
+  with the exact diff and a dated backup before writing.
+- **Always rules** lists local rules and allows removing one or all. Removing
+  all requires a second click within four seconds.
+- **About** shows the app version, its local-only policy, and Quit Cortex.
 
 ## Resource budget (enforced, not aspirational)
 

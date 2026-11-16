@@ -8,7 +8,8 @@ import {
   type Question,
   type SessionView,
 } from "../shared/ipc";
-import { button, el } from "./dom";
+import { button, el } from "../shared/dom";
+import { alwaysScope } from "../shared/rules";
 
 export function stateLabel(state: SessionView["state"]): string {
   switch (state) {
@@ -82,13 +83,6 @@ export function approvalCard(approval: PendingApproval): HTMLElement {
   card.append(actions);
 
   return card;
-}
-
-/** Exactly what an Always rule allows from now on, in words. */
-export function alwaysScope(rule: AlwaysRule): string {
-  if (rule.tool_name === "Bash") return `Every "${rule.pattern}" command, without asking`;
-  if (rule.pattern) return `${rule.tool_name} on exactly ${rule.pattern}, without asking`;
-  return `Every use of ${rule.tool_name}, without asking`;
 }
 
 /** Bash rules cover a whole program, so the button names it. */

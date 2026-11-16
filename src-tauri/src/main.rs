@@ -3,13 +3,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod hooks;
+mod rules;
 mod server;
 mod state;
 
 #[cfg(target_os = "macos")]
 mod macos;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use state::{AppState, Snapshot};
 
@@ -25,6 +26,31 @@ fn snapshot(state: State<'_, AppState>) -> Snapshot {
 fn respond(app: AppHandle, state: State<'_, AppState>, request_id: String, decision: String) {
     if state.resolve(&request_id, &decision) {
         server::emit_state(&app);
+        if decision == "always" {
+            server::emit_rules(&app);
+        }
+    }
+}
+
+/// The Always rules currently in force.
+#[tauri::command]
+fn rules_list(state: State<'_, AppState>) -> Vec<cortex_core::AlwaysRule> {
+    state.rules()
+}
+
+/// Forget one Always rule.
+#[tauri::command]
+fn rule_remove(app: AppHandle, state: State<'_, AppState>, rule: cortex_core::AlwaysRule) {
+    if state.remove_rule(&rule) {
+        server::emit_rules(&app);
+    }
+}
+
+/// Forget every Always rule.
+#[tauri::command]
+fn rules_clear(app: AppHandle, state: State<'_, AppState>) {
+    if state.clear_rules() {
+        server::emit_rules(&app);
     }
 }
 
@@ -56,8 +82,10 @@ fn hooks_preview() -> Result<hooks::Preview, String> {
 
 /// Install the hooks the user just reviewed (`token` from `hooks_preview`).
 #[tauri::command]
-fn hooks_install(token: String) -> Result<hooks::Installed, String> {
-    hooks::install(&token)
+fn hooks_install(app: AppHandle, token: String) -> Result<hooks::Installed, String> {
+    let result = hooks::install(&token)?;
+    emit_hooks(&app);
+    Ok(result)
 }
 
 /// The exact change removing the hooks would make. Writes nothing.
@@ -68,8 +96,63 @@ fn hooks_uninstall_preview() -> Result<hooks::Preview, String> {
 
 /// Remove the hooks the user just reviewed (`token` from `hooks_uninstall_preview`).
 #[tauri::command]
-fn hooks_uninstall(token: String) -> Result<hooks::Installed, String> {
-    hooks::uninstall(&token)
+fn hooks_uninstall(app: AppHandle, token: String) -> Result<hooks::Installed, String> {
+    let result = hooks::uninstall(&token)?;
+    emit_hooks(&app);
+    Ok(result)
+}
+
+fn emit_hooks(app: &AppHandle) {
+    if let Ok(status) = hooks::status() {
+        let _ = app.emit(hooks::HOOKS_EVENT, &status);
+    }
+}
+
+/// Open (or bring forward) the Settings window. Async on purpose: creating
+/// a window from a sync command deadlocks on Windows.
+#[tauri::command]
+async fn open_settings(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        window.unminimize().map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        return window.set_focus().map_err(|e| e.to_string());
+    }
+    // A background (accessory) app cannot bring a window in front of the app
+    // the user is working in. Cortex is a regular app — Dock icon, Cmd-Tab —
+    // for as long as Settings is open, and goes back to the background after.
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title("Cortex Settings")
+    .inner_size(560.0, 640.0)
+    .min_inner_size(480.0, 480.0)
+    .resizable(true)
+    .center()
+    .focused(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+        });
+    }
+
+    window.set_focus().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0);
 }
 
 /// Island width in logical points. Must match `WINDOW_WIDTH` in the UI and
@@ -104,9 +187,14 @@ fn main() {
     let builder = builder.plugin(tauri_nspanel::init());
 
     builder
-        .manage(AppState::default())
+        .manage(AppState::with_rules(rules::load()))
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            open_settings,
+            quit,
+            rules_list,
+            rule_remove,
+            rules_clear,
             respond,
             answer,
             hooks_status,
@@ -137,6 +225,17 @@ fn main() {
                     eprintln!("cortex: hook endpoint failed: {err}");
                 }
             });
+
+            // Dev aid: open Settings at launch, for visual checks without a click.
+            #[cfg(debug_assertions)]
+            if std::env::var_os("CORTEX_DEV_OPEN_SETTINGS").is_some() {
+                let settings_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(err) = open_settings(settings_handle).await {
+                        eprintln!("cortex: settings window failed: {err}");
+                    }
+                });
+            }
 
             // The janitor (sleeps whenever the board is empty).
             tauri::async_runtime::spawn(server::janitor(handle));

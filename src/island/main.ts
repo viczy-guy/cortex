@@ -7,9 +7,16 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
-import { api, type SessionView, type Snapshot, STATE_EVENT } from "../shared/ipc";
+import { button, el } from "../shared/dom";
+import {
+  api,
+  HOOKS_EVENT,
+  type HooksStatus,
+  type SessionView,
+  type Snapshot,
+  STATE_EVENT,
+} from "../shared/ipc";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
-import { button, el } from "./dom";
 import { type Onboarding, onboardingCard } from "./onboarding";
 
 /** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
@@ -61,17 +68,25 @@ function bar(): HTMLElement {
     if (hooksInstalled === false && onboarding.phase === "closed") {
       node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
     }
+    node.append(settingsButton());
     return node;
   }
 
   for (const session of snapshot.sessions.slice(0, 3)) {
     node.append(pill(session));
   }
+  node.append(settingsButton());
   node.addEventListener("click", () => {
     expanded = !expanded;
     autoExpanded = false;
     render();
   });
+  return node;
+}
+
+function settingsButton(): HTMLButtonElement {
+  const node = button("btn-icon", "\u2699\uFE0E", () => void api.openSettings());
+  node.title = "Settings";
   return node;
 }
 
@@ -144,6 +159,10 @@ async function installHooks(token: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  await listen<HooksStatus>(HOOKS_EVENT, (event) => {
+    hooksInstalled = event.payload.installed;
+    render();
+  });
   await listen<Snapshot>(STATE_EVENT, (event) => {
     snapshot = event.payload;
     render();

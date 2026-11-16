@@ -6,8 +6,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cortex_core::{
-    Answers, ApprovalQueue, Decision, DecisionResponse, HookEvent, PendingApproval, Registered,
-    SessionBoard,
+    AlwaysRule, Answers, ApprovalQueue, Decision, DecisionResponse, HookEvent, PendingApproval,
+    Registered, SessionBoard,
 };
 use serde::Serialize;
 use tokio::sync::{oneshot, Notify};
@@ -36,6 +36,8 @@ struct Domain {
 #[derive(Default)]
 pub struct AppState {
     domain: Mutex<Domain>,
+    /// Serializes saves so the file always ends up with the newest rules.
+    rules_io: Mutex<()>,
     /// Connections parked on a pending request, keyed by request id.
     responders: Mutex<HashMap<String, oneshot::Sender<DecisionResponse>>>,
     /// Wakes the janitor task when there is something to clean later.
@@ -50,6 +52,59 @@ pub fn now_ms() -> u64 {
 }
 
 impl AppState {
+    pub fn with_rules(rules: Vec<AlwaysRule>) -> Self {
+        Self {
+            domain: Mutex::new(Domain {
+                approvals: ApprovalQueue::with_rules(rules),
+                ..Domain::default()
+            }),
+            ..Self::default()
+        }
+    }
+
+    pub fn rules(&self) -> Vec<AlwaysRule> {
+        self.domain
+            .lock()
+            .expect("state poisoned")
+            .approvals
+            .rules()
+            .to_vec()
+    }
+
+    pub fn remove_rule(&self, rule: &AlwaysRule) -> bool {
+        let changed = self
+            .domain
+            .lock()
+            .expect("state poisoned")
+            .approvals
+            .remove_rule(rule);
+        if changed {
+            self.persist_rules();
+        }
+        changed
+    }
+
+    pub fn clear_rules(&self) -> bool {
+        let changed = self
+            .domain
+            .lock()
+            .expect("state poisoned")
+            .approvals
+            .clear_rules();
+        if changed {
+            self.persist_rules();
+        }
+        changed
+    }
+
+    fn persist_rules(&self) {
+        let _io = self.rules_io.lock().expect("rules I/O poisoned");
+        let rules = self.rules();
+        if let Err(error) = crate::rules::save(&rules) {
+            eprintln!("cortex: {error}");
+        }
+    }
+
     /// Apply a non-blocking event. Returns `true` when visible state changed.
     pub fn apply_event(&self, event: &HookEvent) -> bool {
         let changed = {
@@ -118,7 +173,11 @@ impl AppState {
             }
             domain.board.approval_closed(&approval.session);
         }
+        // Answer the agent first: it must never wait on our disk.
         self.send(request_id, DecisionResponse::new(decision));
+        if ui_decision == "always" {
+            self.persist_rules();
+        }
         true
     }
 
@@ -216,5 +275,27 @@ fn is_valid_answer(answer: &str, question: &cortex_core::approval::Question) -> 
         !answer.is_empty() && answer.split(", ").all(is_label)
     } else {
         is_label(answer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loaded_rules_auto_allow_matching_requests_and_snapshots_are_independent() {
+        let rule = AlwaysRule {
+            tool_name: "Bash".into(),
+            pattern: "cargo".into(),
+        };
+        let state = AppState::with_rules(vec![rule.clone()]);
+        let mut copy = state.rules();
+        copy.clear();
+        assert_eq!(state.rules(), vec![rule]);
+        let event = HookEvent::parse(r#"{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"cargo test"}}"#).unwrap();
+        assert!(
+            matches!(state.register_blocking(&event, "r".into()), Blocking::Immediate(response) if response.decision == Decision::Allow)
+        );
+        assert!(!state.resolve("missing", "always"));
     }
 }

@@ -11,7 +11,10 @@ pub mod hooks;
 pub mod protocol;
 pub mod session;
 
-pub use approval::{AlwaysRule, ApprovalQueue, PendingApproval, Registered};
+pub use approval::{
+    rules_from_json, rules_to_json, AlwaysRule, ApprovalQueue, PendingApproval, Registered,
+    MAX_RULES,
+};
 pub use event::{AgentId, EventKind, HookEvent};
 pub use protocol::{Answers, Decision, DecisionResponse};
 pub use session::{Session, SessionBoard, SessionKey, SessionState};

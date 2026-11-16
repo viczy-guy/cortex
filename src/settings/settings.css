@@ -1,0 +1,33 @@
+html, body {
+  background: var(--surface-solid);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+body { padding: 20px; overflow-y: auto; }
+section + section { margin-top: 24px; }
+h2 {
+  margin-bottom: 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-card);
+}
+.card > .btn { align-self: flex-start; }
+.status-row, .rule-row { display: flex; align-items: center; gap: 10px; }
+.status-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--state-idle); }
+.status-dot.connected { background: var(--state-finished); }
+.rule-scope { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rule-row .btn { flex: none; }
+.empty { color: var(--text-faint); }
+.actions { flex-wrap: wrap; }

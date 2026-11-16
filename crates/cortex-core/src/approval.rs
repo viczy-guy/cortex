@@ -70,6 +70,54 @@ pub struct AlwaysRule {
     pub pattern: String,
 }
 
+pub const MAX_RULES: usize = 200;
+const MAX_RULE_TOOL_CHARS: usize = 128;
+const MAX_RULE_PATTERN_CHARS: usize = 2048;
+
+/// Serialize the versioned local rule format.
+pub fn rules_to_json(rules: &[AlwaysRule]) -> String {
+    format!("{:#}\n", serde_json::json!({"version": 1, "rules": rules}))
+}
+
+/// Revalidate untrusted stored rules, retaining the first valid occurrences.
+pub fn rules_from_json(text: &str) -> Vec<AlwaysRule> {
+    let Ok(value) = serde_json::from_str::<Value>(text) else {
+        return Vec::new();
+    };
+    if !value.is_object() || value.get("version") != Some(&serde_json::json!(1)) {
+        return Vec::new();
+    }
+    let Some(entries) = value.get("rules").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut rules = Vec::new();
+    for entry in entries {
+        let Some(tool_name) = entry.get("tool_name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(pattern) = entry.get("pattern").and_then(Value::as_str) else {
+            continue;
+        };
+        if tool_name.is_empty()
+            || tool_name.chars().count() > MAX_RULE_TOOL_CHARS
+            || pattern.chars().count() > MAX_RULE_PATTERN_CHARS
+        {
+            continue;
+        }
+        let rule = AlwaysRule {
+            tool_name: tool_name.into(),
+            pattern: pattern.into(),
+        };
+        if rule_for(tool_name, pattern).as_ref() == Some(&rule) && !rules.contains(&rule) {
+            rules.push(rule);
+            if rules.len() == MAX_RULES {
+                break;
+            }
+        }
+    }
+    rules
+}
+
 /// The tool whose detail is a shell command line.
 const SHELL_TOOL: &str = "Bash";
 
@@ -106,6 +154,18 @@ impl ApprovalQueue {
             pending: HashMap::new(),
             rules,
         }
+    }
+
+    pub fn remove_rule(&mut self, rule: &AlwaysRule) -> bool {
+        let before = self.rules.len();
+        self.rules.retain(|r| r != rule);
+        before != self.rules.len()
+    }
+
+    pub fn clear_rules(&mut self) -> bool {
+        let changed = !self.rules.is_empty();
+        self.rules.clear();
+        changed
     }
 
     /// Register a blocking event and decide what happens to it.
@@ -164,7 +224,7 @@ impl ApprovalQueue {
     pub fn take_always(&mut self, request_id: &str) -> Option<PendingApproval> {
         let approval = self.pending.remove(request_id)?;
         if let Some(rule) = &approval.always_rule {
-            if !self.rules.contains(rule) {
+            if self.rules.len() < MAX_RULES && !self.rules.contains(rule) {
                 self.rules.push(rule.clone());
             }
         }
@@ -294,6 +354,122 @@ fn rule_for(tool_name: &str, detail: &str) -> Option<AlwaysRule> {
 mod tests {
     use super::*;
     use crate::event::HookEvent;
+
+    #[test]
+    fn stored_rules_round_trip() {
+        let rules = vec![AlwaysRule {
+            tool_name: "Bash".into(),
+            pattern: "cargo".into(),
+        }];
+        let text = rules_to_json(&rules);
+        assert!(text.ends_with('\n'));
+        assert_eq!(rules_from_json(&text), rules);
+    }
+
+    #[test]
+    fn stored_fields_use_character_limits_and_ignore_extra_keys() {
+        let tool = "é".repeat(MAX_RULE_TOOL_CHARS);
+        let pattern = "é".repeat(MAX_RULE_PATTERN_CHARS);
+        let text = serde_json::json!({"version": 1, "extra": true, "rules": [
+            {"tool_name": tool, "pattern": pattern, "extra": true},
+            {"tool_name": "Read", "pattern": ""},
+            {"tool_name": "", "pattern": "x"},
+            {"tool_name": "x".repeat(MAX_RULE_TOOL_CHARS + 1), "pattern": "x"},
+            {"tool_name": "Read", "pattern": "x".repeat(MAX_RULE_PATTERN_CHARS + 1)},
+            {"tool_name": 1, "pattern": "x"},
+            null
+        ]})
+        .to_string();
+        assert_eq!(
+            rules_from_json(&text),
+            vec![
+                AlwaysRule {
+                    tool_name: tool,
+                    pattern
+                },
+                AlwaysRule {
+                    tool_name: "Read".into(),
+                    pattern: String::new()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_storage_yields_no_rules() {
+        for text in [
+            "no",
+            "[]",
+            "{}",
+            r#"{"version":2,"rules":[]}"#,
+            r#"{"version":1,"rules":{}}"#,
+        ] {
+            assert!(rules_from_json(text).is_empty());
+        }
+    }
+
+    #[test]
+    fn unsafe_stored_patterns_are_dropped_between_valid_neighbours() {
+        let rules: Vec<_> = ["cargo", "ls; rm", "sudo", "", "ls test", "ls"]
+            .into_iter()
+            .map(|pattern| AlwaysRule {
+                tool_name: "Bash".into(),
+                pattern: pattern.into(),
+            })
+            .collect();
+        let loaded = rules_from_json(&rules_to_json(&rules));
+        assert_eq!(loaded, vec![rules[0].clone(), rules[5].clone()]);
+    }
+
+    #[test]
+    fn duplicates_and_rules_beyond_the_cap_are_dropped() {
+        let mut rules = vec![
+            AlwaysRule {
+                tool_name: "Read".into(),
+                pattern: "first".into()
+            };
+            2
+        ];
+        rules.extend((0..MAX_RULES).map(|i| AlwaysRule {
+            tool_name: "Read".into(),
+            pattern: i.to_string(),
+        }));
+        let loaded = rules_from_json(&rules_to_json(&rules));
+        assert_eq!(loaded.len(), MAX_RULES);
+        assert_eq!(loaded[0], rules[0]);
+        assert_eq!(loaded[MAX_RULES - 1], rules[MAX_RULES]);
+    }
+
+    #[test]
+    fn removing_and_clearing_report_whether_rules_changed() {
+        let rule = AlwaysRule {
+            tool_name: "Read".into(),
+            pattern: "x".into(),
+        };
+        let mut queue = ApprovalQueue::with_rules(vec![rule.clone()]);
+        assert!(queue.remove_rule(&rule));
+        assert!(!queue.remove_rule(&rule));
+        assert!(!queue.clear_rules());
+        let mut queue = ApprovalQueue::with_rules(vec![rule]);
+        assert!(queue.clear_rules());
+        assert!(!queue.clear_rules());
+    }
+
+    #[test]
+    fn always_closes_requests_without_adding_rules_beyond_the_cap() {
+        let mut queue = ApprovalQueue::with_rules(
+            (0..MAX_RULES)
+                .map(|i| AlwaysRule {
+                    tool_name: "Read".into(),
+                    pattern: i.to_string(),
+                })
+                .collect(),
+        );
+        queue.register(&bash_event("cargo test"), "r".into(), 0);
+        assert!(queue.take_always("r").is_some());
+        assert!(queue.take("r").is_none());
+        assert_eq!(queue.rules().len(), MAX_RULES);
+    }
 
     fn bash_event(cmd: &str) -> HookEvent {
         HookEvent::parse(&format!(

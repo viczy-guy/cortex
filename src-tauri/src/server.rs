@@ -12,6 +12,8 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 
 use crate::state::{AppState, Blocking};
 
+pub const RULES_EVENT: &str = "cortex://rules";
+
 pub const STATE_EVENT: &str = "cortex://state";
 
 /// Server-side guard: a parked connection is answered `Ask` after this long
@@ -25,6 +27,10 @@ pub fn emit_state(app: &AppHandle) {
     let state = app.state::<AppState>();
     let snapshot = state.snapshot();
     let _ = app.emit(STATE_EVENT, snapshot);
+}
+
+pub fn emit_rules(app: &AppHandle) {
+    let _ = app.emit(RULES_EVENT, app.state::<AppState>().rules());
 }
 
 /// Handle one agent connection end-to-end.
