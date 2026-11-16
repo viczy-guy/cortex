@@ -158,15 +158,42 @@ fn quit(app: AppHandle) {
 /// Island width in logical points. Must match `WINDOW_WIDTH` in the UI and
 /// the window width in `tauri.conf.json`.
 const ISLAND_WIDTH: f64 = 460.0;
+/// Bounds for what the UI may ask in `island_fit`.
+const ISLAND_MIN_WIDTH: f64 = 40.0;
+const ISLAND_MIN_HEIGHT: f64 = 6.0;
+const ISLAND_MAX_HEIGHT: f64 = 600.0;
 
-/// Pin the island to the top-center of the primary monitor.
-fn position_island(app: &AppHandle) {
+/// Pointer entered (`true`) or left (`false`) the island. Emitted on macOS,
+/// where the web view gets no hover events in a window that is never key;
+/// elsewhere the UI uses the DOM's own.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const HOVER_EVENT: &str = "cortex://hover";
+
+/// Size the island to what it draws, keeping it top-centered. The window is
+/// never larger than its content, so no invisible area eats clicks.
+#[tauri::command]
+fn island_fit(app: AppHandle, width: f64, height: f64) {
+    if width.is_finite() && height.is_finite() {
+        place_island(
+            &app,
+            width.clamp(ISLAND_MIN_WIDTH, ISLAND_WIDTH),
+            Some(height.clamp(ISLAND_MIN_HEIGHT, ISLAND_MAX_HEIGHT)),
+        );
+    }
+}
+
+/// Resize the island and pin it to the top-center of the primary monitor.
+/// `height: None` keeps the current height.
+fn place_island(app: &AppHandle, width: f64, height: Option<f64>) {
     let Some(window) = app.get_webview_window("island") else {
         return;
     };
     let Ok(Some(monitor)) = window.primary_monitor() else {
         return;
     };
+    if let Some(height) = height {
+        let _ = window.set_size(tauri::LogicalSize { width, height });
+    }
     // Work in logical points of the *target* monitor. The window may have been
     // created on another display with a different scale factor, so its own
     // physical size must not enter the math.
@@ -175,7 +202,7 @@ fn position_island(app: &AppHandle) {
     let origin_y = monitor.position().y as f64 / scale;
     let screen_width = monitor.size().width as f64 / scale;
     let _ = window.set_position(tauri::LogicalPosition {
-        x: origin_x + (screen_width - ISLAND_WIDTH) / 2.0,
+        x: origin_x + (screen_width - width) / 2.0,
         y: origin_y,
     });
 }
@@ -190,6 +217,7 @@ fn main() {
         .manage(AppState::with_rules(rules::load()))
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            island_fit,
             open_settings,
             quit,
             rules_list,
@@ -211,7 +239,7 @@ fn main() {
                 eprintln!("cortex: panel setup failed, plain window fallback: {err}");
             }
 
-            position_island(&handle);
+            place_island(&handle, ISLAND_WIDTH, None);
 
             // Keep the relay at a stable path so installed hooks survive updates.
             if let Err(err) = hooks::ensure_hook_binary() {

@@ -5,12 +5,12 @@
  */
 
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
 import { button, el } from "../shared/dom";
 import {
   api,
   HOOKS_EVENT,
+  HOVER_EVENT,
   type HooksStatus,
   type SessionView,
   type Snapshot,
@@ -22,6 +22,11 @@ import { type Onboarding, onboardingCard } from "./onboarding";
 /** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
 const WINDOW_WIDTH = 460;
 const MAX_HEIGHT = 440;
+/** The folded island: just a handle to hover. */
+const HANDLE_WIDTH = 72;
+const HANDLE_HEIGHT = 10;
+/** How long the pointer must be gone before an idle island folds. */
+const HIDE_DELAY_MS = 700;
 
 const root = document.getElementById("island")!;
 
@@ -32,11 +37,38 @@ let autoExpanded = false;
 /** `null` until Rust answers; the "Connect" chip shows only on a definite `false`. */
 let hooksInstalled: boolean | null = null;
 let onboarding: Onboarding = { phase: "closed" };
+/** The pointer is over the island (or left it less than `HIDE_DELAY_MS` ago). */
+let hovered = false;
+let hideTimer: number | undefined;
+
+/**
+ * Nothing to show and nobody looking: the island folds into its handle. It
+ * stays up while the hooks are missing, so "Connect Claude Code" is seen.
+ */
+function isHidden(): boolean {
+  return (
+    snapshot.sessions.length === 0 &&
+    snapshot.approvals.length === 0 &&
+    onboarding.phase === "closed" &&
+    hooksInstalled !== false &&
+    !hovered
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Rendering
 
 function render(): void {
+  const hidden = isHidden();
+  root.classList.toggle("island--hidden", hidden);
+  if (hidden) {
+    expanded = false;
+    autoExpanded = false;
+    root.replaceChildren(handle());
+    void api.islandFit(HANDLE_WIDTH, HANDLE_HEIGHT);
+    return;
+  }
+
   const hasCards = snapshot.approvals.length > 0;
   // A card demands eyes: open the panel, and fold it back once the card is
   // gone — unless the user opened it themselves.
@@ -57,6 +89,33 @@ function render(): void {
     root.append(node);
   }
   void fitWindowToContent();
+}
+
+/** Hovering reveals the island; a click does too, where hover is not reported. */
+function handle(): HTMLElement {
+  const node = el("div", "handle");
+  node.addEventListener("click", () => setHovered(true));
+  return node;
+}
+
+function setHovered(inside: boolean): void {
+  window.clearTimeout(hideTimer);
+  hideTimer = undefined;
+  if (inside) {
+    if (!hovered) {
+      hovered = true;
+      render();
+    }
+    return;
+  }
+  if (!hovered) return;
+  // One short timer, only after the pointer left: brushing past the edge
+  // must not fold the island, and a folded island runs no timers at all.
+  hideTimer = window.setTimeout(() => {
+    hideTimer = undefined;
+    hovered = false;
+    if (isHidden()) render();
+  }, HIDE_DELAY_MS);
 }
 
 function bar(): HTMLElement {
@@ -122,7 +181,7 @@ function panelContent(): HTMLElement[] {
 /** Size the window to what is drawn, so no invisible area eats clicks. */
 async function fitWindowToContent(): Promise<void> {
   const height = Math.min(MAX_HEIGHT, Math.ceil(root.getBoundingClientRect().height) + 8);
-  await getCurrentWindow().setSize(new LogicalSize(WINDOW_WIDTH, height));
+  await api.islandFit(WINDOW_WIDTH, height);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +222,9 @@ async function start(): Promise<void> {
     hooksInstalled = event.payload.installed;
     render();
   });
+  await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
+  document.documentElement.addEventListener("mouseenter", () => setHovered(true));
+  document.documentElement.addEventListener("mouseleave", () => setHovered(false));
   await listen<Snapshot>(STATE_EVENT, (event) => {
     snapshot = event.payload;
     render();

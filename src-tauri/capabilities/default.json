@@ -1,11 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "island-capability",
-  "description": "Minimal permissions for the island window: receive state events, call the app's own commands, resize itself.",
+  "description": "Minimal permissions for the island window: receive state events and call the app's own commands. It cannot move or resize windows itself; `island_fit` does it, bounded, in Rust.",
   "windows": ["island"],
   "permissions": [
-    "core:default",
-    "core:window:allow-set-size",
-    "core:window:allow-set-position"
+    "core:default"
   ]
 }

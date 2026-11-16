@@ -109,6 +109,9 @@ export interface HooksInstalled {
 export const RULES_EVENT = "cortex://rules";
 export const HOOKS_EVENT = "cortex://hooks";
 
+/** Pointer entered (`true`) or left (`false`) the island — macOS only. */
+export const HOVER_EVENT = "cortex://hover";
+
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
@@ -116,6 +119,7 @@ export const api = {
   rulesList: () => invoke<AlwaysRule[]>("rules_list"),
   ruleRemove: (rule: AlwaysRule) => invoke<void>("rule_remove", { rule }),
   rulesClear: () => invoke<void>("rules_clear"),
+  islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),
   snapshot: () => invoke<Snapshot>("snapshot"),

@@ -15,7 +15,8 @@ What is planned beyond the current version. Order within a section is not a comm
       shell command; reviewed and removed in Settings
 - [x] Settings window: connect / disconnect Claude Code, Always rules, quit
 - [ ] Full diff view per file
-- [ ] Island behavior (auto-hide when empty), packaging (dmg / msi / AppImage / deb / rpm)
+- [x] The island folds into a handle when there is nothing to show; hover brings it back
+- [ ] Packaging (dmg / msi / AppImage / deb / rpm)
 - [ ] Signed auto-updates (project key, free) or update notice with download link
 - [ ] GitHub integration (PRs, requested reviews, CI status) — first service pill
 

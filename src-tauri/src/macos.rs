@@ -2,8 +2,12 @@
 //! NSPanel so clicking Allow never steals focus from the user's editor or
 //! terminal. This is the Phase 0 spike made permanent (see ADR 0001).
 
-use tauri::{AppHandle, Manager};
-use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelLevel, StyleMask, WebviewWindowExt};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_nspanel::{
+    tauri_panel, CollectionBehavior, PanelLevel, StyleMask, TrackingAreaOptions, WebviewWindowExt,
+};
+
+use crate::HOVER_EVENT;
 
 tauri_panel! {
     // Never the key window: the user's app keeps keyboard focus while the
@@ -13,7 +17,19 @@ tauri_panel! {
             can_become_key_window: false,
             is_floating_panel: true
         }
+        with: {
+            // The web view only tracks the pointer in a key window, which the
+            // island never is: hover has to come from the panel itself.
+            tracking_area: {
+                options: TrackingAreaOptions::new()
+                    .active_always()
+                    .mouse_entered_and_exited(),
+                auto_resize: true
+            }
+        }
     })
+
+    panel_event!(IslandPanelEvents {})
 }
 
 pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
@@ -44,6 +60,19 @@ pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
             .value(),
     );
     panel.set_hides_on_deactivate(false);
+
+    // Tell the island when the pointer is over it (see `HOVER_EVENT`).
+    let events = IslandPanelEvents::new();
+    let entered = app.clone();
+    events.on_mouse_entered(move |_| {
+        let _ = entered.emit_to("island", HOVER_EVENT, true);
+    });
+    let exited = app.clone();
+    events.on_mouse_exited(move |_| {
+        let _ = exited.emit_to("island", HOVER_EVENT, false);
+    });
+    // The panel retains the handler.
+    panel.set_event_handler(Some(events.as_ref()));
 
     // The app never shows in the Dock or the Cmd-Tab switcher.
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);

@@ -10,8 +10,15 @@ one of them is wrong — fix that one.
   the user is typing in (macOS: non-activating panel).
 - States: `hidden` (nothing to show — **0% CPU**, no timers, no animation frames)
   → `compact` (a slim bar with one pill per active session) → `expanded`
-  (session detail, approval/question cards) on hover or click.
-- Empty areas of the window are click-through.
+  (session detail, approval/question cards) on click, or by itself when a card
+  needs the user.
+- Hidden means folded into a small handle at the top-center. Hovering the
+  handle (or clicking it) brings the bar back, with the gear to Settings; it
+  folds again shortly after the pointer leaves. The island never hides while
+  the hooks are missing — that is when "Connect Claude Code" must be seen.
+- The window is always exactly as large as what it draws, so no invisible area
+  eats clicks. The UI cannot move or resize windows itself: it asks Rust for a
+  size, which is clamped and kept top-centered.
 - Theming: all colors/spacing come from CSS tokens under a `data-theme`
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.

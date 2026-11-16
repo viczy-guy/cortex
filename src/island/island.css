@@ -17,6 +17,20 @@ body {
   margin: 3px 6px;
 }
 
+/* ---- Folded: only the handle ------------------------------------------- */
+
+.island--hidden {
+  margin: 0;
+}
+
+.handle {
+  width: 44px;
+  height: 4px;
+  margin: 3px auto 0;
+  border-radius: 2px;
+  background: var(--handle);
+}
+
 /* ---- Compact bar ---------------------------------------------------- */
 
 .bar {

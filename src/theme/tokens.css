@@ -12,6 +12,9 @@
   --surface-raised: rgba(28, 31, 38, 0.92);
   --surface-border: rgba(255, 255, 255, 0.09);
 
+  /* The folded island's handle: must read on light and dark desktops alike. */
+  --handle: rgba(140, 146, 160, 0.7);
+
   /* Text */
   --text: rgba(235, 238, 245, 0.95);
   --text-dim: rgba(235, 238, 245, 0.55);
