@@ -20,3 +20,6 @@ Thumbs.db
 # Local env — never commit secrets
 .env
 .env.*
+
+# Logs of delegated Codex runs
+.codex-runs/
