@@ -41,9 +41,16 @@ Sessions stale for 30 min with no events are garbage-collected.
 - The card disappears the moment its connection closes (hook timeout, or the
   user answered in the terminal). The wait is 50 s: while the hook waits, the
   terminal shows no prompt of its own, so the island must not hold it long.
-- "Always" stores a rule (tool + pattern; for Bash, the program name) applied
-  by Cortex, never written into the agent's own settings. Rules currently live
-  for the app session only.
+- "Always" stores a rule applied by Cortex, never written into the agent's own
+  settings. The card states what the rule covers before the click.
+  - Shell commands generalize to their program: Always on `cargo test` allows
+    every `cargo …`. Only a single plain command can create or match a rule —
+    a line with chaining, pipes, redirection, substitution (`; & | < > $ ( )`
+    `{ }`, backticks, backslash, newline), a `VAR=value` prefix or a command
+    runner (`sudo`, `sh`, `env`, `xargs`, …) always shows a card and offers no
+    Always.
+  - Every other tool must match its detail exactly.
+  - Rules currently live for the app session only.
 
 ## Questions
 

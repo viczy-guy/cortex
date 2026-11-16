@@ -1,6 +1,7 @@
 /** Cards of the expanded panel: sessions, approvals and questions. */
 
 import {
+  type AlwaysRule,
   type Answers,
   api,
   type PendingApproval,
@@ -70,11 +71,31 @@ export function approvalCard(approval: PendingApproval): HTMLElement {
   const actions = el("div", "actions");
   actions.append(button("btn-deny", "Deny", () => void api.respond(id, "deny")));
   actions.append(button("btn-allow", "Allow", () => void api.respond(id, "allow")));
-  actions.append(button("btn-neutral", "Always", () => void api.respond(id, "always")));
+  if (approval.always_rule) {
+    const always = button("btn-neutral", alwaysLabel(approval.always_rule), () =>
+      void api.respond(id, "always"),
+    );
+    always.title = alwaysScope(approval.always_rule);
+    actions.append(always);
+  }
   actions.append(terminalLink(id));
   card.append(actions);
 
   return card;
+}
+
+/** Exactly what an Always rule allows from now on, in words. */
+export function alwaysScope(rule: AlwaysRule): string {
+  if (rule.tool_name === "Bash") return `Every "${rule.pattern}" command, without asking`;
+  if (rule.pattern) return `${rule.tool_name} on exactly ${rule.pattern}, without asking`;
+  return `Every use of ${rule.tool_name}, without asking`;
+}
+
+/** Bash rules cover a whole program, so the button names it. */
+function alwaysLabel(rule: AlwaysRule): string {
+  if (rule.tool_name !== "Bash") return "Always";
+  const program = rule.pattern.length > 18 ? `${rule.pattern.slice(0, 17)}…` : rule.pattern;
+  return `Always allow ${program}`;
 }
 
 // ---------------------------------------------------------------------------

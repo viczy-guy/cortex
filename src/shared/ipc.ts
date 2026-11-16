@@ -63,7 +63,15 @@ export interface PendingApproval {
   tool_name: string;
   detail: string;
   questions: Question[];
+  /** What "Always" would remember; `null` when no safe rule exists. */
+  always_rule: AlwaysRule | null;
   created_ms: number;
+}
+
+/** An "Always allow" rule: for Bash, `pattern` is the program name. */
+export interface AlwaysRule {
+  tool_name: string;
+  pattern: string;
 }
 
 export interface Snapshot {
