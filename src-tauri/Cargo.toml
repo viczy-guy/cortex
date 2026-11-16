@@ -7,5 +7,15 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
 cortex-core = { path = "../crates/cortex-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { version = "2", features = ["macos-private-api"] }
+tokio = { version = "1", features = ["net", "io-util", "time", "sync"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-nspanel = "2"
