@@ -3,7 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs-only changes don't need the three-platform matrix.
+    paths-ignore: ["**.md", "docs/**", "LICENSE*"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE*"]
 
 # Least privilege: CI only reads the repository.
 permissions:

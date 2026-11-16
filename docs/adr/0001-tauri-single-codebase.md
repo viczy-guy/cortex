@@ -23,6 +23,17 @@ UI iteration, larger WASM payloads).
   Tauri windows don't provide; validated by the Phase 0 spike before building on it.
 - UI is limited to what the system WebViews support — acceptable for an island.
 
+## Validation (2026-11-16, macOS 26, two displays at 1x and 2x)
+
+The Phase 0 spike passed. With the island converted to a non-activating
+NSPanel (`tauri-nspanel`):
+
+- Renders transparent, undecorated, above the menu bar, on every Space.
+- A real mouse click on **Allow** delivered the decision to the relay while
+  the frontmost app stayed the same before and after (no focus steal).
+- Idle: 0.0% CPU over 10 one-second samples; ~61 MB total footprint
+  (app 25 + WebKit GPU 14 + WebContent 14 + Networking 8), debug build.
+
 ## Revisit if
 
 The macOS spike fails to deliver a quality island — fallback is a minimal native

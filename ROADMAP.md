@@ -5,9 +5,8 @@ What is planned beyond the current version. Order within a section is not a comm
 ## v1 (in progress)
 
 - [x] Decision: Tauri 2, single codebase for macOS, Windows and Linux
-- [ ] macOS island spike (ADR 0001): transparent always-on-top panel, 0% idle
-      CPU and ~61 MB verified; "a click never steals focus" still needs a
-      manual check
+- [x] macOS island spike (ADR 0001): transparent always-on-top panel, 0% idle
+      CPU, ~61 MB, and a click never steals focus
 - [x] Live Claude Code sessions in the island (states, ticker, diff stats)
 - [x] Approvals (Allow / Deny / Always) bound to the exact pending request
 - [x] AskUserQuestion answers from the island
