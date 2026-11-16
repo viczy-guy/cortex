@@ -61,14 +61,28 @@ where
 
             let decision = match (immediate, receiver) {
                 (Some(decision), _) => decision,
-                (None, Some(rx)) => {
-                    match tokio::time::timeout(DECISION_GUARD, rx).await {
-                        Ok(Ok(decision)) => decision,
-                        // Timeout or UI dropped: the terminal takes over.
-                        _ => {
-                            let state = app.state::<AppState>();
-                            state.forget_responder(&request_id);
-                            Decision::Ask
+                (None, Some(mut rx)) => {
+                    let guard = tokio::time::sleep(DECISION_GUARD);
+                    tokio::pin!(guard);
+                    loop {
+                        tokio::select! {
+                            decided = &mut rx => break decided.unwrap_or(Decision::Ask),
+                            read = lines.next_line() => match read {
+                                // Stray input while waiting is ignored.
+                                Ok(Some(_)) => continue,
+                                // Connection closed: the hook gave up or the
+                                // user answered in the terminal. Drop the card.
+                                _ => {
+                                    if app.state::<AppState>().cancel(&request_id) {
+                                        emit_state(&app);
+                                    }
+                                    return;
+                                }
+                            },
+                            _ = &mut guard => {
+                                app.state::<AppState>().cancel(&request_id);
+                                break Decision::Ask;
+                            }
                         }
                     }
                 }

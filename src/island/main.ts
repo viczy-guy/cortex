@@ -23,6 +23,8 @@ const PANEL_MAX_HEIGHT = 400;
 
 const root = document.getElementById("island")!;
 let expanded = false;
+/** True when the panel was opened by an approval, not by the user. */
+let autoExpanded = false;
 let lastSnapshot: Snapshot = { sessions: [], approvals: [] };
 
 // ---------------------------------------------------------------------------
@@ -42,8 +44,15 @@ function el<K extends keyof HTMLElementTagNameMap>(
 function render(snap: Snapshot): void {
   lastSnapshot = snap;
   const hasApprovals = snap.approvals.length > 0;
-  // An approval demands eyes: force the panel open.
-  if (hasApprovals) expanded = true;
+  // An approval demands eyes: open the panel, and fold it back once the
+  // approval is gone — unless the user opened it themselves.
+  if (hasApprovals && !expanded) {
+    expanded = true;
+    autoExpanded = true;
+  } else if (!hasApprovals && autoExpanded) {
+    expanded = false;
+    autoExpanded = false;
+  }
 
   root.replaceChildren(renderBar(snap));
   if (expanded && (snap.sessions.length > 0 || hasApprovals)) {
@@ -66,6 +75,7 @@ function renderBar(snap: Snapshot): HTMLElement {
   }
   bar.addEventListener("click", () => {
     expanded = !expanded;
+    autoExpanded = false;
     render(lastSnapshot);
   });
   return bar;

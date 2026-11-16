@@ -79,37 +79,58 @@ impl AppState {
     /// Resolve a pending request from the UI. `always` records a rule.
     /// Returns `false` for unknown/stale ids (nothing is sent anywhere).
     pub fn resolve(&self, request_id: &str, ui_decision: &str) -> bool {
-        let decision = {
+        let decision = match ui_decision {
+            "allow" | "always" => Decision::Allow,
+            "deny" => Decision::Deny,
+            "ask" => Decision::Ask,
+            _ => return false,
+        };
+        {
             let mut domain = self.domain.lock().expect("state poisoned");
-            match ui_decision {
-                "allow" => domain.approvals.resolve(request_id, Decision::Allow),
-                "deny" => domain.approvals.resolve(request_id, Decision::Deny),
-                "ask" => domain.approvals.resolve(request_id, Decision::Ask),
-                "always" => domain.approvals.resolve_always(request_id),
-                _ => None,
-            }
-        };
-        let Some(decision) = decision else {
-            return false;
-        };
+            let taken = if ui_decision == "always" {
+                domain.approvals.take_always(request_id)
+            } else {
+                domain.approvals.take(request_id)
+            };
+            let Some(approval) = taken else {
+                return false;
+            };
+            domain.board.approval_closed(&approval.session);
+        }
         self.send_decision(request_id, decision);
         true
     }
 
+    /// The waiting connection died (hook timed out, or the user answered in
+    /// the terminal): drop the card. Returns `true` when something was removed.
+    pub fn cancel(&self, request_id: &str) -> bool {
+        self.forget_responder(request_id);
+        let mut domain = self.domain.lock().expect("state poisoned");
+        match domain.approvals.take(request_id) {
+            Some(approval) => {
+                domain.board.approval_closed(&approval.session);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Janitor pass: GC sessions, expire stale approvals (answering `Ask`).
-    /// Returns `true` when visible state changed, `false` + `is_empty` info
-    /// otherwise.
+    /// Returns `(visible state changed, board is empty)`.
     pub fn sweep(&self) -> (bool, bool) {
         let (changed, expired, empty) = {
             let mut domain = self.domain.lock().expect("state poisoned");
             let now = now_ms();
             let gc_changed = domain.board.gc(now);
             let expired = domain.approvals.expire(now);
+            for approval in &expired {
+                domain.board.approval_closed(&approval.session);
+            }
             let empty = domain.board.is_empty() && domain.approvals.pending().is_empty();
             (gc_changed || !expired.is_empty(), expired, empty)
         };
-        for id in expired {
-            self.send_decision(&id, Decision::Ask);
+        for approval in expired {
+            self.send_decision(&approval.request_id, Decision::Ask);
         }
         (changed, empty)
     }
@@ -135,8 +156,7 @@ impl AppState {
         }
     }
 
-    /// Drop the responder of a dead connection.
-    pub fn forget_responder(&self, request_id: &str) {
+    fn forget_responder(&self, request_id: &str) {
         self.responders
             .lock()
             .expect("responders poisoned")

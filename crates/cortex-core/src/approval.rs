@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::event::HookEvent;
-use crate::protocol::Decision;
 use crate::session::SessionKey;
 
 /// A pending request expires after this long and resolves to `Ask`.
@@ -82,38 +81,33 @@ impl ApprovalQueue {
         Some(approval)
     }
 
-    /// Resolve a request by its exact id. Unknown or already-resolved ids
-    /// return `None` — the caller must then answer nothing.
-    pub fn resolve(&mut self, request_id: &str, decision: Decision) -> Option<Decision> {
-        let approval = self.pending.remove(request_id)?;
-        if decision == Decision::Allow {
-            // No rule is created here; "Always" goes through `add_rule`.
-        }
-        let _ = approval;
-        Some(decision)
+    /// Close a request by its exact id and hand it back. Unknown or
+    /// already-closed ids return `None` — the caller must then answer nothing.
+    pub fn take(&mut self, request_id: &str) -> Option<PendingApproval> {
+        self.pending.remove(request_id)
     }
 
-    /// "Always allow": resolve this request AND remember a rule for next time.
-    pub fn resolve_always(&mut self, request_id: &str) -> Option<Decision> {
+    /// "Always allow": close this request AND remember a rule for next time.
+    pub fn take_always(&mut self, request_id: &str) -> Option<PendingApproval> {
         let approval = self.pending.remove(request_id)?;
         self.rules
             .push(rule_for(&approval.tool_name, &approval.detail));
-        Some(Decision::Allow)
+        Some(approval)
     }
 
-    /// Expire pending requests older than [`PENDING_TTL_MS`]. Returns the ids
-    /// that expired (the caller answers `Ask` for each).
-    pub fn expire(&mut self, now_ms: u64) -> Vec<String> {
-        let expired: Vec<String> = self
+    /// Expire pending requests older than [`PENDING_TTL_MS`]. Returns the
+    /// expired requests (the caller answers `Ask` for each).
+    pub fn expire(&mut self, now_ms: u64) -> Vec<PendingApproval> {
+        let expired_ids: Vec<String> = self
             .pending
             .iter()
             .filter(|(_, p)| now_ms.saturating_sub(p.created_ms) >= PENDING_TTL_MS)
             .map(|(id, _)| id.clone())
             .collect();
-        for id in &expired {
-            self.pending.remove(id);
-        }
-        expired
+        expired_ids
+            .iter()
+            .filter_map(|id| self.pending.remove(id))
+            .collect()
     }
 
     pub fn pending(&self) -> Vec<&PendingApproval> {
@@ -179,10 +173,10 @@ mod tests {
         let mut q = ApprovalQueue::new();
         q.register(&bash_event("ls"), "req-1".into(), 0).unwrap();
 
-        assert_eq!(q.resolve("wrong-id", Decision::Allow), None);
-        assert_eq!(q.resolve("req-1", Decision::Allow), Some(Decision::Allow));
+        assert!(q.take("wrong-id").is_none());
+        assert_eq!(q.take("req-1").unwrap().request_id, "req-1");
         // A duplicate decision resolves nothing.
-        assert_eq!(q.resolve("req-1", Decision::Allow), None);
+        assert!(q.take("req-1").is_none());
     }
 
     #[test]
@@ -190,7 +184,7 @@ mod tests {
         let mut q = ApprovalQueue::new();
         q.register(&bash_event("cargo test"), "r1".into(), 0)
             .unwrap();
-        assert_eq!(q.resolve_always("r1"), Some(Decision::Allow));
+        assert!(q.take_always("r1").is_some());
         assert_eq!(
             q.rules(),
             &[AlwaysRule {
@@ -214,8 +208,10 @@ mod tests {
         let mut q = ApprovalQueue::new();
         q.register(&bash_event("ls"), "r1".into(), 0).unwrap();
         assert!(q.expire(PENDING_TTL_MS - 1).is_empty());
-        assert_eq!(q.expire(PENDING_TTL_MS), vec!["r1".to_string()]);
+        let expired = q.expire(PENDING_TTL_MS);
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].request_id, "r1");
         // Expired means gone: a late click resolves nothing.
-        assert_eq!(q.resolve("r1", Decision::Allow), None);
+        assert!(q.take("r1").is_none());
     }
 }

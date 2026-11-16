@@ -27,6 +27,10 @@ fn respond(app: AppHandle, state: State<'_, AppState>, request_id: String, decis
     }
 }
 
+/// Island width in logical points. Must match `WINDOW_WIDTH` in the UI and
+/// the window width in `tauri.conf.json`.
+const ISLAND_WIDTH: f64 = 460.0;
+
 /// Pin the island to the top-center of the primary monitor.
 fn position_island(app: &AppHandle) {
     let Some(window) = app.get_webview_window("island") else {
@@ -35,15 +39,16 @@ fn position_island(app: &AppHandle) {
     let Ok(Some(monitor)) = window.primary_monitor() else {
         return;
     };
-    let screen = monitor.size();
-    let win = window.outer_size().unwrap_or(tauri::PhysicalSize {
-        width: 460,
-        height: 50,
-    });
-    let x = (screen.width.saturating_sub(win.width)) / 2;
-    let _ = window.set_position(tauri::PhysicalPosition {
-        x: monitor.position().x + x as i32,
-        y: monitor.position().y,
+    // Work in logical points of the *target* monitor. The window may have been
+    // created on another display with a different scale factor, so its own
+    // physical size must not enter the math.
+    let scale = monitor.scale_factor();
+    let origin_x = monitor.position().x as f64 / scale;
+    let origin_y = monitor.position().y as f64 / scale;
+    let screen_width = monitor.size().width as f64 / scale;
+    let _ = window.set_position(tauri::LogicalPosition {
+        x: origin_x + (screen_width - ISLAND_WIDTH) / 2.0,
+        y: origin_y,
     });
 }
 

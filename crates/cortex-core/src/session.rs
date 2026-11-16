@@ -188,6 +188,19 @@ impl SessionBoard {
         true
     }
 
+    /// An approval for this session was answered, cancelled or expired: the
+    /// session is no longer waiting on the user. Returns `true` when state
+    /// changed.
+    pub fn approval_closed(&mut self, key: &SessionKey) -> bool {
+        match self.sessions.get_mut(key) {
+            Some(s) if s.state == SessionState::WaitingApproval => {
+                s.state = SessionState::Working;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Drop stale sessions and expired `Finished` ones. Returns `true` when
     /// something was removed.
     pub fn gc(&mut self, now_ms: u64) -> bool {
@@ -375,6 +388,20 @@ mod tests {
         let changed = board.apply(&ev(r#"{"hook_event_name":"Mystery","session_id":"s1"}"#), 2);
         assert!(!changed);
         assert_eq!(board.snapshot()[0].state, SessionState::Idle);
+    }
+
+    #[test]
+    fn closing_an_approval_resumes_the_session() {
+        let mut board = SessionBoard::new();
+        board.apply(
+            &ev(r#"{"hook_event_name":"PermissionRequest","session_id":"s1","tool_name":"Bash"}"#),
+            1,
+        );
+        let key = board.snapshot()[0].key.clone();
+        assert!(board.approval_closed(&key));
+        assert_eq!(board.snapshot()[0].state, SessionState::Working);
+        // Idempotent: nothing left to close.
+        assert!(!board.approval_closed(&key));
     }
 
     #[test]
