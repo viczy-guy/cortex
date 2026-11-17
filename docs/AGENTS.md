@@ -44,7 +44,7 @@ line once the user decides:
 `ask` means "no decision": the agent asks in its own terminal. For multi-select
 questions the answer is the chosen labels joined by `", "`.
 
-If Cortex is not running, the user does not decide within 50 s, or the
+If Cortex is not running, the user does not decide within 110 s, or the
 connection closes (the user answered in the terminal), the card disappears, the
 relay exits with no output and the agent carries on by itself. **Cortex never
 blocks an agent.**

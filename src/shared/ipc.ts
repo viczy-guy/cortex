@@ -92,6 +92,7 @@ export interface DiffLine {
 
 export interface HooksStatus {
   installed: boolean;
+  outdated: boolean;
   settings_path: string;
 }
 

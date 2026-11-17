@@ -17,10 +17,10 @@ use std::time::Duration;
 use serde_json::Value;
 
 /// How long we wait for the user's decision before giving up (the agent's own
-/// terminal then takes over). While we wait the terminal shows no prompt of
-/// its own, so this stays short; it must also stay below the `timeout` the
-/// installer writes for blocking hooks (60 s).
-const DECISION_TIMEOUT: Duration = Duration::from_secs(50);
+/// terminal then takes over). Long enough to read a multi-question card;
+/// "Answer in terminal" hands it back sooner. Must stay below the `timeout`
+/// the installer writes for blocking hooks (120 s).
+const DECISION_TIMEOUT: Duration = Duration::from_secs(110);
 /// Connect/write budget. If the app is running, this is milliseconds; if it is
 /// not, connecting fails instantly anyway.
 const IO_TIMEOUT: Duration = Duration::from_secs(2);

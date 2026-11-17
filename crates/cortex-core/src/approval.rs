@@ -13,7 +13,7 @@ use crate::event::{HookEvent, QUESTION_TOOL};
 use crate::session::SessionKey;
 
 /// A pending request expires after this long and resolves to `Ask`.
-pub const PENDING_TTL_MS: u64 = 55 * 1000;
+pub const PENDING_TTL_MS: u64 = 115 * 1000;
 
 /// Display limits for questions: anything beyond is dropped, not rendered.
 const MAX_QUESTIONS: usize = 4;

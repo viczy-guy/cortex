@@ -28,6 +28,8 @@ const HOOK_BINARY: &str = "cortex-hook";
 #[derive(Debug, Serialize)]
 pub struct Status {
     pub installed: bool,
+    /// Installed by an older version (e.g. shorter timeouts): reinstall to update.
+    pub outdated: bool,
     pub settings_path: String,
 }
 
@@ -52,8 +54,10 @@ pub fn status() -> Result<Status, String> {
     let settings_path = settings_path()?;
     let (_, settings) = read_settings(&settings_path)?;
     let command = hook_command()?;
+    let installed = merge::is_installed(&settings, &command);
     Ok(Status {
-        installed: merge::is_installed(&settings, &command),
+        installed,
+        outdated: installed && !merge::is_current(&settings, &command),
         settings_path: settings_path.display().to_string(),
     })
 }

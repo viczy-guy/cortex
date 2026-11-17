@@ -17,8 +17,9 @@ pub const RULES_EVENT: &str = "cortex://rules";
 pub const STATE_EVENT: &str = "cortex://state";
 
 /// Server-side guard: a parked connection is answered `Ask` after this long
-/// even if the janitor missed it. Slightly longer than the hook's own 50 s.
-const DECISION_GUARD: Duration = Duration::from_secs(58);
+/// even if the janitor missed it. Longer than the relay's 110 s, shorter than
+/// the 120 s hook timeout.
+const DECISION_GUARD: Duration = Duration::from_secs(118);
 
 /// Largest accepted line; everything beyond is hostile or broken.
 const MAX_LINE: usize = cortex_core::event::MAX_EVENT_BYTES + 1024;

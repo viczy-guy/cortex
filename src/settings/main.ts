@@ -43,14 +43,16 @@ function renderHooks(): void {
     const row = el("div", "status-row");
     row.append(
       el("span", status.installed ? "status-dot connected" : "status-dot"),
-      el("span", undefined, status.installed ? "Connected" : "Not connected"),
+      el("span", undefined, status.outdated ? "Connected · update available" : status.installed ? "Connected" : "Not connected"),
     );
     hooksBlock.append(row, el("div", "note note-dim", status.settings_path));
   }
   const actions = el("div", "actions");
   if (flow.phase === "closed") {
     if (status) {
-      actions.append(button("btn-neutral", status.installed ? "Remove hooks…" : "Install hooks…", () => void previewHooks()));
+      const installed = status.installed;
+      if (status.outdated) actions.append(button("btn-allow", "Update hooks…", () => void previewHooks(false)));
+      actions.append(button("btn-neutral", installed ? "Remove hooks…" : "Install hooks…", () => void previewHooks(installed)));
     }
   } else if (flow.phase === "review") {
     const { preview, removing } = flow;
@@ -84,9 +86,8 @@ function renderHooks(): void {
   hooksBlock.append(actions);
 }
 
-async function previewHooks(): Promise<void> {
+async function previewHooks(removing: boolean): Promise<void> {
   if (!status || busy) return;
-  const removing = status.installed;
   busy = true;
   renderHooks();
   try {

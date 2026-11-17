@@ -46,8 +46,8 @@ Sessions stale for 30 min with no events are garbage-collected.
 - The decision is bound to the exact request id; anything else (timeout, stale
   id, duplicate) resolves to "no decision" and the terminal takes over.
 - The card disappears the moment its connection closes (hook timeout, or the
-  user answered in the terminal). The wait is 50 s: while the hook waits, the
-  terminal shows no prompt of its own, so the island must not hold it long.
+  user answered in the terminal). The wait is 110 s (hook timeout 120 s), long enough to read a
+  multi-question card; "Answer in terminal" hands it back sooner.
 - "Always" stores a rule applied by Cortex, never written into the agent's own
   settings. The card states what the rule covers before the click.
   - Shell commands generalize to their program: Always on `cargo test` allows

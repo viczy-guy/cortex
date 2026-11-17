@@ -13,8 +13,9 @@ const MARKER: &str = "cortex-hook";
 
 /// Seconds. Non-blocking events return in milliseconds; this is a safety net.
 const TIMEOUT_FAST: u64 = 5;
-/// Seconds. Events that may wait for the user (approvals, questions).
-const TIMEOUT_BLOCKING: u64 = 60;
+/// Seconds. Events that may wait for the user (approvals, questions). Must
+/// stay above the relay's own wait (`DECISION_TIMEOUT` in cortex-hook, 110 s).
+const TIMEOUT_BLOCKING: u64 = 120;
 
 struct HookSpec {
     event: &'static str,
@@ -211,6 +212,12 @@ pub fn is_installed(settings: &Value, hook_command: &str) -> bool {
     })
 }
 
+/// Installed and identical to what this version would install (timeouts,
+/// events). `false` means a reinstall would change the file.
+pub fn is_current(settings: &Value, hook_command: &str) -> bool {
+    install(settings, hook_command).is_ok_and(|merged| &merged == settings)
+}
+
 fn is_ours(entry: &Value) -> bool {
     entry
         .get("command")
@@ -261,7 +268,7 @@ mod tests {
         assert!(out["hooks"]["Stop"][0].get("matcher").is_none());
         assert_eq!(
             out["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"],
-            60
+            120
         );
     }
 
@@ -298,6 +305,15 @@ mod tests {
         let once = install(&json!({}), CMD).unwrap();
         let twice = install(&once, CMD).unwrap();
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn an_older_timeout_is_installed_but_not_current() {
+        let mut old = install(&json!({}), CMD).unwrap();
+        assert!(is_current(&old, CMD));
+        old["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"] = json!(60);
+        assert!(is_installed(&old, CMD));
+        assert!(!is_current(&old, CMD));
     }
 
     #[test]

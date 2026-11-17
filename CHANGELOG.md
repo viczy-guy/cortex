@@ -19,6 +19,11 @@ follows [Semantic Versioning](https://semver.org).
 - Installers (`npm run bundle`) with the relay embedded; a release workflow
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
+### Fixed
+- A question card no longer vanishes before you can answer it: the island
+  waits up to 110 s (was 50 s). Settings flags hooks installed by an older
+  version and offers "Update hooks…".
+
 ### Security
 - An Always rule for a shell command covers one program and never a command
   line that chains, pipes, redirects or substitutes; such commands always ask.
