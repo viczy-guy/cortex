@@ -42,12 +42,12 @@ let hovered = false;
 let hideTimer: number | undefined;
 
 /**
- * Nothing to show and nobody looking: the island folds into its handle. It
- * stays up while the hooks are missing, so "Connect Claude Code" is seen.
+ * No card waiting and nobody looking: the island folds into its handle, even
+ * with live sessions (hover shows them). It stays up while the hooks are
+ * missing, so "Connect Claude Code" is seen.
  */
 function isHidden(): boolean {
   return (
-    snapshot.sessions.length === 0 &&
     snapshot.approvals.length === 0 &&
     onboarding.phase === "closed" &&
     hooksInstalled !== false &&

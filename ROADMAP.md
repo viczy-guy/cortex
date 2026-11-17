@@ -15,7 +15,7 @@ What is planned beyond the current version. Order within a section is not a comm
       shell command; reviewed and removed in Settings
 - [x] Settings window: connect / disconnect Claude Code, Always rules, quit
 - [ ] Full diff view per file
-- [x] The island folds into a handle when there is nothing to show; hover brings it back
+- [x] The island stays folded into a handle until a card needs the user; hover shows the sessions
 - [x] Packaging: `npm run bundle` embeds the relay; a tag builds dmg / msi /
       exe / AppImage / deb / rpm and drafts a release with checksums
       (verified on macOS; Windows and Linux installers get their first real
