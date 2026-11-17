@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::diff::{self, DiffLine};
 use crate::event::{HookEvent, QUESTION_TOOL};
 use crate::session::SessionKey;
 
@@ -19,6 +20,8 @@ pub const PENDING_TTL_MS: u64 = 115 * 1000;
 const MAX_QUESTIONS: usize = 4;
 const MAX_OPTIONS: usize = 8;
 const MAX_TEXT_CHARS: usize = 300;
+/// Display limit for an edit's diff on a card; the rest is counted, not sent.
+const MAX_DIFF_LINES: usize = 300;
 
 /// What the user sees on a card: a permission to approve, or — when
 /// `questions` is not empty — a question to answer.
@@ -30,6 +33,11 @@ pub struct PendingApproval {
     /// Human-readable detail: the command, the file path, …
     pub detail: String,
     pub questions: Vec<Question>,
+    /// The exact change an `Edit` makes, or the whole new content of a
+    /// `Write`. Empty for other tools. Lines are capped at `MAX_TEXT_CHARS`.
+    pub diff: Vec<DiffLine>,
+    /// Diff lines beyond `MAX_DIFF_LINES`, not shown.
+    pub diff_hidden: usize,
     /// The rule "Always" would remember. `None` when no safe rule exists for
     /// this request — the UI then offers no "Always" at all.
     pub always_rule: Option<AlwaysRule>,
@@ -55,7 +63,7 @@ pub struct QuestionOption {
 #[derive(Debug)]
 pub enum Registered {
     /// Show this card and wait for the user.
-    Card(PendingApproval),
+    Card(Box<PendingApproval>),
     /// An Always rule answers it: reply `Allow` right away.
     AutoAllow,
     /// Nothing Cortex can show for it: reply `Ask`, the terminal handles it.
@@ -195,6 +203,7 @@ impl ApprovalQueue {
         if always_rule.as_ref().is_some_and(|r| self.rules.contains(r)) {
             return Registered::AutoAllow;
         }
+        let (diff, diff_hidden) = diff_of(ev);
 
         let approval = PendingApproval {
             request_id: request_id.clone(),
@@ -205,11 +214,13 @@ impl ApprovalQueue {
             tool_name,
             detail,
             questions,
+            diff,
+            diff_hidden,
             always_rule,
             created_ms: now_ms,
         };
         self.pending.insert(request_id, approval.clone());
-        Registered::Card(approval)
+        Registered::Card(Box::new(approval))
     }
 
     /// Close a request by its exact id and hand it back. Unknown or
@@ -266,6 +277,30 @@ fn detail_of(ev: &HookEvent) -> String {
         .or_else(|| get("url"))
         .map(str::to_owned)
         .unwrap_or_default()
+}
+
+/// What an `Edit` or `Write` would change, capped for display.
+fn diff_of(ev: &HookEvent) -> (Vec<DiffLine>, usize) {
+    let input = ev.tool_input.as_ref();
+    let get = |key: &str| {
+        input
+            .and_then(|i| i.get(key))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    };
+    let mut lines = match ev.tool_name.as_deref() {
+        Some("Edit") => diff::lines(get("old_string"), get("new_string")),
+        Some("Write") => diff::lines("", get("content")),
+        _ => return (Vec::new(), 0),
+    };
+    let hidden = lines.len().saturating_sub(MAX_DIFF_LINES);
+    lines.truncate(MAX_DIFF_LINES);
+    for line in &mut lines {
+        if line.text.chars().count() > MAX_TEXT_CHARS {
+            line.text = line.text.chars().take(MAX_TEXT_CHARS).collect::<String>() + "…";
+        }
+    }
+    (lines, hidden)
 }
 
 /// Validated questions of an `AskUserQuestion` input. Malformed entries are
@@ -477,6 +512,61 @@ mod tests {
             serde_json::to_string(cmd).unwrap()
         ))
         .unwrap()
+    }
+
+    fn edit_event(tool: &str, input: serde_json::Value) -> HookEvent {
+        HookEvent::parse(
+            &serde_json::json!({"hook_event_name": "PermissionRequest", "session_id": "s1",
+                "tool_name": tool, "tool_input": input})
+            .to_string(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_edit_card_shows_the_exact_change() {
+        let mut q = ApprovalQueue::new();
+        let ev = edit_event(
+            "Edit",
+            serde_json::json!({"file_path": "/a.rs", "old_string": "x\ny", "new_string": "x\nz"}),
+        );
+        let Registered::Card(card) = q.register(&ev, "r1".into(), 0) else {
+            panic!("expected a card");
+        };
+        let shown: Vec<_> = card
+            .diff
+            .iter()
+            .map(|l| (l.kind, l.text.as_str()))
+            .collect();
+        use crate::diff::LineKind::{Added, Removed, Same};
+        assert_eq!(shown, vec![(Same, "x"), (Removed, "y"), (Added, "z")]);
+        assert_eq!(card.diff_hidden, 0);
+    }
+
+    #[test]
+    fn a_large_write_is_capped_and_counted() {
+        let mut q = ApprovalQueue::new();
+        let content: String = (0..MAX_DIFF_LINES + 5).map(|i| format!("{i}\n")).collect();
+        let long_line = "é".repeat(MAX_TEXT_CHARS + 10);
+        let ev = edit_event(
+            "Write",
+            serde_json::json!({"file_path": "/a", "content": format!("{long_line}\n{content}")}),
+        );
+        let Registered::Card(card) = q.register(&ev, "r1".into(), 0) else {
+            panic!("expected a card");
+        };
+        assert_eq!(card.diff.len(), MAX_DIFF_LINES);
+        assert_eq!(card.diff_hidden, 6);
+        assert_eq!(card.diff[0].text.chars().count(), MAX_TEXT_CHARS + 1);
+    }
+
+    #[test]
+    fn other_tools_carry_no_diff() {
+        let mut q = ApprovalQueue::new();
+        let Registered::Card(card) = q.register(&bash_event("ls"), "r1".into(), 0) else {
+            panic!("expected a card");
+        };
+        assert!(card.diff.is_empty());
     }
 
     fn is_card(r: &Registered) -> bool {

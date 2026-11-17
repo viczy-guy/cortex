@@ -14,7 +14,7 @@ What is planned beyond the current version. Order within a section is not a comm
 - [x] Always rules: persisted, re-validated on load, never matching a compound
       shell command; reviewed and removed in Settings
 - [x] Settings window: connect / disconnect Claude Code, Always rules, quit
-- [ ] Full diff view per file
+- [x] Edit / Write approval cards show the exact diff before you allow it
 - [x] The island stays folded into a handle until a card needs the user; hover shows the sessions
 - [x] Packaging: `npm run bundle` embeds the relay; a tag builds dmg / msi /
       exe / AppImage / deb / rpm and drafts a release with checksums

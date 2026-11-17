@@ -44,6 +44,9 @@ Sessions stale for 30 min with no events are garbage-collected.
 
 - A `PermissionRequest` shows a card: tool, detail (command / file path),
   **Allow / Deny / Always** and "Answer in terminal".
+- An `Edit` card shows the exact change and a `Write` card the whole new
+  content, as a line diff (at most 300 lines; the rest is counted, and the
+  terminal shows it all). Redraws keep the scroll position.
 - The decision is bound to the exact request id; anything else (timeout, stale
   id, duplicate) resolves to "no decision" and the terminal takes over.
 - The card disappears the moment its connection closes (hook timeout, or the

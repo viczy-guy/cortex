@@ -15,6 +15,8 @@ follows [Semantic Versioning](https://semver.org).
 - Settings window: connect or disconnect Claude Code, review and remove Always
   rules, quit.
 - Always rules persist across restarts and are re-validated when loaded.
+- Edit and Write approval cards show the exact diff (up to 300 lines) before
+  you allow them; redraws keep your scroll position.
 - The island stays folded into a small handle until a card needs you; hovering
   it shows the live sessions.
 - Installers (`npm run bundle`) with the relay embedded; a release workflow

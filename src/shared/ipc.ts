@@ -63,6 +63,10 @@ export interface PendingApproval {
   tool_name: string;
   detail: string;
   questions: Question[];
+  /** The exact change of an Edit, or the whole content of a Write. */
+  diff: DiffLine[];
+  /** Diff lines left out for size. */
+  diff_hidden: number;
   /** What "Always" would remember; `null` when no safe rule exists. */
   always_rule: AlwaysRule | null;
   created_ms: number;

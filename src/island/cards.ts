@@ -8,6 +8,7 @@ import {
   type Question,
   type SessionView,
 } from "../shared/ipc";
+import { diffView } from "../shared/diff-view";
 import { button, el } from "../shared/dom";
 import { alwaysScope } from "../shared/rules";
 
@@ -66,6 +67,14 @@ export function approvalCard(approval: PendingApproval): HTMLElement {
 
   if (approval.detail) {
     card.append(el("div", "detail", approval.detail));
+  }
+  if (approval.diff.length > 0) {
+    const diff = diffView(approval.diff);
+    diff.dataset.scroll = `diff:${approval.request_id}`;
+    card.append(diff);
+    if (approval.diff_hidden > 0) {
+      card.append(el("div", "meta", `${approval.diff_hidden} more lines not shown — answer in the terminal to see them`));
+    }
   }
 
   const id = approval.request_id;

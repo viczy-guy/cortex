@@ -81,13 +81,22 @@ function render(): void {
   }
   pruneSelections(new Set(snapshot.approvals.map((a) => a.request_id)));
 
+  // A redraw (any agent event) must not scroll the user back to the top.
+  const scrolled = new Map<string, number>();
+  root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => scrolled.set(n.dataset.scroll ?? "", n.scrollTop));
+
   root.replaceChildren(bar());
   const panel = panelContent();
   if (panel.length > 0) {
     const node = el("div", "panel");
+    node.dataset.scroll = "panel";
     node.append(...panel);
     root.append(node);
   }
+  root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => {
+    const top = scrolled.get(n.dataset.scroll ?? "");
+    if (top) n.scrollTop = top;
+  });
   void fitWindowToContent();
 }
 

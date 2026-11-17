@@ -4,8 +4,9 @@
 #
 #   scripts/demo.sh            # a session, then a permission request
 #   scripts/demo.sh question   # a session, then a question
+#   scripts/demo.sh edit       # a session, then an Edit to approve (with its diff)
 #
-# The last step blocks until you decide in the island (or 50 s pass) and then
+# The last step blocks until you decide in the island (or 110 s pass) and then
 # prints what the relay would hand back to the agent.
 
 set -euo pipefail
@@ -27,6 +28,9 @@ sleep 1
 if [ "${1:-}" = "question" ]; then
   echo "A question is waiting in the island…"
   send "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"$SESSION\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Which test framework should I use?\",\"header\":\"Tests\",\"multiSelect\":false,\"options\":[{\"label\":\"Built-in\",\"description\":\"cargo test\"},{\"label\":\"Nextest\",\"description\":\"Faster runner\"}]}]}}"
+elif [ "${1:-}" = "edit" ]; then
+  echo "An Edit is waiting for approval in the island…"
+  send "{\"hook_event_name\":\"PermissionRequest\",\"session_id\":\"$SESSION\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/demo/src/payment.rs\",\"old_string\":\"fn charge(amount: u64) -> Result<Receipt, Error> {\\n  let fee = amount / 100;\\n  gateway::charge(amount + fee)\\n}\",\"new_string\":\"fn charge(amount: u64) -> Result<Receipt, Error> {\\n  let fee = fee_for(amount)?;\\n  gateway::charge(amount.checked_add(fee).ok_or(Error::Overflow)?)\\n}\"}}"
 else
   echo "A permission request is waiting in the island…"
   send "{\"hook_event_name\":\"PermissionRequest\",\"session_id\":\"$SESSION\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cargo test --workspace\"}}"
