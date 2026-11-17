@@ -56,6 +56,8 @@
 }
 
 .diff {
+  /* grid: every row is as wide as the longest line, so tints survive horizontal scroll */
+  display: grid;
   max-height: 190px;
   overflow: auto;
   padding: 6px 0;
