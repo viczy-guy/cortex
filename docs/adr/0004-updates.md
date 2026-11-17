@@ -1,6 +1,6 @@
 # ADR 0004 — Updates: checksummed releases now, signed auto-update once public
 
-**Status:** proposed · 2026-11-16
+**Status:** accepted · 2026-11-17
 
 ## Context
 
