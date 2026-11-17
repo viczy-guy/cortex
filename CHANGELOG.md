@@ -7,6 +7,8 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- Opt-in GitHub pill and card for open PRs, requested reviews and CI status,
+  read through the signed-in `gh` CLI every 3 minutes; no token stored.
 - Project foundation: Cargo workspace (`cortex-core`, `cortex-hook`, `cortex-app`),
   Tauri 2 application shell, CI on the three platforms.
 - The island: live Claude Code sessions, approvals (Allow / Deny / Always),

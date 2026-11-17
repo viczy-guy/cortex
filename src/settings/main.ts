@@ -4,7 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
-  api, HOOKS_EVENT, RULES_EVENT,
+  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT,
+  type GithubStatus,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
 import { alwaysScope } from "../shared/rules";
@@ -19,10 +20,15 @@ function section(title: string): HTMLElement {
 }
 const hooksBlock = section("Claude Code");
 const rulesBlock = section("Always rules");
+const githubBlock = section("GitHub");
 const aboutBlock = section("About");
 let status: HooksStatus | null = null;
 let rules: AlwaysRule[] = [];
 let busy = false;
+let github: GithubStatus | null = null;
+let githubBusy = false;
+let githubRevision = 0;
+let githubError: string | null = null;
 let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
 type HookFlow =
@@ -161,8 +167,56 @@ function renderRules(): void {
   rulesBlock.append(actions);
 }
 
+function renderGithub(): void {
+  githubBlock.replaceChildren(el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks every 3 minutes while on."));
+  if (github) {
+    const labels = {
+      off: "Off",
+      // A periodic re-check keeps showing the account it already has.
+      checking: github.summary ? `On · signed in as ${github.summary.login}` : "Checking…",
+      ok: `On · signed in as ${github.summary?.login ?? ""}`,
+      no_gh: "GitHub CLI not found — install it from cli.github.com",
+      signed_out: "Signed out — run `gh auth login` in a terminal",
+      error: github.message ?? "GitHub request failed",
+    };
+    const row = el("div", "status-row");
+    row.append(el("span", github.state === "ok" ? "status-dot connected" : "status-dot"), el("span", undefined, labels[github.state]));
+    const actions = el("div", "actions");
+    const enabled = github.enabled;
+    actions.append(button(enabled ? "btn-neutral" : "btn-allow", enabled ? "Turn off" : "Turn on", () => void changeGithub(() => api.githubSetEnabled(!enabled))));
+    if (enabled) actions.append(button("btn-neutral", "Refresh now", () => void changeGithub(api.githubRefresh)));
+    actions.querySelectorAll("button").forEach((node) => { node.disabled = githubBusy; });
+    githubBlock.append(row, actions);
+  }
+  if (githubError) githubBlock.append(el("div", "note note-error", githubError));
+}
+async function changeGithub(change: () => Promise<void>): Promise<void> {
+  if (githubBusy) return;
+  githubBusy = true;
+  githubError = null;
+  renderGithub();
+  try {
+    await change();
+    const revision = githubRevision;
+    const value = await api.githubStatus();
+    if (githubRevision === revision) github = value;
+  } catch (error) {
+    githubError = String(error);
+  } finally {
+    githubBusy = false;
+    renderGithub();
+  }
+}
+
 async function start(): Promise<void> {
   // Subscribe before loading; an event received during a load is fresher.
+  let githubChanged = false;
+  await listen<GithubStatus>(GITHUB_EVENT, (event) => {
+    githubChanged = true;
+    githubRevision++;
+    github = event.payload;
+    renderGithub();
+  });
   let hooksChanged = false;
   let rulesChanged = false;
   await listen<HooksStatus>(HOOKS_EVENT, (event) => {
@@ -176,6 +230,7 @@ async function start(): Promise<void> {
     renderRules();
   });
   await Promise.all([
+    api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch((error: unknown) => { githubError = String(error); }).finally(renderGithub),
     api.hooksStatus().then((value) => { if (!hooksChanged) status = value; }).catch((error: unknown) => {
       flow = { phase: "error", message: String(error) };
     }).finally(renderHooks),

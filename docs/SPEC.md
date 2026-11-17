@@ -93,6 +93,20 @@ The gear in the island opens a separate, opaque Settings window:
   all requires a second click within four seconds.
 - **About** shows the app version, its local-only policy, and Quit Cortex.
 
+## GitHub
+
+Opt-in in Settings, off by default. Cortex reads through the user's signed-in
+GitHub CLI (`gh`), never stores a token, and checks every 3 minutes while on
+(or when Refresh now is clicked). Off means no polling or timers.
+
+The island pill shows requested review and failing own-PR counts, falling back
+to the open-PR count. Its expanded GitHub card lists requested reviews and own
+pull requests with checks, draft and review status. It preserves the last good
+data after a fetch error. GitHub does not change when the island folds.
+
+Only `https://github.com/` links present in the current summary can be opened,
+through the OS with the URL as one argument and no shell.
+
 ## Resource budget (enforced, not aspirational)
 
 - Hidden island: 0% CPU (event-driven wakeups only).

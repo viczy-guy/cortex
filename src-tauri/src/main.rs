@@ -2,7 +2,10 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod files;
+mod github;
 mod hooks;
+mod prefs;
 mod rules;
 mod server;
 mod state;
@@ -215,7 +218,12 @@ fn main() {
 
     builder
         .manage(AppState::with_rules(rules::load()))
+        .manage(github::GithubState::new(prefs::load().github))
         .invoke_handler(tauri::generate_handler![
+            github::github_status,
+            github::github_set_enabled,
+            github::github_refresh,
+            github::open_url,
             snapshot,
             island_fit,
             open_settings,
@@ -264,6 +272,8 @@ fn main() {
                     }
                 });
             }
+
+            tauri::async_runtime::spawn(github::poller(handle.clone()));
 
             // The janitor (sleeps whenever the board is empty).
             tauri::async_runtime::spawn(server::janitor(handle));

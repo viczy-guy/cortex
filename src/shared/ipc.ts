@@ -121,6 +121,10 @@ export const HOVER_EVENT = "cortex://hover";
 export const STATE_EVENT = "cortex://state";
 
 export const api = {
+  githubStatus: () => invoke<GithubStatus>("github_status"),
+  githubSetEnabled: (enabled: boolean) => invoke<void>("github_set_enabled", { enabled }),
+  githubRefresh: () => invoke<void>("github_refresh"),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
   rulesList: () => invoke<AlwaysRule[]>("rules_list"),
   ruleRemove: (rule: AlwaysRule) => invoke<void>("rule_remove", { rule }),
   rulesClear: () => invoke<void>("rules_clear"),
@@ -139,3 +143,31 @@ export const api = {
     invoke<HooksInstalled>("hooks_uninstall", { token }),
   hooksInstall: (token: string) => invoke<HooksInstalled>("hooks_install", { token }),
 };
+
+export type Checks = "passing" | "failing" | "pending" | "none";
+export type Review = "approved" | "changes_requested" | "required" | "none";
+export interface PullRequest {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  draft: boolean;
+  author: string | null;
+  checks: Checks;
+  review: Review;
+}
+export interface GithubSummary {
+  login: string;
+  mine: PullRequest[];
+  mine_total: number;
+  review_requests: PullRequest[];
+  review_requests_total: number;
+  fetched_at_ms: number;
+}
+export interface GithubStatus {
+  enabled: boolean;
+  state: "off" | "checking" | "ok" | "no_gh" | "signed_out" | "error";
+  message: string | null;
+  summary: GithubSummary | null;
+}
+export const GITHUB_EVENT = "cortex://github";

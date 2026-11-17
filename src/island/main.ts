@@ -10,6 +10,8 @@ import { button, el } from "../shared/dom";
 import {
   api,
   HOOKS_EVENT,
+  GITHUB_EVENT,
+  type GithubStatus,
   HOVER_EVENT,
   type HooksStatus,
   type SessionView,
@@ -17,6 +19,7 @@ import {
   STATE_EVENT,
 } from "../shared/ipc";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
+import { githubCard, githubPill } from "./github";
 import { type Onboarding, onboardingCard } from "./onboarding";
 
 /** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
@@ -32,6 +35,7 @@ const root = document.getElementById("island")!;
 
 let snapshot: Snapshot = { sessions: [], approvals: [] };
 let expanded = false;
+let github: GithubStatus | null = null;
 /** True when the panel was opened by an approval, not by the user. */
 let autoExpanded = false;
 /** `null` until Rust answers; the "Connect" chip shows only on a definite `false`. */
@@ -133,6 +137,11 @@ function bar(): HTMLElement {
 
   if (snapshot.sessions.length === 0 && snapshot.approvals.length === 0) {
     node.append(el("span", "bar-idle", "cortex"));
+    if (github?.enabled && github.summary) node.append(githubPill(github.summary, () => {
+      expanded = !expanded;
+      autoExpanded = false;
+      render();
+    }));
     if (hooksInstalled === false && onboarding.phase === "closed") {
       node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
     }
@@ -143,6 +152,7 @@ function bar(): HTMLElement {
   for (const session of snapshot.sessions.slice(0, 3)) {
     node.append(pill(session));
   }
+  if (github?.enabled && github.summary) node.append(githubPill(github.summary));
   node.append(settingsButton());
   node.addEventListener("click", () => {
     expanded = !expanded;
@@ -184,7 +194,7 @@ function panelContent(): HTMLElement[] {
   const cards = snapshot.approvals.map((approval) =>
     approval.questions.length > 0 ? questionCard(approval, render) : approvalCard(approval),
   );
-  return [...cards, ...snapshot.sessions.map(sessionCard)];
+  return [...cards, ...snapshot.sessions.map(sessionCard), ...(github?.enabled && github.summary ? [githubCard(github.summary)] : [])];
 }
 
 /** Size the window to what is drawn, so no invisible area eats clicks. */
@@ -227,6 +237,12 @@ async function installHooks(token: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  let githubChanged = false;
+  await listen<GithubStatus>(GITHUB_EVENT, (event) => {
+    githubChanged = true;
+    github = event.payload;
+    render();
+  });
   await listen<HooksStatus>(HOOKS_EVENT, (event) => {
     hooksInstalled = event.payload.installed;
     render();
@@ -238,7 +254,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus()]);
+  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ })]);
   render();
 }
 

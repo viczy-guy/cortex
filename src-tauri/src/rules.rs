@@ -1,7 +1,6 @@
 //! Always rules on disk: `<data dir>/rules.json`, readable by this user only.
 //! The format and its validation are pure and live in `cortex_core::approval`.
 
-use std::io::{Read, Write};
 use std::path::Path;
 
 use cortex_core::{rules_from_json, rules_to_json, AlwaysRule};
@@ -23,23 +22,9 @@ pub fn save(rules: &[AlwaysRule]) -> Result<(), String> {
 }
 
 fn load_at(path: &Path) -> Vec<AlwaysRule> {
-    let read = || -> std::io::Result<String> {
-        let file = std::fs::File::open(path)?;
-        if file.metadata()?.len() > MAX_FILE_BYTES {
-            return Ok(String::new());
-        }
-        // Bound the read too, in case the file grows after metadata was read.
-        let mut bytes = Vec::new();
-        file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_FILE_BYTES {
-            return Ok(String::new());
-        }
-        String::from_utf8(bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    };
-    match read() {
-        Ok(text) => rules_from_json(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+    match crate::files::read_bounded(path, MAX_FILE_BYTES) {
+        Ok(Some(text)) => rules_from_json(&text),
+        Ok(None) => Vec::new(),
         Err(error) => {
             eprintln!("cortex: cannot read {}: {error}", path.display());
             Vec::new()
@@ -48,34 +33,8 @@ fn load_at(path: &Path) -> Vec<AlwaysRule> {
 }
 
 fn save_at(path: &Path, rules: &[AlwaysRule]) -> Result<(), String> {
-    let write = || -> std::io::Result<()> {
-        let dir = path
-            .parent()
-            .ok_or_else(|| std::io::Error::other("rules path has no parent"))?;
-        std::fs::create_dir_all(dir)?;
-        let tmp = dir.join(format!("rules.json.tmp-{}", std::process::id()));
-        // A leftover from a crashed run (same pid) must not block every
-        // later save; `create_new` then refuses anything planted in between.
-        let _ = std::fs::remove_file(&tmp);
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&tmp)?;
-        let result = (|| {
-            file.write_all(rules_to_json(rules).as_bytes())?;
-            drop(file);
-            std::fs::rename(&tmp, path)
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
-        result
-    };
-    write().map_err(|e| format!("cannot save rules: {e}"))
+    crate::files::write_private(path, rules_to_json(rules).as_bytes())
+        .map_err(|e| format!("cannot save rules: {e}"))
 }
 
 #[cfg(test)]

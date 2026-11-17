@@ -7,7 +7,9 @@
 pub mod approval;
 pub mod diff;
 pub mod event;
+pub mod github;
 pub mod hooks;
+pub mod prefs;
 pub mod protocol;
 pub mod session;
 
@@ -16,5 +18,6 @@ pub use approval::{
     MAX_RULES,
 };
 pub use event::{AgentId, EventKind, HookEvent};
+pub use github::{GithubSummary, PullRequest};
 pub use protocol::{Answers, Decision, DecisionResponse};
 pub use session::{Session, SessionBoard, SessionKey, SessionState};

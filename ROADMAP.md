@@ -22,7 +22,7 @@ What is planned beyond the current version. Order within a section is not a comm
       run with the first tag)
 - [ ] First tagged release (v0.1.0): check the Windows and Linux installers
 - [ ] Signed auto-updates, opt-in — once the repository is public (ADR 0004)
-- [ ] GitHub integration (PRs, requested reviews, CI status) — first service pill
+- [x] GitHub integration (PRs, requested reviews, CI status), read through `gh` — first service pill
 
 ## v2+
 
