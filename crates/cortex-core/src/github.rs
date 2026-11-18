@@ -13,12 +13,17 @@ pub struct GhAccount {
     pub valid: bool,
 }
 
+/// Enterprise Managed Users add `_` and their enterprise's short code
+/// (`mona-cat_octo`). A login must never start like a command-line flag.
 pub fn is_valid_login(login: &str) -> bool {
-    (1..=39).contains(&login.len())
-        && !login.starts_with('-')
+    login.len() <= 39
         && login
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            .next()
+            .is_some_and(|b| b.is_ascii_alphanumeric())
+        && login
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 pub fn is_valid_token(token: &str) -> bool {
@@ -330,7 +335,7 @@ mod tests {
 
     #[test]
     fn credentials_reject_invalid_characters_and_lengths() {
-        for login in ["-x", "a b", "", &"a".repeat(40), "a_b"] {
+        for login in ["-x", "_x", "a b", "a/b", "", &"a".repeat(40)] {
             assert!(!is_valid_login(login));
         }
         for token in ["a-b", "a b", "", &"a".repeat(256)] {
@@ -338,6 +343,23 @@ mod tests {
         }
         assert!(is_valid_login("a-123"));
         assert!(is_valid_token("github_pat_123"));
+    }
+
+    #[test]
+    fn an_enterprise_managed_user_is_listed_and_can_be_the_active_account() {
+        let input = json!({"hosts":{"github.com":[
+            {"state":"success","active":true,"login":"mona-cat_octo"},
+            {"state":"success","active":false,"login":"alice"}
+        ]}})
+        .to_string();
+        let logins: Vec<_> = parse_accounts(&input)
+            .unwrap()
+            .into_iter()
+            .map(|a| a.login)
+            .collect();
+        assert_eq!(logins, ["mona-cat_octo", "alice"]);
+        assert_eq!(active_account(&input), Some(Some("mona-cat_octo".into())));
+        assert_eq!(has_account(&input, "mona-cat_octo"), Some(true));
     }
 
     #[test]
