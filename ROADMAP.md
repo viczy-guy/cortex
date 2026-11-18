@@ -25,12 +25,9 @@ What is planned beyond the current version. Order within a section is not a comm
 - [x] GitHub integration (PRs, requested reviews, CI status), read through `gh` — first service pill
 - [ ] Clicking anywhere outside the island folds it, even with a card waiting;
       the folded island shows that something waits, and hover brings it back
-- [ ] Island position: top center, or any corner of the screen
-- [ ] Idle looks, chosen in Settings: the handle, the Cortex icon, or a mini
-      bar with counters (the mascot later becomes one more look)
-- [ ] GitHub, several accounts: every `gh` account and/or Cortex's own
-      "Sign in with GitHub" (token in the OS keychain), each in its own group;
-      "Install GitHub CLI" button when `gh` is missing
+- [ ] GitHub, several accounts: every account signed in to `gh`, each in its
+      own group; "Sign in to GitHub" (gh's browser login — no token to create
+      or paste) and "Install GitHub CLI" when `gh` is missing (ADR 0005)
 
 ## v2+
 
@@ -38,7 +35,12 @@ What is planned beyond the current version. Order within a section is not a comm
 - **Network sentinel** — notify when the connection degrades, goes offline or recovers
 - **Resource sentinel** — alerts on abnormal RAM and disk usage
 - **Cortex mascot** — an optional persona on top of the theme system; the sober
-  minimal island stays the default
+  minimal island stays the default. Comes with the personalization options:
+  island position (top center or any corner of the screen) and idle looks
+  chosen in Settings (the handle, the Cortex icon, a mini bar with counters,
+  the mascot)
+- **GitHub without `gh`** — Cortex's own "Sign in with GitHub" (OAuth device
+  flow, token in the OS keychain) for people who do not want the GitHub CLI
 - More agents: Codex CLI, Gemini CLI (the socket protocol is already generic)
 - Chat with AI providers (API key or through the CLI subscription you already pay)
 - More service pills: Vercel, n8n, …
