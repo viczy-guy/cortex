@@ -2,6 +2,125 @@
 use serde::Serialize;
 use serde_json::Value;
 
+pub const MAX_ACCOUNTS: usize = 10;
+pub const DEVICE_URL: &str = "https://github.com/login/device";
+pub const CLI_URL: &str = "https://cli.github.com/";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GhAccount {
+    pub login: String,
+    pub active: bool,
+    pub valid: bool,
+}
+
+pub fn is_valid_login(login: &str) -> bool {
+    (1..=39).contains(&login.len())
+        && !login.starts_with('-')
+        && login
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+pub fn is_valid_token(token: &str) -> bool {
+    (1..=255).contains(&token.len())
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+fn github_hosts(value: &Value) -> Option<&[Value]> {
+    match value.get("hosts")?.as_object()?.get("github.com") {
+        Some(host) => Some(host.as_array()?.as_slice()),
+        None => Some(&[]),
+    }
+}
+
+fn account(entry: &Value) -> Option<GhAccount> {
+    let login = entry["login"].as_str().filter(|s| is_valid_login(s))?;
+    Some(GhAccount {
+        login: login.into(),
+        active: entry["active"].as_bool()?,
+        valid: entry["state"].as_str()? == "success",
+    })
+}
+
+pub fn parse_accounts(json: &str) -> Option<Vec<GhAccount>> {
+    let value = serde_json::from_str(json).ok()?;
+    let mut accounts: Vec<GhAccount> = Vec::new();
+    for entry in github_hosts(&value)?.iter().filter_map(account) {
+        if !accounts
+            .iter()
+            .any(|a| a.login.eq_ignore_ascii_case(&entry.login))
+        {
+            accounts.push(entry);
+            if accounts.len() == MAX_ACCOUNTS {
+                break;
+            }
+        }
+    }
+    Some(accounts)
+}
+
+/// Account restoration must also work when a newly added account displaces
+/// the previous one from the capped display list.
+pub fn has_account(json: &str, login: &str) -> Option<bool> {
+    let value = serde_json::from_str(json).ok()?;
+    Some(
+        github_hosts(&value)?
+            .iter()
+            .filter_map(account)
+            .any(|a| a.login.eq_ignore_ascii_case(login)),
+    )
+}
+
+pub fn active_account(json: &str) -> Option<Option<String>> {
+    let value = serde_json::from_str(json).ok()?;
+    match github_hosts(&value)?
+        .iter()
+        .find(|entry| entry["active"].as_bool() == Some(true))
+    {
+        Some(entry) => Some(Some(account(entry)?.login)),
+        None => Some(None),
+    }
+}
+
+pub fn device_code(line: &str) -> Option<String> {
+    line.as_bytes().windows(9).find_map(|candidate| {
+        (candidate[4] == b'-'
+            && candidate[..4]
+                .iter()
+                .chain(&candidate[5..])
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()))
+        .then(|| String::from_utf8_lossy(candidate).into_owned())
+    })
+}
+
+pub fn account_is_shown(hidden: &[String], login: &str) -> bool {
+    !hidden.iter().any(|name| name.eq_ignore_ascii_case(login))
+}
+
+/// "ok" when a shown account fetched or every account is hidden; otherwise
+/// "error" when a shown account failed, else "signed_out" (sign-in fixes it).
+pub fn overall_state(accounts: impl Iterator<Item = &'static str>) -> &'static str {
+    let (mut any, mut shown, mut failed) = (false, false, false);
+    for account in accounts {
+        any = true;
+        match account {
+            "ok" => return "ok",
+            "hidden" => {}
+            "error" => (shown, failed) = (true, true),
+            _ => shown = true,
+        }
+    }
+    if failed {
+        "error"
+    } else if any && !shown {
+        "ok"
+    } else {
+        "signed_out"
+    }
+}
+
 pub const MAX_PULLS: usize = 20;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_REPO_CHARS: usize = 140;
@@ -160,6 +279,99 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn github_accounts_include_broken_accounts_and_skip_invalid_entries() {
+        let input = json!({"hosts":{"github.com":[
+            {"state":"success","active":true,"host":"github.com","login":"alice","tokenSource":"keyring","scopes":"repo","gitProtocol":"https"},
+            {"state":"error","active":false,"host":"github.com","login":"bob"},
+            {"state":"success","active":false,"login":"Alice"},
+            {"state":"success","active":false,"login":"-x"},
+            {"state":"success","active":"yes","login":"carol"}
+        ],"other.example":[{"state":"success","active":true,"login":"other"}]}});
+        assert_eq!(
+            parse_accounts(&input.to_string()).unwrap(),
+            [
+                GhAccount {
+                    login: "alice".into(),
+                    active: true,
+                    valid: true
+                },
+                GhAccount {
+                    login: "bob".into(),
+                    active: false,
+                    valid: false
+                },
+            ]
+        );
+        assert_eq!(parse_accounts(r#"{"hosts":{}}"#), Some(vec![]));
+        assert_eq!(parse_accounts("{}"), None);
+        assert_eq!(parse_accounts("invalid"), None);
+    }
+
+    #[test]
+    fn account_restoration_can_find_an_account_outside_the_display_limit() {
+        let accounts: Vec<_> = (0..=MAX_ACCOUNTS).map(|i| {
+            json!({"login":format!("user{i}"),"active":i == MAX_ACCOUNTS,"state":"success"})
+        }).collect();
+        let input = json!({"hosts":{"github.com":accounts}}).to_string();
+        let active = format!("user{MAX_ACCOUNTS}");
+        let displayed = parse_accounts(&input).unwrap();
+        assert_eq!(displayed.len(), MAX_ACCOUNTS);
+        assert!(displayed.iter().all(|account| !account.active));
+        assert_eq!(has_account(&input, &active), Some(true));
+        assert_eq!(active_account(&input), Some(Some(active)));
+        assert_eq!(
+            active_account(
+                r#"{"hosts":{"github.com":[{"login":"-x","active":true,"state":"success"}]}}"#
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn credentials_reject_invalid_characters_and_lengths() {
+        for login in ["-x", "a b", "", &"a".repeat(40), "a_b"] {
+            assert!(!is_valid_login(login));
+        }
+        for token in ["a-b", "a b", "", &"a".repeat(256)] {
+            assert!(!is_valid_token(token));
+        }
+        assert!(is_valid_login("a-123"));
+        assert!(is_valid_token("github_pat_123"));
+    }
+
+    #[test]
+    fn both_sign_in_formats_yield_a_device_code() {
+        for line in [
+            "! One-time code (ABCD-1234) copied to clipboard",
+            "! First copy your one-time code: ABCD-1234",
+        ] {
+            assert_eq!(device_code(line).as_deref(), Some("ABCD-1234"));
+        }
+        assert_eq!(device_code("Open this URL to continue"), None);
+    }
+
+    #[test]
+    fn hidden_accounts_do_not_count_as_failed_fetches() {
+        assert_eq!(overall_state([].into_iter()), "signed_out");
+        assert_eq!(overall_state(["hidden"].into_iter()), "ok");
+        assert_eq!(overall_state(["error", "hidden"].into_iter()), "error");
+        assert_eq!(overall_state(["error", "ok"].into_iter()), "ok");
+    }
+
+    #[test]
+    fn an_account_that_needs_sign_in_is_not_a_failed_request() {
+        assert_eq!(overall_state(["signed_out"].into_iter()), "signed_out");
+        assert_eq!(
+            overall_state(["hidden", "signed_out"].into_iter()),
+            "signed_out"
+        );
+        assert_eq!(overall_state(["signed_out", "error"].into_iter()), "error");
+        assert_eq!(overall_state(["signed_out", "ok"].into_iter()), "ok");
+        assert!(!account_is_shown(&["Alice".into()], "alice"));
+        assert!(account_is_shown(&["Alice".into()], "bob"));
+    }
+
     fn node() -> Value {
         json!({"number":42,"title":"Fix it","url":"https://github.com/o/r/pull/42","isDraft":true,"repository":{"nameWithOwner":"o/r"},"author":{"login":"alice"},"reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE"}}}]}})
     }

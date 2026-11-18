@@ -224,11 +224,15 @@ fn main() {
 
     builder
         .manage(AppState::with_rules(rules::load()))
-        .manage(github::GithubState::new(prefs::load().github))
+        .manage(github::GithubState::new(prefs::load()))
         .invoke_handler(tauri::generate_handler![
             github::github_status,
             github::github_set_enabled,
             github::github_refresh,
+            github::github_set_account_shown,
+            github::github_sign_in,
+            github::github_install,
+            github::github_cancel_task,
             github::open_url,
             snapshot,
             island_fit,

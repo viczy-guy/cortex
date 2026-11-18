@@ -7,6 +7,8 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- GitHub account groups and per-account visibility, browser sign-in from
+  Settings, and GitHub CLI installation through Homebrew or winget.
 - A click in another app folds the island, even over a waiting card; the
   handle turns amber until the card is answered, and hovering brings it back.
 - Opt-in GitHub pill and card for open PRs, requested reviews and CI status,

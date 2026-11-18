@@ -31,3 +31,6 @@ h2 {
 .rule-row .btn { flex: none; }
 .empty { color: var(--text-faint); }
 .actions { flex-wrap: wrap; }
+.github-status-error, .github-status-signed_out { background: var(--state-error); }
+.github-task { flex-wrap: wrap; }
+.github-device-code { font: 600 1.3em var(--font-mono); user-select: text; }

@@ -126,6 +126,10 @@ export const STATE_EVENT = "cortex://state";
 export const api = {
   githubStatus: () => invoke<GithubStatus>("github_status"),
   githubSetEnabled: (enabled: boolean) => invoke<void>("github_set_enabled", { enabled }),
+  githubSetAccountShown: (login: string, shown: boolean) => invoke<void>("github_set_account_shown", { login, shown }),
+  githubSignIn: () => invoke<void>("github_sign_in"),
+  githubInstall: () => invoke<void>("github_install"),
+  githubCancelTask: () => invoke<void>("github_cancel_task"),
   githubRefresh: () => invoke<void>("github_refresh"),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   rulesList: () => invoke<AlwaysRule[]>("rules_list"),
@@ -167,10 +171,27 @@ export interface GithubSummary {
   review_requests_total: number;
   fetched_at_ms: number;
 }
+export interface AccountStatus {
+  login: string;
+  active: boolean;
+  shown: boolean;
+  state: "ok" | "error" | "signed_out" | "hidden";
+  message: string | null;
+  summary: GithubSummary | null;
+}
+export type GithubTask =
+  | { kind: "idle" }
+  | { kind: "installing" }
+  | { kind: "signing_in"; code: string | null }
+  | { kind: "failed"; message: string };
 export interface GithubStatus {
   enabled: boolean;
   state: "off" | "checking" | "ok" | "no_gh" | "signed_out" | "error";
   message: string | null;
-  summary: GithubSummary | null;
+  accounts: AccountStatus[];
+  installer: "brew" | "winget" | null;
+  task: GithubTask;
 }
+export const GITHUB_DEVICE_URL = "https://github.com/login/device";
+export const GITHUB_CLI_URL = "https://cli.github.com/";
 export const GITHUB_EVENT = "cortex://github";

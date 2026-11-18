@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
-  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT,
+  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL,
   type GithubStatus,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
@@ -168,25 +168,83 @@ function renderRules(): void {
 }
 
 function renderGithub(): void {
-  githubBlock.replaceChildren(el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks every 3 minutes while on."));
+  githubBlock.replaceChildren(
+    el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks every 3 minutes while on."),
+    el("div", "note", "Every account signed in to gh is shown; hide the ones you don't want."),
+  );
+  const action = (style: string, label: string, change: () => Promise<void>, disabled = false): HTMLButtonElement => {
+    const node = button(style, label, () => void changeGithub(change));
+    node.disabled = githubBusy || disabled;
+    return node;
+  };
   if (github) {
+    const { accounts, enabled, installer, state, task } = github;
+    const running = task.kind === "installing" || task.kind === "signing_in";
     const labels = {
       off: "Off",
-      // A periodic re-check keeps showing the account it already has.
-      checking: github.summary ? `On · signed in as ${github.summary.login}` : "Checking…",
-      ok: `On · signed in as ${github.summary?.login ?? ""}`,
-      no_gh: "GitHub CLI not found — install it from cli.github.com",
-      signed_out: "Signed out — run `gh auth login` in a terminal",
+      checking: accounts.length > 0 ? "On" : "Checking…",
+      ok: "On",
+      no_gh: "GitHub CLI not found",
+      signed_out: "Signed out",
       error: github.message ?? "GitHub request failed",
     };
     const row = el("div", "status-row");
-    row.append(el("span", github.state === "ok" ? "status-dot connected" : "status-dot"), el("span", undefined, labels[github.state]));
+    row.append(el("span", state === "ok" ? "status-dot connected" : "status-dot"), el("span", undefined, labels[state]));
+    githubBlock.append(row);
+
     const actions = el("div", "actions");
-    const enabled = github.enabled;
-    actions.append(button(enabled ? "btn-neutral" : "btn-allow", enabled ? "Turn off" : "Turn on", () => void changeGithub(() => api.githubSetEnabled(!enabled))));
-    if (enabled) actions.append(button("btn-neutral", "Refresh now", () => void changeGithub(api.githubRefresh)));
-    actions.querySelectorAll("button").forEach((node) => { node.disabled = githubBusy; });
-    githubBlock.append(row, actions);
+    if (enabled) {
+      for (const account of accounts) {
+        const row = el("div", "rule-row");
+        const label = el("div", "rule-scope");
+        label.append(el("span", undefined, account.login));
+        if (account.active) label.append(el("span", "note", " · active in gh"));
+        if (account.message) label.append(el("div", "note", account.message));
+        row.append(
+          el("span", account.state === "ok" ? "status-dot connected" : `status-dot github-status-${account.state}`),
+          label,
+          action("btn-neutral", account.shown ? "Hide" : "Show", () => api.githubSetAccountShown(account.login, !account.shown)),
+        );
+        githubBlock.append(row);
+      }
+      if (state === "no_gh") {
+        if (installer) {
+          actions.append(action("btn-allow", "Install GitHub CLI", api.githubInstall, running));
+        } else {
+          actions.append(action("btn-neutral", "Get GitHub CLI", () => api.openUrl(GITHUB_CLI_URL)));
+          if (/Linux/i.test(navigator.userAgent)) {
+            githubBlock.append(el("div", "note", "Install it with your package manager, then run gh auth login."));
+          }
+        }
+      } else if (accounts.length > 0 || state === "signed_out") {
+        actions.append(action("btn-allow", state === "signed_out" ? "Sign in to GitHub" : "Add account", api.githubSignIn, running));
+      }
+      actions.append(action("btn-neutral", "Refresh now", api.githubRefresh));
+    }
+    actions.append(action(enabled ? "btn-neutral" : "btn-allow", enabled ? "Turn off" : "Turn on", () => api.githubSetEnabled(!enabled)));
+    githubBlock.append(actions);
+
+    if (task.kind === "installing" || task.kind === "signing_in") {
+      const area = el("div", "status-row github-task");
+      if (task.kind === "installing") {
+        area.append(el("span", undefined, "Installing GitHub CLI…"));
+      } else if (task.code) {
+        area.append(
+          el("span", undefined, "Enter this code on GitHub:"),
+          el("code", "github-device-code", task.code),
+          action("btn-allow", "Open GitHub", () => api.openUrl(GITHUB_DEVICE_URL)),
+        );
+      } else {
+        area.append(
+          el("span", undefined, "Starting sign-in…"),
+          el("span", "note", "If no code appears, cancel and run gh auth login in a terminal."),
+        );
+      }
+      area.append(action("btn-neutral", "Cancel", api.githubCancelTask));
+      githubBlock.append(area);
+    } else if (task.kind === "failed") {
+      githubBlock.append(el("div", "note note-error", task.message));
+    }
   }
   if (githubError) githubBlock.append(el("div", "note note-error", githubError));
 }
