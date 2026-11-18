@@ -23,6 +23,14 @@ What is planned beyond the current version. Order within a section is not a comm
 - [ ] First tagged release (v0.1.0): check the Windows and Linux installers
 - [ ] Signed auto-updates, opt-in — once the repository is public (ADR 0004)
 - [x] GitHub integration (PRs, requested reviews, CI status), read through `gh` — first service pill
+- [ ] Clicking anywhere outside the island folds it, even with a card waiting;
+      the folded island shows that something waits, and hover brings it back
+- [ ] Island position: top center, or any corner of the screen
+- [ ] Idle looks, chosen in Settings: the handle, the Cortex icon, or a mini
+      bar with counters (the mascot later becomes one more look)
+- [ ] GitHub, several accounts: every `gh` account and/or Cortex's own
+      "Sign in with GitHub" (token in the OS keychain), each in its own group;
+      "Install GitHub CLI" button when `gh` is missing
 
 ## v2+
 
