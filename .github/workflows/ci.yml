@@ -5,8 +5,9 @@ on:
     branches: [main]
     # Docs-only changes don't need the three-platform matrix.
     paths-ignore: ["**.md", "docs/**", "LICENSE*"]
+  # Every pull request runs: main requires these checks, and a skipped run
+  # never reports, which would block a docs-only PR forever.
   pull_request:
-    paths-ignore: ["**.md", "docs/**", "LICENSE*"]
 
 # Least privilege: CI only reads the repository.
 permissions:
