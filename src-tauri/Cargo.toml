@@ -20,3 +20,6 @@ tokio = { version = "1", features = ["net", "io-util", "time", "sync", "macros"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = "2"
+# Already in the tree through tauri-nspanel's objc2-app-kit; needed directly to
+# hand AppKit a closure (the outside-click monitor).
+block2 = "0.6"

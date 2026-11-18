@@ -117,6 +117,9 @@ export const HOOKS_EVENT = "cortex://hooks";
 /** Pointer entered (`true`) or left (`false`) the island — macOS only. */
 export const HOVER_EVENT = "cortex://hover";
 
+/** A click in another app while a card waits — macOS only. */
+export const OUTSIDE_CLICK_EVENT = "cortex://outside-click";
+
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 

@@ -2,12 +2,18 @@
 //! NSPanel so clicking Allow never steals focus from the user's editor or
 //! terminal. This is the Phase 0 spike made permanent (see ADR 0001).
 
+use std::ptr::NonNull;
+
+use block2::RcBlock;
 use tauri::{AppHandle, Emitter, Manager};
+// `NSEvent` comes in with `tauri_panel!`.
+use tauri_nspanel::objc2_app_kit::NSEventMask;
 use tauri_nspanel::{
     tauri_panel, CollectionBehavior, PanelLevel, StyleMask, TrackingAreaOptions, WebviewWindowExt,
 };
 
-use crate::HOVER_EVENT;
+use crate::state::AppState;
+use crate::{HOVER_EVENT, OUTSIDE_CLICK_EVENT};
 
 tauri_panel! {
     // Never the key window: the user's app keeps keyboard focus while the
@@ -73,6 +79,23 @@ pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
     });
     // The panel retains the handler.
     panel.set_event_handler(Some(events.as_ref()));
+
+    // A click in any other app folds the island, even over a waiting card.
+    // Mouse monitors need no accessibility permission (key monitors do), and
+    // clicks on Cortex's own windows never reach a global monitor.
+    let outside = app.clone();
+    let on_click = RcBlock::new(move |_: NonNull<NSEvent>| {
+        // Wake the web view only when there is a card to fold away.
+        if outside.state::<AppState>().has_pending() {
+            let _ = outside.emit_to("island", OUTSIDE_CLICK_EVENT, ());
+        }
+    });
+    let mask =
+        NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown;
+    // Kept for the life of the app: the monitor is never removed.
+    std::mem::forget(NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+        mask, &on_click,
+    ));
 
     // The app never shows in the Dock or the Cmd-Tab switcher.
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);

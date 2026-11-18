@@ -17,6 +17,12 @@ one of them is wrong — fix that one.
   the gear to Settings; it folds again shortly after the pointer leaves, and
   once the last card is answered. The island never hides while
   the hooks are missing — that is when "Connect Claude Code" must be seen.
+- A click anywhere outside the island folds it, even over a waiting card: the
+  handle turns amber until every folded card is answered or expires, and
+  hovering brings the cards back. A new card opens the island again. (macOS: a
+  global mouse-down monitor, which needs no permission and only wakes the UI
+  while a card waits; Windows / Linux: the window's blur, so only after the
+  island had focus.)
 - The window is always exactly as large as what it draws, so no invisible area
   eats clicks. The UI cannot move or resize windows itself: it asks Rust for a
   size, which is clamped and kept top-centered.

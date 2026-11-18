@@ -14,6 +14,7 @@ import {
   type GithubStatus,
   HOVER_EVENT,
   type HooksStatus,
+  OUTSIDE_CLICK_EVENT,
   type SessionView,
   type Snapshot,
   STATE_EVENT,
@@ -44,15 +45,17 @@ let onboarding: Onboarding = { phase: "closed" };
 /** The pointer is over the island (or left it less than `HIDE_DELAY_MS` ago). */
 let hovered = false;
 let hideTimer: number | undefined;
+/** Cards folded away by a click outside the island; a new card opens it again. */
+let dismissed = new Set<string>();
 
 /**
- * No card waiting and nobody looking: the island folds into its handle, even
- * with live sessions (hover shows them). It stays up while the hooks are
- * missing, so "Connect Claude Code" is seen.
+ * No card demanding eyes and nobody looking: the island folds into its handle,
+ * even with live sessions (hover shows them) or with cards the user folded
+ * away. It stays up while the hooks are missing, so "Connect Claude Code" is seen.
  */
 function isHidden(): boolean {
   return (
-    snapshot.approvals.length === 0 &&
+    snapshot.approvals.every((a) => dismissed.has(a.request_id)) &&
     onboarding.phase === "closed" &&
     hooksInstalled !== false &&
     !hovered
@@ -63,12 +66,16 @@ function isHidden(): boolean {
 // Rendering
 
 function render(): void {
+  const pending = new Set(snapshot.approvals.map((a) => a.request_id));
+  dismissed = new Set([...dismissed].filter((id) => pending.has(id)));
+  pruneSelections(pending);
+
   const hidden = isHidden();
   root.classList.toggle("island--hidden", hidden);
   if (hidden) {
     expanded = false;
     autoExpanded = false;
-    root.replaceChildren(handle());
+    root.replaceChildren(handle(pending.size > 0));
     void api.islandFit(HANDLE_WIDTH, HANDLE_HEIGHT);
     return;
   }
@@ -83,7 +90,6 @@ function render(): void {
     expanded = false;
     autoExpanded = false;
   }
-  pruneSelections(new Set(snapshot.approvals.map((a) => a.request_id)));
 
   // A redraw (any agent event) must not scroll the user back to the top.
   const scrolled = new Map<string, number>();
@@ -105,10 +111,20 @@ function render(): void {
 }
 
 /** Hovering reveals the island; a click does too, where hover is not reported. */
-function handle(): HTMLElement {
-  const node = el("div", "handle");
+function handle(waiting: boolean): HTMLElement {
+  const node = el("div", waiting ? "handle handle--waiting" : "handle");
   node.addEventListener("click", () => setHovered(true));
   return node;
+}
+
+/** A click outside folds the island, cards included; the handle shows they still wait. */
+function foldAway(): void {
+  if (snapshot.approvals.length === 0) return;
+  for (const approval of snapshot.approvals) dismissed.add(approval.request_id);
+  window.clearTimeout(hideTimer);
+  hideTimer = undefined;
+  hovered = false;
+  render();
 }
 
 function setHovered(inside: boolean): void {
@@ -248,6 +264,9 @@ async function start(): Promise<void> {
     render();
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
+  await listen(OUTSIDE_CLICK_EVENT, foldAway);
+  // Windows / Linux: the island only learns of an outside click if it had focus.
+  window.addEventListener("blur", foldAway);
   document.documentElement.addEventListener("mouseenter", () => setHovered(true));
   document.documentElement.addEventListener("mouseleave", () => setHovered(false));
   await listen<Snapshot>(STATE_EVENT, (event) => {

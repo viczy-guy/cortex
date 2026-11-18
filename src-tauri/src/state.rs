@@ -245,6 +245,13 @@ impl AppState {
         (changed, empty)
     }
 
+    /// A card is waiting for the user.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn has_pending(&self) -> bool {
+        let domain = self.domain.lock().expect("state poisoned");
+        !domain.approvals.pending().is_empty()
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let domain = self.domain.lock().expect("state poisoned");
         Snapshot {

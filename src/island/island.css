@@ -31,6 +31,11 @@ body {
   background: var(--handle);
 }
 
+/* Folded over a card nobody answered yet. No animation: folded means 0% CPU. */
+.handle--waiting {
+  background: var(--state-waiting);
+}
+
 /* ---- Compact bar ---------------------------------------------------- */
 
 .bar {

@@ -172,6 +172,12 @@ const ISLAND_MAX_HEIGHT: f64 = 600.0;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const HOVER_EVENT: &str = "cortex://hover";
 
+/// The user clicked in another app while a card was waiting. Emitted on
+/// macOS, where the island is never key and so never sees a blur; elsewhere
+/// the UI uses the window's own blur.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const OUTSIDE_CLICK_EVENT: &str = "cortex://outside-click";
+
 /// Size the island to what it draws, keeping it top-centered. The window is
 /// never larger than its content, so no invisible area eats clicks.
 #[tauri::command]

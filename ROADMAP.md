@@ -23,7 +23,7 @@ What is planned beyond the current version. Order within a section is not a comm
 - [ ] First tagged release (v0.1.0): check the Windows and Linux installers
 - [ ] Signed auto-updates, opt-in — once the repository is public (ADR 0004)
 - [x] GitHub integration (PRs, requested reviews, CI status), read through `gh` — first service pill
-- [ ] Clicking anywhere outside the island folds it, even with a card waiting;
+- [x] Clicking anywhere outside the island folds it, even with a card waiting;
       the folded island shows that something waits, and hover brings it back
 - [ ] GitHub, several accounts: every account signed in to `gh`, each in its
       own group; "Sign in to GitHub" (gh's browser login — no token to create

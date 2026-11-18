@@ -7,6 +7,8 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- A click in another app folds the island, even over a waiting card; the
+  handle turns amber until the card is answered, and hovering brings it back.
 - Opt-in GitHub pill and card for open PRs, requested reviews and CI status,
   read through the signed-in `gh` CLI every 3 minutes; no token stored.
 - Project foundation: Cargo workspace (`cortex-core`, `cortex-hook`, `cortex-app`),
