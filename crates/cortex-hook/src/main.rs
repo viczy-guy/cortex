@@ -106,9 +106,9 @@ fn blocking_kind(event: &Value) -> Option<Blocking> {
     }
 }
 
-/// Unique enough to correlate a request with its decision: this process never
-/// creates two, and collisions across processes are harmless (the app keys the
-/// queue per connection).
+/// Unique among live requests, which is what the app keys pending approvals
+/// by: this process creates only one, and two hooks running at the same time
+/// never share a process id.
 fn fresh_request_id() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -355,8 +355,11 @@ mod tests {
     }
 
     #[test]
-    fn request_ids_differ() {
-        assert_ne!(fresh_request_id(), fresh_request_id());
+    fn a_request_id_carries_the_process_id() {
+        // Two ids from one process can match at the clock's resolution; the
+        // process id is what keeps concurrent hooks apart.
+        let suffix = format!("-{:x}", std::process::id());
+        assert!(fresh_request_id().ends_with(&suffix));
     }
 
     #[cfg(unix)]
