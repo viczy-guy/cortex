@@ -29,6 +29,10 @@ follows [Semantic Versioning](https://semver.org).
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
 ### Fixed
+- A question longer than 300 characters, or two questions with the same text,
+  could send the answer back under the wrong key or leave the card stuck;
+  such requests now go to the terminal, and questions up to 1000 characters
+  are shown whole.
 - Installing or removing the hooks through a `settings.json` that is a link
   (dotfiles) writes the linked file and keeps the link, and the temporary file
   is private from the start.

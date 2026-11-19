@@ -16,9 +16,11 @@ use crate::session::SessionKey;
 /// A pending request expires after this long and resolves to `Ask`.
 pub const PENDING_TTL_MS: u64 = 115 * 1000;
 
-/// Display limits for questions: anything beyond is dropped, not rendered.
+/// Limits for a question card. A request beyond them is left to the terminal.
 const MAX_QUESTIONS: usize = 4;
 const MAX_OPTIONS: usize = 8;
+const MAX_QUESTION_CHARS: usize = 1000;
+/// Option labels, and the display cap for descriptions, headers and diff lines.
 const MAX_TEXT_CHARS: usize = 300;
 /// Display limit for an edit's diff on a card; the rest is counted, not sent.
 const MAX_DIFF_LINES: usize = 300;
@@ -309,8 +311,10 @@ fn diff_of(ev: &HookEvent) -> (Vec<DiffLine>, usize) {
     (lines, hidden)
 }
 
-/// Validated questions of an `AskUserQuestion` input. Malformed entries are
-/// skipped; sizes are capped so a hostile payload cannot flood the island.
+/// Validated questions of an `AskUserQuestion` input, or none at all. The
+/// question texts and option labels are the keys of the answer the agent gets
+/// back, so a card exists only when every question fits whole and unique;
+/// otherwise the terminal asks.
 fn questions_of(ev: &HookEvent) -> Vec<Question> {
     let Some(raw) = ev
         .tool_input
@@ -320,8 +324,15 @@ fn questions_of(ev: &HookEvent) -> Vec<Question> {
     else {
         return Vec::new();
     };
+    if raw.len() > MAX_QUESTIONS {
+        return Vec::new();
+    }
 
-    let text = |v: &Value, key: &str| -> String {
+    let exact = |v: &Value, key: &str, max: usize| -> Option<String> {
+        let text = v.get(key)?.as_str()?;
+        (!text.is_empty() && text.chars().count() <= max).then(|| text.to_owned())
+    };
+    let shown = |v: &Value, key: &str| -> String {
         v.get(key)
             .and_then(Value::as_str)
             .unwrap_or_default()
@@ -330,27 +341,25 @@ fn questions_of(ev: &HookEvent) -> Vec<Question> {
             .collect()
     };
 
-    raw.iter()
-        .take(MAX_QUESTIONS)
-        .filter_map(|q| {
-            let question = text(q, "question");
-            let options: Vec<QuestionOption> = q
-                .get("options")
-                .and_then(Value::as_array)?
-                .iter()
-                .take(MAX_OPTIONS)
-                .map(|o| QuestionOption {
-                    label: text(o, "label"),
-                    description: text(o, "description"),
-                })
-                .filter(|o| !o.label.is_empty())
-                .collect();
-            if question.is_empty() || options.is_empty() {
+    let questions: Option<Vec<Question>> = raw
+        .iter()
+        .map(|q| {
+            let options = q.get("options")?.as_array()?;
+            if options.is_empty() || options.len() > MAX_OPTIONS {
                 return None;
             }
+            let options = options
+                .iter()
+                .map(|o| {
+                    Some(QuestionOption {
+                        label: exact(o, "label", MAX_TEXT_CHARS)?,
+                        description: shown(o, "description"),
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?;
             Some(Question {
-                question,
-                header: text(q, "header"),
+                question: exact(q, "question", MAX_QUESTION_CHARS)?,
+                header: shown(q, "header"),
                 options,
                 multi_select: q
                     .get("multiSelect")
@@ -358,7 +367,17 @@ fn questions_of(ev: &HookEvent) -> Vec<Question> {
                     .unwrap_or(false),
             })
         })
-        .collect()
+        .collect();
+    let questions = questions.unwrap_or_default();
+    let unique = questions
+        .iter()
+        .enumerate()
+        .all(|(i, q)| questions[..i].iter().all(|p| p.question != q.question));
+    if unique {
+        questions
+    } else {
+        Vec::new()
+    }
 }
 
 /// The rule a request generalizes to, or `None` when no safe rule exists.
@@ -806,6 +825,45 @@ mod tests {
             Registered::Skip
         ));
         assert!(q.pending().is_empty());
+    }
+
+    #[test]
+    fn questions_the_card_cannot_show_whole_go_to_the_terminal() {
+        let opt = r#"{"label":"Yes"}"#;
+        let question = |text: &str| format!(r#"{{"question":{text:?},"options":[{opt}]}}"#);
+        let long_label = format!(
+            r#"[{{"question":"Pick","options":[{{"label":"{}"}}]}}]"#,
+            "x".repeat(301)
+        );
+        for questions in [
+            // Longer than the card keeps: the answer would come back under another key.
+            format!("[{}]", question(&"q".repeat(1001))),
+            long_label,
+            // Two questions with one text would share one answer.
+            format!("[{},{}]", question("Same?"), question("Same?")),
+            // One bad question must not leave a card with only the others.
+            format!(
+                r#"[{},{{"question":"Empty label?","options":[{{"label":""}}]}}]"#,
+                question("Fine?")
+            ),
+            format!("[{}]", vec![question("Many?"); 5].join(",")),
+        ] {
+            let ev = question_event("PreToolUse", &questions);
+            assert!(
+                matches!(q_register(&ev), Registered::Skip),
+                "{questions:.80} must go to the terminal"
+            );
+        }
+        // A long question that still fits is shown whole.
+        let fits = format!("[{}]", question(&"q".repeat(1000)));
+        let Registered::Card(card) = q_register(&question_event("PreToolUse", &fits)) else {
+            panic!("a question of 1000 characters must still be a card");
+        };
+        assert_eq!(card.questions[0].question.chars().count(), 1000);
+    }
+
+    fn q_register(ev: &HookEvent) -> Registered {
+        ApprovalQueue::new().register(ev, "q".into(), 0)
     }
 
     #[test]
