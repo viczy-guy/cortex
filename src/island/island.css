@@ -335,5 +335,7 @@ body {
 .github-repo { color: var(--text-dim); font-family: var(--font-mono); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 35%; }
 .github-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .github-tag { color: var(--text-dim); background: var(--btn-neutral-bg); border-radius: 4px; padding: 1px 3px; font-size: 9px; flex: none; }
+.github-group { display: flex; flex-direction: column; gap: 4px; }
+.github-account { font-weight: 600; }
 .github-section { color: var(--text-dim); font-size: 11px; font-weight: 600; }
 .github-more { color: var(--text-faint); font-size: 11px; }

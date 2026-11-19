@@ -20,7 +20,7 @@ import {
   STATE_EVENT,
 } from "../shared/ipc";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
-import { githubCard, githubPill } from "./github";
+import { githubCard, githubPill, shownAccounts } from "./github";
 import { type Onboarding, onboardingCard } from "./onboarding";
 
 /** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
@@ -150,10 +150,11 @@ function setHovered(inside: boolean): void {
 function bar(): HTMLElement {
   const node = el("div", "bar");
   node.append(el("span", "brand-dot"));
+  const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
 
   if (snapshot.sessions.length === 0 && snapshot.approvals.length === 0) {
     node.append(el("span", "bar-idle", "cortex"));
-    if (github?.enabled && github.summary) node.append(githubPill(github.summary, () => {
+    if (accounts.length > 0) node.append(githubPill(accounts, () => {
       expanded = !expanded;
       autoExpanded = false;
       render();
@@ -168,7 +169,7 @@ function bar(): HTMLElement {
   for (const session of snapshot.sessions.slice(0, 3)) {
     node.append(pill(session));
   }
-  if (github?.enabled && github.summary) node.append(githubPill(github.summary));
+  if (accounts.length > 0) node.append(githubPill(accounts));
   node.append(settingsButton());
   node.addEventListener("click", () => {
     expanded = !expanded;
@@ -210,7 +211,8 @@ function panelContent(): HTMLElement[] {
   const cards = snapshot.approvals.map((approval) =>
     approval.questions.length > 0 ? questionCard(approval, render) : approvalCard(approval),
   );
-  return [...cards, ...snapshot.sessions.map(sessionCard), ...(github?.enabled && github.summary ? [githubCard(github.summary)] : [])];
+  const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
+  return [...cards, ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
 }
 
 /** Size the window to what is drawn, so no invisible area eats clicks. */

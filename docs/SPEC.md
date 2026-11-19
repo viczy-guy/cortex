@@ -101,17 +101,27 @@ The gear in the island opens a separate, opaque Settings window:
 
 ## GitHub
 
-Opt-in in Settings, off by default. Cortex reads through the user's signed-in
-GitHub CLI (`gh`), never stores a token, and checks every 3 minutes while on
-(or when Refresh now is clicked). Off means no polling or timers.
+Opt-in in Settings, off by default. Cortex reads up to 10 github.com accounts
+from the GitHub CLI (`gh`). Accounts are shown by default and can be hidden in
+Settings. Cortex checks shown accounts every 3 minutes while on (or when
+Refresh now is clicked). Off means no polling or timers.
 
-The island pill shows requested review and failing own-PR counts, falling back
-to the open-PR count. Its expanded GitHub card lists requested reviews and own
-pull requests with checks, draft and review status. It preserves the last good
-data after a fetch error. GitHub does not change when the island folds.
+The island pill totals requested reviews, failing own PRs, and open PRs across
+shown accounts. Its expanded GitHub card groups requested reviews and own pull
+requests by account and shows checks, draft and review status. Each account
+keeps its last good data after a fetch error. GitHub does not change when the
+island folds.
 
-Only `https://github.com/` links present in the current summary can be opened,
-through the OS with the URL as one argument and no shell.
+Settings can run gh's browser sign-in, show its one-time code, and restore the
+previous active gh account after adding an account. If gh is missing, Settings
+offers to install it with Homebrew on macOS or winget on Windows when available,
+or links to the GitHub CLI site. Cortex validates each account token and passes
+it only in the environment of that account's single `gh api graphql` child,
+without storing or logging it.
+
+Cortex opens GitHub links from the current summaries, the fixed GitHub device
+login page, and the GitHub CLI site through the OS with the URL as one argument
+and no shell.
 
 ## Resource budget (enforced, not aspirational)
 

@@ -25,7 +25,7 @@ What is planned beyond the current version. Order within a section is not a comm
 - [x] GitHub integration (PRs, requested reviews, CI status), read through `gh` — first service pill
 - [x] Clicking anywhere outside the island folds it, even with a card waiting;
       the folded island shows that something waits, and hover brings it back
-- [ ] GitHub, several accounts: every account signed in to `gh`, each in its
+- [x] GitHub, several accounts: every account signed in to `gh`, each in its
       own group; "Sign in to GitHub" (gh's browser login — no token to create
       or paste) and "Install GitHub CLI" when `gh` is missing (ADR 0005)
 
