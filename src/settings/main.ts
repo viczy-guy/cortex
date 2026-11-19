@@ -5,7 +5,7 @@ import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
   api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL,
-  type GithubStatus,
+  type GithubStatus, UPDATES_EVENT, type UpdateStatus,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
 import { alwaysScope } from "../shared/rules";
@@ -21,6 +21,7 @@ function section(title: string): HTMLElement {
 const hooksBlock = section("Claude Code");
 const rulesBlock = section("Always rules");
 const githubBlock = section("GitHub");
+const updatesBlock = section("Updates");
 const aboutBlock = section("About");
 let status: HooksStatus | null = null;
 let rules: AlwaysRule[] = [];
@@ -29,6 +30,9 @@ let github: GithubStatus | null = null;
 let githubBusy = false;
 let githubRevision = 0;
 let githubError: string | null = null;
+let updates: UpdateStatus | null = null;
+let updatesBusy = false;
+let updatesError: string | null = null;
 let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
 type HookFlow =
@@ -266,6 +270,50 @@ async function changeGithub(change: () => Promise<void>): Promise<void> {
   }
 }
 
+function renderUpdates(): void {
+  updatesBlock.replaceChildren(
+    el("div", "note", "When on, Cortex asks GitHub for a new release at launch and every 6 hours, and sends nothing else. An update is installed only if it carries Cortex's signature, and only when you click Update and restart."),
+  );
+  if (updates) {
+    const { enabled, state, version, message } = updates;
+    const labels = {
+      unsupported: "Not available for this package: update it with your package manager.",
+      off: "Off",
+      idle: "On · up to date",
+      checking: "Checking…",
+      downloading: `Downloading Cortex ${version ?? ""}…`,
+      ready: `Cortex ${version ?? ""} is ready`,
+      error: message ?? "Update check failed",
+    };
+    const row = el("div", "status-row");
+    row.append(el("span", state === "idle" || state === "ready" ? "status-dot connected" : "status-dot"), el("span", undefined, labels[state]));
+    updatesBlock.append(row);
+    if (state !== "unsupported") {
+      const actions = el("div", "actions");
+      if (state === "ready") actions.append(button("btn-allow", "Update and restart", () => void changeUpdates(api.updatesInstall)));
+      const on = enabled === true;
+      actions.append(button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeUpdates(() => api.updatesSetEnabled(!on))));
+      actions.querySelectorAll("button").forEach((node) => { node.disabled = updatesBusy; });
+      updatesBlock.append(actions);
+    }
+  }
+  if (updatesError) updatesBlock.append(el("div", "note note-error", updatesError));
+}
+async function changeUpdates(change: () => Promise<void>): Promise<void> {
+  if (updatesBusy) return;
+  updatesBusy = true;
+  updatesError = null;
+  renderUpdates();
+  try {
+    await change();
+  } catch (error) {
+    updatesError = String(error);
+  } finally {
+    updatesBusy = false;
+    renderUpdates();
+  }
+}
+
 async function start(): Promise<void> {
   // Subscribe before loading; an event received during a load is fresher.
   let githubChanged = false;
@@ -274,6 +322,12 @@ async function start(): Promise<void> {
     githubRevision++;
     github = event.payload;
     renderGithub();
+  });
+  let updatesChanged = false;
+  await listen<UpdateStatus>(UPDATES_EVENT, (event) => {
+    updatesChanged = true;
+    updates = event.payload;
+    renderUpdates();
   });
   let hooksChanged = false;
   let rulesChanged = false;
@@ -288,6 +342,7 @@ async function start(): Promise<void> {
     renderRules();
   });
   await Promise.all([
+    api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch((error: unknown) => { updatesError = String(error); }).finally(renderUpdates),
     api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch((error: unknown) => { githubError = String(error); }).finally(renderGithub),
     api.hooksStatus().then((value) => { if (!hooksChanged) status = value; }).catch((error: unknown) => {
       flow = { phase: "error", message: String(error) };

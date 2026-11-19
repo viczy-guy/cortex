@@ -97,6 +97,8 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
+- **Updates** turns the update check on or off and offers **Update and
+  restart** once a verified update is ready.
 - **About** shows the app version, its local-only policy, and Quit Cortex.
 
 ## GitHub
@@ -122,6 +124,25 @@ without storing or logging it.
 Cortex opens GitHub links from the current summaries, the fixed GitHub device
 login page, and the GitHub CLI site through the OS with the URL as one argument
 and no shell.
+
+## Updates
+
+Opt-in (ADR 0004). On first launch the island asks once, "Check for updates
+automatically?"; until the answer is Yes, Cortex makes no update request. The
+answer can be changed in Settings → Updates.
+
+While on, Cortex fetches the release manifest (`latest.json` of the latest
+published GitHub release) at launch and every 6 hours, and sends nothing but that
+request. A newer version is downloaded in the background and verified against
+the minisign public key compiled into the app; the signature must also name the
+announced version, so a tampered manifest cannot downgrade to an older signed
+build. A package that fails verification is discarded and reported in Settings.
+
+A verified update waits for a click on **Update and restart**, in Settings or as
+a chip in the island bar. Cortex never restarts on its own, and the chip is not
+offered (and the command refuses) while an approval card is waiting. On Linux,
+only the AppImage updates itself; `.deb` and `.rpm` installs show the setting as
+unavailable and update through the package manager.
 
 ## Resource budget (enforced, not aspirational)
 

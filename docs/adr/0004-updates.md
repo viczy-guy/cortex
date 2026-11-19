@@ -26,6 +26,26 @@ end to end yet.
    on its own, so it is a visible setting ("Check for updates"), off until the
    user turns it on, and it sends nothing but the request for the manifest.
 
+## Amendment · 2026-11-18
+
+Point 1 is superseded: the repository is public, so v0.1.0 already ships the
+signed updater of point 2, and every later version installs itself. Point 3
+stands, made concrete: the island asks once on first launch, nothing is
+requested before a Yes, and the answer can be changed in Settings. The update is
+downloaded in the background and installed only on a click ("Update and
+restart"), never over a waiting approval card.
+
+Also decided:
+
+- **Signed versions.** `requireSignedVersion` is on from the first release: the
+  signature names the version it was made for, which blocks a downgrade through
+  a tampered manifest.
+- **The build never sees the key.** CI builds unsigned, then a separate step
+  runs only `tauri signer sign` with the key in its environment, so no build
+  script or dependency can read it.
+- **Linux: AppImage only.** `.deb` and `.rpm` belong to the package manager;
+  those installs do not offer the update check.
+
 ## Consequences
 
 - Until step 2, users update by downloading a new installer. Acceptable while

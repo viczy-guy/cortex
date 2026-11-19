@@ -372,10 +372,7 @@ pub fn github_set_enabled(
     state: State<'_, GithubState>,
 ) -> Result<(), String> {
     let mut inner = state.lock();
-    let mut prefs = inner.prefs.clone();
-    prefs.github = enabled;
-    prefs::save(&prefs)?;
-    inner.prefs = prefs;
+    inner.prefs = prefs::update(|p| p.github = enabled)?;
     inner.revision += 1;
     inner.status.enabled = enabled;
     inner.status.state = if enabled { "checking" } else { "off" };
@@ -412,8 +409,7 @@ pub fn github_set_account_shown(
         }
         prefs.github_hidden.push(login.clone());
     }
-    prefs::save(&prefs)?;
-    inner.prefs = prefs;
+    inner.prefs = prefs::update(|p| p.github_hidden = prefs.github_hidden)?;
     inner.revision += 1;
     if let Some(account) = inner
         .status
