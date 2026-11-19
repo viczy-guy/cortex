@@ -35,5 +35,7 @@ follows [Semantic Versioning](https://semver.org).
 
 ### Security
 - An Always rule for a shell command covers one program and never a command
-  line that chains, pipes, redirects or substitutes; such commands always ask.
+  line that chains, pipes, redirects or substitutes, nor a command runner
+  under any path or case (`/bin/bash`, `BASH`); such commands always ask. A
+  card that shows no target (an MCP tool, say) offers no Always.
 - The island's web view can no longer move or resize windows.
