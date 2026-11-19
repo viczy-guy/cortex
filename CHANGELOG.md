@@ -32,13 +32,22 @@ follows [Semantic Versioning](https://semver.org).
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
 ### Fixed
+- A question longer than 300 characters, or two questions with the same text,
+  could send the answer back under the wrong key or leave the card stuck;
+  such requests now go to the terminal, and questions up to 1000 characters
+  are shown whole.
+- Installing or removing the hooks through a `settings.json` that is a link
+  (dotfiles) writes the linked file and keeps the link, and the temporary file
+  is private from the start.
 - A question card no longer vanishes before you can answer it: the island
   waits up to 110 s (was 50 s). Settings flags hooks installed by an older
   version and offers "Update hooks…".
 
 ### Security
 - An Always rule for a shell command covers one program and never a command
-  line that chains, pipes, redirects or substitutes; such commands always ask.
+  line that chains, pipes, redirects or substitutes, nor a command runner
+  under any path or case (`/bin/bash`, `BASH`); such commands always ask. A
+  card that shows no target (an MCP tool, say) offers no Always.
 - The island's web view can no longer move or resize windows.
 - Each window can call only the app commands it uses: the island cannot quit,
   uninstall hooks or change rules, and Settings cannot answer approval cards.

@@ -114,7 +114,15 @@ fn apply_at(
         None
     };
 
-    write_atomic(settings_path, &proposed).map_err(|e| format!("write failed: {e}"))?;
+    // A linked settings file (dotfiles) is written where it lives: replacing
+    // the link would silently cut it off from its repository.
+    let target = if settings_path.is_symlink() {
+        std::fs::canonicalize(settings_path)
+            .map_err(|e| format!("cannot follow the link {}: {e}", settings_path.display()))?
+    } else {
+        settings_path.to_path_buf()
+    };
+    write_atomic(&target, &proposed).map_err(|e| format!("write failed: {e}"))?;
     Ok(Installed { backup_path })
 }
 
@@ -190,17 +198,14 @@ fn read_settings(path: &Path) -> Result<(String, Value), String> {
 }
 
 fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("settings path has no parent"))?;
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".settings.json.cortex-tmp-{}", std::process::id()));
-    std::fs::write(&tmp, contents)?;
-    // Keep the original file's permissions when there is one.
-    if let Ok(meta) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    let original = std::fs::metadata(path).ok();
+    // Private from its creation, since the settings may hold secrets in
+    // `env`; the original's permissions come back once the content is in place.
+    crate::files::write_private(path, contents.as_bytes())?;
+    if let Some(meta) = original {
+        let _ = std::fs::set_permissions(path, meta.permissions());
     }
-    std::fs::rename(&tmp, path)
+    Ok(())
 }
 
 fn token_of(text: &str) -> String {
@@ -400,6 +405,42 @@ mod tests {
         assert_eq!(
             std::fs::read_dir(file.0.parent().unwrap()).unwrap().count(),
             1
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_settings_file_is_written_through_its_link() {
+        let file = TempSettings::new("{}");
+        let real = file.0.with_file_name("dotfiles-settings.json");
+        std::fs::rename(&file.0, &real).unwrap();
+        std::os::unix::fs::symlink(&real, &file.0).unwrap();
+        let review = preview_at(&file.0, installed_text).unwrap();
+        let installed = apply_at(&file.0, &review.token, installed_text).unwrap();
+        assert!(file.0.is_symlink(), "the link must stay a link");
+        assert!(std::fs::read_to_string(&real)
+            .unwrap()
+            .contains("cortex-hook"));
+        assert_eq!(
+            std::fs::read_to_string(installed.backup_path.unwrap()).unwrap(),
+            "{}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn written_settings_keep_their_permissions_and_leave_no_temporary_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let file = TempSettings::new("{}");
+        std::fs::set_permissions(&file.0, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let review = preview_at(&file.0, installed_text).unwrap();
+        apply_at(&file.0, &review.token, installed_text).unwrap();
+        let mode = std::fs::metadata(&file.0).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        // The settings file and its backup, nothing else.
+        assert_eq!(
+            std::fs::read_dir(file.0.parent().unwrap()).unwrap().count(),
+            2
         );
     }
 

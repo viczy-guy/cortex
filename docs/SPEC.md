@@ -48,8 +48,8 @@ Sessions stale for 30 min with no events are garbage-collected.
 
 ## Approvals
 
-- A `PermissionRequest` shows a card: tool, detail (command / file path),
-  **Allow / Deny / Always** and "Answer in terminal".
+- A `PermissionRequest` shows a card: tool, detail (command / file path /
+  notebook path / URL), **Allow / Deny / Always** and "Answer in terminal".
 - An `Edit` card shows the exact change and a `Write` card the whole new
   content, as a line diff (at most 300 lines; the rest is counted, and the
   terminal shows it all). Redraws keep the scroll position.
@@ -63,10 +63,12 @@ Sessions stale for 30 min with no events are garbage-collected.
   - Shell commands generalize to their program: Always on `cargo test` allows
     every `cargo …`. Only a single plain command can create or match a rule —
     a line with chaining, pipes, redirection, substitution (`; & | < > $ ( )`
-    `{ }`, backticks, backslash, newline), a `VAR=value` prefix or a command
-    runner (`sudo`, `sh`, `env`, `xargs`, …) always shows a card and offers no
-    Always.
-  - Every other tool must match its detail exactly.
+    `{ }`, backticks, backslash, newline), a `VAR=value` prefix, a program
+    word with a glob, quotes or `~`, or a command runner (`sudo`, `sh`, `env`,
+    `xargs`, …, under any path, case or `.exe` suffix: `/bin/bash`, `BASH`)
+    always shows a card and offers no Always.
+  - Every other tool must match its detail exactly; a card that shows no
+    detail (an MCP tool, say) offers no Always.
   - Rules persist in `rules.json` in the app data directory, are re-validated
     on load, and can be reviewed and removed in Settings.
 
@@ -77,6 +79,11 @@ or multi-select, up to 4 questions, 8 options each). A lone single-choice
 question is answered by one click; otherwise "Send answer" enables once every
 question has a choice. Answers are validated in Rust against the card's own
 options before anything is sent. "Answer in terminal" returns no decision.
+
+The question texts and option labels are the keys of the answer, so a card
+appears only when it can show every question whole: at most 1000 characters
+per question and 300 per label, no two questions with the same text, and no
+invalid question among them. Anything else is left to the terminal.
 
 ## Hook installer
 
