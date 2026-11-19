@@ -145,8 +145,13 @@ const SHELL_META: &[char] = &[
 /// where the program name says nothing about what runs.
 const COMMAND_RUNNERS: &[&str] = &[
     "sudo", "doas", "su", "env", "sh", "bash", "zsh", "fish", "dash", "ksh", "eval", "exec",
-    "command", "builtin", "xargs", "nohup", "time", "timeout", "nice", "watch", "ssh",
+    "command", "builtin", "xargs", "nohup", "time", "timeout", "nice", "watch", "ssh", ".",
+    "source",
 ];
+
+/// Characters that make the program word stand for something else: an
+/// assignment, a glob, quoting or a home-relative path.
+const PROGRAM_EXPANSIONS: &[char] = &['=', '*', '?', '[', ']', '\'', '"', '~'];
 
 #[derive(Debug, Default)]
 pub struct ApprovalQueue {
@@ -276,6 +281,7 @@ fn detail_of(ev: &HookEvent) -> String {
     let get = |key: &str| input.and_then(|i| i.get(key)).and_then(Value::as_str);
     get("command")
         .or_else(|| get("file_path"))
+        .or_else(|| get("notebook_path"))
         .or_else(|| get("url"))
         .map(str::to_owned)
         .unwrap_or_default()
@@ -391,10 +397,20 @@ fn rule_for(tool_name: &str, detail: &str) -> Option<AlwaysRule> {
         }
         let program = detail.split_whitespace().next()?;
         // `VAR=value cmd`: the first word is not the program that runs.
-        if program.contains('=') || COMMAND_RUNNERS.contains(&program) {
+        if program.contains(PROGRAM_EXPANSIONS) {
+            return None;
+        }
+        // `/bin/bash`, `bash.exe` and, on a case-insensitive disk, `BASH`
+        // all run the same runner.
+        let name = program.rsplit('/').next().unwrap_or(program).to_lowercase();
+        let name = name.strip_suffix(".exe").unwrap_or(&name);
+        if COMMAND_RUNNERS.contains(&name) {
             return None;
         }
         program.to_owned()
+    } else if detail.is_empty() {
+        // The card showed no target, so a rule would cover every call.
+        return None;
     } else {
         detail.to_owned()
     };
@@ -436,16 +452,10 @@ mod tests {
         .to_string();
         assert_eq!(
             rules_from_json(&text),
-            vec![
-                AlwaysRule {
-                    tool_name: tool,
-                    pattern
-                },
-                AlwaysRule {
-                    tool_name: "Read".into(),
-                    pattern: String::new()
-                },
-            ]
+            vec![AlwaysRule {
+                tool_name: tool,
+                pattern
+            }]
         );
     }
 
@@ -460,6 +470,51 @@ mod tests {
         ] {
             assert!(rules_from_json(text).is_empty());
         }
+    }
+
+    #[test]
+    fn stored_rules_without_a_target_or_for_a_runner_path_are_dropped() {
+        let rules = vec![
+            AlwaysRule {
+                tool_name: "mcp__fs__write".into(),
+                pattern: String::new(),
+            },
+            AlwaysRule {
+                tool_name: "Bash".into(),
+                pattern: "/bin/bash".into(),
+            },
+            AlwaysRule {
+                tool_name: "Bash".into(),
+                pattern: "/usr/bin/cargo".into(),
+            },
+        ];
+        assert_eq!(
+            rules_from_json(&rules_to_json(&rules)),
+            vec![rules[2].clone()]
+        );
+    }
+
+    #[test]
+    fn a_tool_whose_card_shows_no_target_offers_no_always() {
+        let mut q = ApprovalQueue::new();
+        let mcp = edit_event("mcp__fs__write", serde_json::json!({"path": "/etc/hosts"}));
+        let Registered::Card(card) = q.register(&mcp, "r1".into(), 0) else {
+            panic!("expected a card");
+        };
+        assert_eq!((card.detail.as_str(), card.always_rule), ("", None));
+
+        let notebook = edit_event(
+            "NotebookEdit",
+            serde_json::json!({"notebook_path": "/w/a.ipynb"}),
+        );
+        let Registered::Card(card) = q.register(&notebook, "r2".into(), 0) else {
+            panic!("expected a card");
+        };
+        assert_eq!(card.detail, "/w/a.ipynb");
+        assert_eq!(
+            card.always_rule.map(|r| r.pattern),
+            Some("/w/a.ipynb".into())
+        );
     }
 
     #[test]
@@ -673,6 +728,17 @@ mod tests {
             "sh -c 'cargo test'",
             "env cargo test",
             "",
+            // A runner by path, case, suffix, glob or quotes is still a runner.
+            "/bin/bash -c 'rm -rf ~'",
+            "/usr/bin/env rm -rf x",
+            "./sh x",
+            "BASH -c ls",
+            "bash.exe -c ls",
+            "/bin/ba* -c ls",
+            "\"bash\" -c ls",
+            "~/bin/tool x",
+            ". ./evil.sh",
+            "source evil.sh",
         ]
         .into_iter()
         .enumerate()
