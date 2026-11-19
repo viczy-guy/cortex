@@ -29,6 +29,9 @@ follows [Semantic Versioning](https://semver.org).
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
 ### Fixed
+- Installing or removing the hooks through a `settings.json` that is a link
+  (dotfiles) writes the linked file and keeps the link, and the temporary file
+  is private from the start.
 - A question card no longer vanishes before you can answer it: the island
   waits up to 110 s (was 50 s). Settings flags hooks installed by an older
   version and offers "Update hooks…".
