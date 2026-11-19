@@ -40,9 +40,17 @@ Also decided:
 - **Signed versions.** `requireSignedVersion` is on from the first release: the
   signature names the version it was made for, which blocks a downgrade through
   a tampered manifest.
-- **The build never sees the key.** CI builds unsigned, then a separate step
-  runs only `tauri signer sign` with the key in its environment, so no build
-  script or dependency can read it.
+- **The build never sees the key.** CI builds unsigned; a separate job on a
+  clean machine installs the Tauri CLI from the lockfile without install
+  scripts and is the only one that gets the key, so no build script or
+  dependency code runs where the key is. The key lives in the `release`
+  environment, which only `main` and `v*` tags can use, so a branch with an
+  edited workflow cannot read it.
+- **The release checks its own signatures.** Before anything is uploaded, each
+  package is verified against the public key in `tauri.conf.json`
+  (`scripts/verify-update-signatures.mjs`): a secret that does not match the
+  key built into the app fails the release instead of shipping updates every
+  installed app would reject.
 - **Linux: AppImage only.** `.deb` and `.rpm` belong to the package manager;
   those installs do not offer the update check.
 

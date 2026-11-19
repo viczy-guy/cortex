@@ -6,8 +6,11 @@ name: Release
 # Running it by hand (workflow_dispatch) only builds and signs the installers:
 # a dry run that publishes nothing.
 #
-# Update signing (ADR 0004): the build runs without the signing key; only the
-# "Sign the update packages" step, which runs nothing but the Tauri CLI, gets it.
+# Update signing (ADR 0004): no machine that ran the build sees the signing
+# key. The `sign` job starts clean, installs the Tauri CLI from the lockfile
+# without install scripts, signs the downloaded packages, checks them against
+# the public key built into the app and uploads only the signatures. Its
+# secrets live in the `release` environment, open only to `main` and `v*` tags.
 
 on:
   push:
@@ -91,20 +94,6 @@ jobs:
           ls -l out
           test -n "$(ls -A out)"
 
-      - name: Sign the update packages
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          for f in out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe; do
-            [ -e "$f" ] || continue
-            # --app-version binds the signature to the version (requireSignedVersion).
-            npx --no-install tauri signer sign --app-version "$version" "$f"
-          done
-          ls -l out/*.sig
-
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.target }}
@@ -112,9 +101,61 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  sign:
+    name: Sign the update packages
+    needs: bundle
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tauri CLI from the lockfile, without install scripts
+        run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          pattern: installers-*
+          merge-multiple: true
+
+      - name: Sign
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          shopt -s nullglob
+          packages=(out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe)
+          [ "${#packages[@]}" -gt 0 ] || { echo "::error::no update packages"; exit 1; }
+          for f in "${packages[@]}"; do
+            # --app-version binds the signature to the version (requireSignedVersion).
+            npx --no-install tauri signer sign --app-version "$version" "$f"
+          done
+
+      - name: The signatures match the key built into the app
+        shell: bash
+        run: |
+          shopt -s nullglob
+          node scripts/verify-update-signatures.mjs \
+            out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signatures
+          path: out/*.sig
+          if-no-files-found: error
+          retention-days: 7
+
   draft-release:
     name: Draft release
-    needs: bundle
+    needs: [bundle, sign]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     # The only job that can write, and it runs no project code.
@@ -124,7 +165,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: out
-          pattern: installers-*
           merge-multiple: true
 
       - name: Update manifest

@@ -21,7 +21,7 @@ a gatekeeper, and is designed as one:
 | Secrets | OS vault only (Keychain / Credential Manager / Secret Service). Never on disk, never in logs, never in git. |
 | Network | None, except services you explicitly configure, and the update check if you said yes to it (one request for the release manifest, at launch and every 6 hours). No telemetry, no account. |
 | Supply chain | Minimal, established dependencies; lockfiles committed; `cargo audit`, `cargo deny` and `npm audit` run in CI and fail the build on known vulnerabilities. |
-| Updates | Opt-in. Update packages are signed with the project key (bound to their version) and verified before install; the key never reaches the build. Installed only on your click, never over a waiting card. SHA-256 checksums published with every release. |
+| Updates | Opt-in. Update packages are signed with the project key (bound to their version) and verified before install; the key never reaches the build machines and every signature is checked against the app's key before release. Installed only on your click, never over a waiting card. SHA-256 checksums published with every release. |
 
 ## What Cortex never does
 
