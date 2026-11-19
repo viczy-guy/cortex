@@ -29,6 +29,10 @@ follows [Semantic Versioning](https://semver.org).
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
 ### Fixed
+- A question longer than 300 characters, or two questions with the same text,
+  could send the answer back under the wrong key or leave the card stuck;
+  such requests now go to the terminal, and questions up to 1000 characters
+  are shown whole.
 - A question card no longer vanishes before you can answer it: the island
   waits up to 110 s (was 50 s). Settings flags hooks installed by an older
   version and offers "Update hooks…".

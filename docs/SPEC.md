@@ -78,6 +78,11 @@ question is answered by one click; otherwise "Send answer" enables once every
 question has a choice. Answers are validated in Rust against the card's own
 options before anything is sent. "Answer in terminal" returns no decision.
 
+The question texts and option labels are the keys of the answer, so a card
+appears only when it can show every question whole: at most 1000 characters
+per question and 300 per label, no two questions with the same text, and no
+invalid question among them. Anything else is left to the terminal.
+
 ## Hook installer
 
 When the hooks are missing, the idle island offers **Connect Claude Code**. It
