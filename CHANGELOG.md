@@ -39,3 +39,5 @@ follows [Semantic Versioning](https://semver.org).
   under any path or case (`/bin/bash`, `BASH`); such commands always ask. A
   card that shows no target (an MCP tool, say) offers no Always.
 - The island's web view can no longer move or resize windows.
+- Each window can call only the app commands it uses: the island cannot quit,
+  uninstall hooks or change rules, and Settings cannot answer approval cards.

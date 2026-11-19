@@ -1,6 +1,26 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings-capability",
+  "description": "Settings: hooks, Always rules, GitHub and quit. It cannot answer approval or question cards.",
   "windows": ["settings"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-github-status",
+    "allow-github-set-enabled",
+    "allow-github-refresh",
+    "allow-github-set-account-shown",
+    "allow-github-sign-in",
+    "allow-github-install",
+    "allow-github-cancel-task",
+    "allow-open-url",
+    "allow-quit",
+    "allow-rules-list",
+    "allow-rule-remove",
+    "allow-rules-clear",
+    "allow-hooks-status",
+    "allow-hooks-preview",
+    "allow-hooks-install",
+    "allow-hooks-uninstall-preview",
+    "allow-hooks-uninstall"
+  ]
 }
