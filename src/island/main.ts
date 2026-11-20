@@ -52,6 +52,8 @@ let hovered = false;
 let hideTimer: number | undefined;
 /** Cards folded away by a click outside the island; a new card opens it again. */
 let dismissed = new Set<string>();
+/** The handle on screen (`true` = a card waits), or `null` while unfolded. */
+let folded: boolean | null = null;
 
 /**
  * No card demanding eyes and nobody looking: the island folds into its handle,
@@ -81,10 +83,16 @@ function render(): void {
   if (hidden) {
     expanded = false;
     autoExpanded = false;
-    root.replaceChildren(handle(pending.size > 0));
+    const waiting = pending.size > 0;
+    // Same handle: paint nothing. Each paint with the screen locked keeps WebKit
+    // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
+    if (folded === waiting) return;
+    folded = waiting;
+    root.replaceChildren(handle(waiting));
     void api.islandFit(HANDLE_WIDTH, HANDLE_HEIGHT);
     return;
   }
+  folded = null;
 
   const hasCards = snapshot.approvals.length > 0;
   // A card demands eyes: open the panel, and fold it back once the card is
