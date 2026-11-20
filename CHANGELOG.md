@@ -7,6 +7,9 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- Signed, opt-in updates: Cortex asks once whether to check for updates,
+  downloads a new release in the background, verifies its signature and
+  installs it only when you click "Update and restart" (Linux: AppImage).
 - GitHub account groups and per-account visibility, browser sign-in from
   Settings, and GitHub CLI installation through Homebrew or winget.
 - A click in another app folds the island, even over a waiting card; the

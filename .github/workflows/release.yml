@@ -3,8 +3,14 @@ name: Release
 # Pushing a tag `vX.Y.Z` builds the installers on the three platforms and
 # attaches them, with their SHA-256 checksums, to a DRAFT GitHub release.
 # A human reviews the draft and publishes it.
-# Running it by hand (workflow_dispatch) only builds the installers: a dry run
-# that publishes nothing.
+# Running it by hand (workflow_dispatch) only builds and signs the installers:
+# a dry run that publishes nothing.
+#
+# Update signing (ADR 0004): no machine that ran the build sees the signing
+# key. The `sign` job starts clean, installs the Tauri CLI from the lockfile
+# without install scripts, signs the downloaded packages, checks them against
+# the public key built into the app and uploads only the signatures. Its
+# secrets live in the `release` environment, open only to `main` and `v*` tags.
 
 on:
   push:
@@ -74,10 +80,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          find "target/${{ matrix.target }}/release/bundle" -type f \
+          bundle="target/${{ matrix.target }}/release/bundle"
+          find "$bundle" -type f \
             \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \
                -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
             -exec cp {} out/ \;
+          # The macOS updater swaps the whole app: a tarball of the bundle, named
+          # per target because both macOS targets build "Cortex.app".
+          if [ -d "$bundle/macos/Cortex.app" ]; then
+            COPYFILE_DISABLE=1 tar -czf "out/Cortex_${{ matrix.target }}.app.tar.gz" \
+              -C "$bundle/macos" Cortex.app
+          fi
           ls -l out
           test -n "$(ls -A out)"
 
@@ -88,9 +101,61 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  sign:
+    name: Sign the update packages
+    needs: bundle
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tauri CLI from the lockfile, without install scripts
+        run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          pattern: installers-*
+          merge-multiple: true
+
+      - name: Sign
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          shopt -s nullglob
+          packages=(out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe)
+          [ "${#packages[@]}" -gt 0 ] || { echo "::error::no update packages"; exit 1; }
+          for f in "${packages[@]}"; do
+            # --app-version binds the signature to the version (requireSignedVersion).
+            npx --no-install tauri signer sign --app-version "$version" "$f"
+          done
+
+      - name: The signatures match the key built into the app
+        shell: bash
+        run: |
+          shopt -s nullglob
+          node scripts/verify-update-signatures.mjs \
+            out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signatures
+          path: out/*.sig
+          if-no-files-found: error
+          retention-days: 7
+
   draft-release:
     name: Draft release
-    needs: bundle
+    needs: [bundle, sign]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     # The only job that can write, and it runs no project code.
@@ -100,8 +165,31 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: out
-          pattern: installers-*
           merge-multiple: true
+
+      - name: Update manifest
+        working-directory: out
+        run: |
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          # One platform entry: the single file matching the pattern and its signature.
+          entry() {
+            set -- $1
+            [ "$#" -eq 1 ] && [ -f "$1" ] && [ -f "$1.sig" ] || { echo "::error::missing update package: $*" >&2; return 1; }
+            jq -n --arg url "$base/$1" --rawfile sig "$1.sig" '{url: $url, signature: ($sig | rtrimstr("\n"))}'
+          }
+          mac_arm="$(entry 'Cortex_aarch64-apple-darwin.app.tar.gz')"
+          mac_x64="$(entry 'Cortex_x86_64-apple-darwin.app.tar.gz')"
+          linux="$(entry '*.AppImage')"
+          nsis="$(entry '*-setup.exe')"
+          msi="$(entry '*.msi')"
+          jq -n --arg version "${GITHUB_REF_NAME#v}" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson mac_arm "$mac_arm" --argjson mac_x64 "$mac_x64" --argjson linux "$linux" \
+            --argjson nsis "$nsis" --argjson msi "$msi" \
+            '{version: $version, pub_date: $date, platforms: {
+               "darwin-aarch64": $mac_arm, "darwin-x86_64": $mac_x64,
+               "linux-x86_64-appimage": $linux,
+               "windows-x86_64-nsis": $nsis, "windows-x86_64-msi": $msi}}' > latest.json
+          cat latest.json
 
       - name: Checksums
         working-directory: out

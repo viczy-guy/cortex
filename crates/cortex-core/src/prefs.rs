@@ -5,6 +5,8 @@ use serde_json::Value;
 pub struct Prefs {
     pub github: bool,
     pub github_hidden: Vec<String>,
+    /// Signed update checks (ADR 0004); `None` until the user answers the first-run question.
+    pub updates: Option<bool>,
 }
 pub fn prefs_from_json(json: &str) -> Prefs {
     checked_prefs_from_json(json).unwrap_or_default()
@@ -33,14 +35,19 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
                 .collect::<Option<Vec<_>>>()?
         }
     };
+    let updates = match v.get("updates") {
+        None | Some(Value::Null) => None,
+        Some(on) => Some(on.as_bool()?),
+    };
     Some(Prefs {
         github: v["github"].as_bool()?,
         github_hidden,
+        updates,
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates})
         .to_string()
 }
 #[cfg(test)]
@@ -63,6 +70,7 @@ mod tests {
         let p = Prefs {
             github: true,
             github_hidden: vec!["alice".into(), "Bob-2".into()],
+            ..Prefs::default()
         };
         assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
         for hidden in [
@@ -78,12 +86,28 @@ mod tests {
     }
 
     #[test]
+    fn the_update_answer_round_trips_and_absent_means_not_asked() {
+        for updates in [None, Some(false), Some(true)] {
+            let p = Prefs {
+                updates,
+                ..Prefs::default()
+            };
+            assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        }
+        assert_eq!(
+            prefs_from_json(r#"{"version":1,"github":false}"#).updates,
+            None
+        );
+    }
+
+    #[test]
     fn invalid_preferences_default_to_off() {
         for s in [
             "invalid",
             "{}",
             r#"{"version":2,"github":true}"#,
             r#"{"version":1,"github":"true"}"#,
+            r#"{"version":1,"github":false,"updates":"yes"}"#,
         ] {
             assert_eq!(prefs_from_json(s), Prefs::default());
         }

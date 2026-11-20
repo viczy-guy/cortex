@@ -25,6 +25,9 @@ const COMMANDS: &[&str] = &[
     "hooks_install",
     "hooks_uninstall_preview",
     "hooks_uninstall",
+    "updates_status",
+    "updates_set_enabled",
+    "updates_install",
 ];
 
 fn main() {

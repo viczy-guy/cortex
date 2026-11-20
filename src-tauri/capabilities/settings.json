@@ -21,6 +21,9 @@
     "allow-hooks-preview",
     "allow-hooks-install",
     "allow-hooks-uninstall-preview",
-    "allow-hooks-uninstall"
+    "allow-hooks-uninstall",
+    "allow-updates-status",
+    "allow-updates-set-enabled",
+    "allow-updates-install"
   ]
 }

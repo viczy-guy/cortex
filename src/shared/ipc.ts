@@ -123,7 +123,21 @@ export const OUTSIDE_CLICK_EVENT = "cortex://outside-click";
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
+export interface UpdateStatus {
+  /** `null` until the user answers the first-run question. */
+  enabled: boolean | null;
+  state: "unsupported" | "off" | "idle" | "checking" | "downloading" | "ready" | "error";
+  /** The new version, while it downloads, once it is ready, or when installing it failed. */
+  version: string | null;
+  message: string | null;
+}
+
+export const UPDATES_EVENT = "cortex://updates";
+
 export const api = {
+  updatesStatus: () => invoke<UpdateStatus>("updates_status"),
+  updatesSetEnabled: (enabled: boolean) => invoke<void>("updates_set_enabled", { enabled }),
+  updatesInstall: () => invoke<void>("updates_install"),
   githubStatus: () => invoke<GithubStatus>("github_status"),
   githubSetEnabled: (enabled: boolean) => invoke<void>("github_set_enabled", { enabled }),
   githubSetAccountShown: (login: string, shown: boolean) => invoke<void>("github_set_account_shown", { login, shown }),
