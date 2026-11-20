@@ -29,6 +29,8 @@ follows [Semantic Versioning](https://semver.org).
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
 ### Fixed
+- The folded island no longer repaints on every agent event, which with the
+  screen locked kept WebKit busy at a fraction of a percent of CPU.
 - A question longer than 300 characters, or two questions with the same text,
   could send the answer back under the wrong key or leave the card stuck;
   such requests now go to the terminal, and questions up to 1000 characters
