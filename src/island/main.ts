@@ -18,10 +18,13 @@ import {
   type SessionView,
   type Snapshot,
   STATE_EVENT,
+  UPDATES_EVENT,
+  type UpdateStatus,
 } from "../shared/ipc";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, githubPill, shownAccounts } from "./github";
 import { type Onboarding, onboardingCard } from "./onboarding";
+import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
 /** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
 const WINDOW_WIDTH = 460;
@@ -37,6 +40,8 @@ const root = document.getElementById("island")!;
 let snapshot: Snapshot = { sessions: [], approvals: [] };
 let expanded = false;
 let github: GithubStatus | null = null;
+let updates: UpdateStatus | null = null;
+let updatesError: string | null = null;
 /** True when the panel was opened by an approval, not by the user. */
 let autoExpanded = false;
 /** `null` until Rust answers; the "Connect" chip shows only on a definite `false`. */
@@ -60,6 +65,7 @@ function isHidden(): boolean {
     snapshot.approvals.every((a) => dismissed.has(a.request_id)) &&
     onboarding.phase === "closed" &&
     hooksInstalled !== false &&
+    !askingUpdates(updates) &&
     !hovered
   );
 }
@@ -170,7 +176,7 @@ function bar(): HTMLElement {
     if (hooksInstalled === false && onboarding.phase === "closed") {
       node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
     }
-    node.append(settingsButton());
+    node.append(...updateChips(), settingsButton());
     return node;
   }
 
@@ -178,13 +184,19 @@ function bar(): HTMLElement {
     node.append(pill(session));
   }
   if (accounts.length > 0) node.append(githubPill(accounts));
-  node.append(settingsButton());
+  node.append(...updateChips(), settingsButton());
   node.addEventListener("click", () => {
     expanded = !expanded;
     autoExpanded = false;
     render();
   });
   return node;
+}
+
+/** Never offered over a card: restarting would drop the agent's waiting request. */
+function updateChips(): HTMLElement[] {
+  if (snapshot.approvals.length > 0) return [];
+  return updateChip(updates, () => void installUpdate(), () => void api.openSettings());
 }
 
 function settingsButton(): HTMLButtonElement {
@@ -214,13 +226,14 @@ function panelContent(): HTMLElement[] {
       }),
     ];
   }
-  if (!expanded) return [];
+  const question = askingUpdates(updates) ? [updatesQuestion((enabled) => void answerUpdates(enabled), updatesError)] : [];
+  if (!expanded) return question;
 
   const cards = snapshot.approvals.map((approval) =>
     approval.questions.length > 0 ? questionCard(approval, render) : approvalCard(approval),
   );
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
-  return [...cards, ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
+  return [...question, ...cards, ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
 }
 
 /** Size the window to what is drawn, so no invisible area eats clicks. */
@@ -261,12 +274,39 @@ async function installHooks(token: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Updates
+
+async function answerUpdates(enabled: boolean): Promise<void> {
+  try {
+    await api.updatesSetEnabled(enabled);
+    updatesError = null;
+  } catch (error) {
+    updatesError = String(error);
+  }
+  render();
+}
+
+async function installUpdate(): Promise<void> {
+  try {
+    await api.updatesInstall();
+  } catch {
+    // Rust reports a failed install through the update status ("Update failed").
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
   let githubChanged = false;
   await listen<GithubStatus>(GITHUB_EVENT, (event) => {
     githubChanged = true;
     github = event.payload;
+    render();
+  });
+  let updatesChanged = false;
+  await listen<UpdateStatus>(UPDATES_EVENT, (event) => {
+    updatesChanged = true;
+    updates = event.payload;
     render();
   });
   await listen<HooksStatus>(HOOKS_EVENT, (event) => {
@@ -283,7 +323,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ })]);
+  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ })]);
   render();
 }
 

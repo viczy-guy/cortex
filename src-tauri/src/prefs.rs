@@ -19,7 +19,17 @@ pub fn load() -> Prefs {
         }
     }
 }
-pub fn save(prefs: &Prefs) -> Result<(), String> {
+/// Read, change and save under one lock, so the GitHub and update settings
+/// never overwrite each other's fields.
+pub fn update(change: impl FnOnce(&mut Prefs)) -> Result<Prefs, String> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut prefs = load();
+    change(&mut prefs);
+    save(&prefs)?;
+    Ok(prefs)
+}
+fn save(prefs: &Prefs) -> Result<(), String> {
     crate::files::write_private(
         &crate::hooks::data_dir()?.join("prefs.json"),
         prefs_to_json(prefs).as_bytes(),

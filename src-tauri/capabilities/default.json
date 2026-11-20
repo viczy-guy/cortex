@@ -14,6 +14,9 @@
     "allow-github-status",
     "allow-hooks-status",
     "allow-hooks-preview",
-    "allow-hooks-install"
+    "allow-hooks-install",
+    "allow-updates-status",
+    "allow-updates-set-enabled",
+    "allow-updates-install"
   ]
 }

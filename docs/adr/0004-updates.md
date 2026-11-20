@@ -26,6 +26,34 @@ end to end yet.
    on its own, so it is a visible setting ("Check for updates"), off until the
    user turns it on, and it sends nothing but the request for the manifest.
 
+## Amendment · 2026-11-18
+
+Point 1 is superseded: the repository is public, so v0.1.0 already ships the
+signed updater of point 2, and every later version installs itself. Point 3
+stands, made concrete: the island asks once on first launch, nothing is
+requested before a Yes, and the answer can be changed in Settings. The update is
+downloaded in the background and installed only on a click ("Update and
+restart"), never over a waiting approval card.
+
+Also decided:
+
+- **Signed versions.** `requireSignedVersion` is on from the first release: the
+  signature names the version it was made for, which blocks a downgrade through
+  a tampered manifest.
+- **The build never sees the key.** CI builds unsigned; a separate job on a
+  clean machine installs the Tauri CLI from the lockfile without install
+  scripts and is the only one that gets the key, so no build script or
+  dependency code runs where the key is. The key lives in the `release`
+  environment, which only `main` and `v*` tags can use, so a branch with an
+  edited workflow cannot read it.
+- **The release checks its own signatures.** Before anything is uploaded, each
+  package is verified against the public key in `tauri.conf.json`
+  (`scripts/verify-update-signatures.mjs`): a secret that does not match the
+  key built into the app fails the release instead of shipping updates every
+  installed app would reject.
+- **Linux: AppImage only.** `.deb` and `.rpm` belong to the package manager;
+  those installs do not offer the update check.
+
 ## Consequences
 
 - Until step 2, users update by downloading a new installer. Acceptable while

@@ -9,6 +9,7 @@ mod prefs;
 mod rules;
 mod server;
 mod state;
+mod updates;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -222,10 +223,16 @@ fn main() {
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
 
+    let prefs = prefs::load();
     builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::with_rules(rules::load()))
-        .manage(github::GithubState::new(prefs::load()))
+        .manage(updates::UpdateState::new(prefs.updates))
+        .manage(github::GithubState::new(prefs))
         .invoke_handler(tauri::generate_handler![
+            updates::updates_status,
+            updates::updates_set_enabled,
+            updates::updates_install,
             github::github_status,
             github::github_set_enabled,
             github::github_refresh,
@@ -284,6 +291,7 @@ fn main() {
             }
 
             tauri::async_runtime::spawn(github::poller(handle.clone()));
+            tauri::async_runtime::spawn(updates::checker(handle.clone()));
 
             // The janitor (sleeps whenever the board is empty).
             tauri::async_runtime::spawn(server::janitor(handle));

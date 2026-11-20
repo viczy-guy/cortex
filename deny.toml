@@ -27,6 +27,11 @@ allow = [
   "CC0-1.0",
   "BSL-1.0",
 ]
+# Mozilla's root certificates, as data, for the updater's TLS (ADR 0004).
+# Scoped to this crate so the license never covers code.
+exceptions = [
+  { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+]
 
 [bans]
 multiple-versions = "allow"
