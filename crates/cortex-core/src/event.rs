@@ -84,8 +84,6 @@ pub struct HookEvent {
     pub kind: EventKind,
     pub agent: AgentId,
     pub session_id: String,
-    /// Correlates a blocking event with its decision.
-    pub request_id: Option<String>,
     pub tool_name: Option<String>,
     pub tool_input: Option<Value>,
     pub prompt: Option<String>,
@@ -152,7 +150,6 @@ impl HookEvent {
             kind: EventKind::from_name(name),
             agent,
             session_id,
-            request_id: get_str("cortex_request_id"),
             tool_name: get_str("tool_name"),
             tool_input: obj.get("tool_input").cloned(),
             prompt: get_str("prompt"),

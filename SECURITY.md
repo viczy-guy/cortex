@@ -14,9 +14,9 @@ a gatekeeper, and is designed as one:
 
 | Surface | Control |
 |---|---|
-| Hook socket / named pipe | Restricted to your OS user (0600 on Unix, per-user pipe on Windows). `CORTEX_SOCKET` lets you relocate it, never widen it. |
+| Hook socket / named pipe | Restricted to your OS user (0600 on Unix; on Windows a per-user pipe that only its owner can open). `CORTEX_SOCKET` lets you relocate it, never widen it. Programs running as you are trusted on this channel, as they already are with your agent's settings: one can claim to be any session and ask for a card, but cannot answer one. Lines are size-capped before they are read into memory, and connections, sessions and waiting cards have a ceiling. |
 | Hook payloads | Treated as untrusted input: schema-validated in Rust before anything reaches the UI; unknown fields ignored; malformed events dropped, never crash the app. |
-| Approval decisions | Bound to the exact request the agent is waiting on (request id + session). A late or replayed decision approves nothing. Nothing is approved automatically except by an "Always" rule you created with a click; a rule covers one tool and one exact target (for shell commands, one program) and never a command that chains, pipes, redirects or substitutes. Rules are listed and removable in Settings. |
+| Approval decisions | Bound to the exact request the agent is waiting on (an id Cortex assigns to its connection). A late or replayed decision approves nothing. Nothing is approved automatically except by an "Always" rule you created with a click; a rule covers one tool and one exact target (for shell commands, one program) and never a command that chains, pipes, redirects or substitutes. Rules are listed and removable in Settings. |
 | WebView | Strict CSP, no remote content, the UI never interpolates external data as HTML. Each window may call only the app commands it uses (Tauri capabilities per window): the island cannot quit, uninstall hooks or change rules, and Settings cannot answer cards. |
 | Secrets | OS vault only (Keychain / Credential Manager / Secret Service). Never on disk, never in logs, never in git. |
 | Network | None, except services you explicitly configure, and the update check if you said yes to it (one request for the release manifest, at launch and every 6 hours). No telemetry, no account. |

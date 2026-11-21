@@ -12,7 +12,8 @@ Any tool that can write to a Unix domain socket (macOS, Linux) or a named pipe
 | Windows | `\\.\pipe\cortex-<username>` |
 
 `CORTEX_SOCKET` overrides the path (useful for SSH tunnels from remote machines).
-The endpoint only accepts connections from your own OS user.
+The endpoint only accepts connections from your own OS user: at most 64 at a
+time, and a line longer than 1 MB ends its connection.
 
 ## Wire format
 

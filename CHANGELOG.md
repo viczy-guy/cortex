@@ -6,6 +6,25 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Settings says so when removing an Always rule could not be saved, instead
+  of showing it as removed until the next launch.
+- A hook of yours whose command only mentions `cortex-hook` is no longer
+  taken for Cortex's own when hooks are installed or removed.
+- An event just under the size limit no longer leaves the agent waiting for
+  a card that never appears: it goes straight to the terminal.
+
+### Security
+- The hook endpoint reads lines with a size limit, caps connections, sessions
+  and waiting cards, and assigns request ids itself. On Windows only the
+  pipe's owner can open it.
+- The relay gives up after one total deadline on every platform.
+- An update download that stalls is abandoned after 15 minutes.
+
+### Changed
+- With sessions on the board Cortex no longer wakes up every 2 seconds: it
+  sleeps until the next session or card is due.
+
 ## [0.1.1] - 2026-11-21
 
 ### Added
