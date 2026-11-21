@@ -15,6 +15,8 @@ use crate::session::SessionKey;
 
 /// A pending request expires after this long and resolves to `Ask`.
 pub const PENDING_TTL_MS: u64 = 115 * 1000;
+/// Cards beyond this are not shown: the agent asks in its own terminal.
+pub const MAX_PENDING: usize = 32;
 
 /// Limits for a question card. A request beyond them is left to the terminal.
 const MAX_QUESTIONS: usize = 4;
@@ -210,6 +212,9 @@ impl ApprovalQueue {
         if always_rule.as_ref().is_some_and(|r| self.rules.contains(r)) {
             return Registered::AutoAllow;
         }
+        if self.pending.len() >= MAX_PENDING {
+            return Registered::Skip;
+        }
         let (diff, diff_hidden) = diff_of(ev);
 
         let approval = PendingApproval {
@@ -262,6 +267,12 @@ impl ApprovalQueue {
             .iter()
             .filter_map(|id| self.pending.remove(id))
             .collect()
+    }
+
+    /// When [`expire`](Self::expire) will next have something to return.
+    pub fn next_expiry_ms(&self) -> Option<u64> {
+        let oldest = self.pending.values().map(|p| p.created_ms).min()?;
+        Some(oldest.saturating_add(PENDING_TTL_MS))
     }
 
     pub fn pending(&self) -> Vec<&PendingApproval> {
@@ -884,5 +895,21 @@ mod tests {
         assert_eq!(expired[0].request_id, "r1");
         // Expired means gone: a late click resolves nothing.
         assert!(q.take("r1").is_none());
+    }
+
+    #[test]
+    fn the_queue_stops_at_its_cap_and_says_when_the_oldest_card_expires() {
+        let mut q = ApprovalQueue::new();
+        assert_eq!(q.next_expiry_ms(), None);
+        for n in 0..MAX_PENDING {
+            let registered = q.register(&bash_event("ls"), format!("r{n}"), 10 + n as u64);
+            assert!(matches!(registered, Registered::Card(_)));
+        }
+        assert!(matches!(
+            q.register(&bash_event("ls"), "over".into(), 99),
+            Registered::Skip
+        ));
+        assert_eq!(q.pending().len(), MAX_PENDING);
+        assert_eq!(q.next_expiry_ms(), Some(10 + PENDING_TTL_MS));
     }
 }

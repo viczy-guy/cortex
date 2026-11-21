@@ -57,6 +57,14 @@ case "$answer" in
   *) echo "::error::no decision from the app through the relay (got: '$answer')"; exit 1 ;;
 esac
 
+if [ -n "$exe" ]; then
+  # SECURITY.md: only the pipe's owner can open it. Windows' default would
+  # add read access for Everyone (WD) and anonymous (AN).
+  acl="$(powershell -NoProfile -Command '$p = New-Object System.IO.Pipes.NamedPipeClientStream(".", "cortex-$env:USERNAME", "InOut"); $p.Connect(5000); $p.GetAccessControl().GetSecurityDescriptorSddlForm("Access"); $p.Dispose()' | tr -d '\r')"
+  [ "$acl" = "D:P(A;;FA;;;OW)" ] || { echo "::error::the pipe is not owner-only: $acl"; exit 1; }
+  echo "ok  the pipe is owner-only: $acl"
+fi
+
 sleep 5
 kill -0 "$pid" 2>/dev/null || { echo "::error::the app did not stay up"; exit 1; }
 echo "ok  the app is still running after 5 s"

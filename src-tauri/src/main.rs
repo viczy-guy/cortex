@@ -44,18 +44,27 @@ fn rules_list(state: State<'_, AppState>) -> Vec<cortex_core::AlwaysRule> {
 
 /// Forget one Always rule.
 #[tauri::command]
-fn rule_remove(app: AppHandle, state: State<'_, AppState>, rule: cortex_core::AlwaysRule) {
-    if state.remove_rule(&rule) {
-        server::emit_rules(&app);
-    }
+fn rule_remove(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    rule: cortex_core::AlwaysRule,
+) -> Result<(), String> {
+    let removed = state.remove_rule(&rule);
+    server::emit_rules(&app);
+    removed.map(|_| ()).map_err(not_saved)
+}
+
+/// The rules in memory changed but the file did not.
+fn not_saved(error: String) -> String {
+    format!("{error}. The removed rules come back when Cortex restarts.")
 }
 
 /// Forget every Always rule.
 #[tauri::command]
-fn rules_clear(app: AppHandle, state: State<'_, AppState>) {
-    if state.clear_rules() {
-        server::emit_rules(&app);
-    }
+fn rules_clear(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let cleared = state.clear_rules();
+    server::emit_rules(&app);
+    cleared.map(|_| ()).map_err(not_saved)
 }
 
 /// The user answered a pending question card.

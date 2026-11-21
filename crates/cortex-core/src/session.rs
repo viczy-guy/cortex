@@ -15,6 +15,9 @@ use crate::event::{AgentId, EventKind, HookEvent};
 pub const STALE_AFTER_MS: u64 = 30 * 60 * 1000;
 /// How long a finished session stays visible.
 pub const FINISHED_LINGER_MS: u64 = 5 * 1000;
+/// Sessions beyond this are not tracked: nobody runs that many agents, and
+/// the board must not grow with whatever a local process sends.
+pub const MAX_SESSIONS: usize = 64;
 /// Ticker history kept per session.
 const TICKER_CAP: usize = 50;
 /// Max distinct changed files tracked per session.
@@ -105,6 +108,15 @@ impl Session {
     }
 }
 
+impl Session {
+    fn expires_ms(&self) -> u64 {
+        self.last_event_ms.saturating_add(match self.state {
+            SessionState::Finished => FINISHED_LINGER_MS,
+            _ => STALE_AFTER_MS,
+        })
+    }
+}
+
 /// All live sessions.
 #[derive(Debug, Default)]
 pub struct SessionBoard {
@@ -127,6 +139,9 @@ impl SessionBoard {
             return self.sessions.remove(&key).is_some();
         }
 
+        if self.sessions.len() >= MAX_SESSIONS && !self.sessions.contains_key(&key) {
+            return false;
+        }
         let session = self
             .sessions
             .entry(key.clone())
@@ -209,14 +224,13 @@ impl SessionBoard {
     /// something was removed.
     pub fn gc(&mut self, now_ms: u64) -> bool {
         let before = self.sessions.len();
-        self.sessions.retain(|_, s| {
-            let age = now_ms.saturating_sub(s.last_event_ms);
-            match s.state {
-                SessionState::Finished => age < FINISHED_LINGER_MS,
-                _ => age < STALE_AFTER_MS,
-            }
-        });
+        self.sessions.retain(|_, s| now_ms < s.expires_ms());
         self.sessions.len() != before
+    }
+
+    /// When [`gc`](Self::gc) will next have something to remove.
+    pub fn next_gc_ms(&self) -> Option<u64> {
+        self.sessions.values().map(Session::expires_ms).min()
     }
 
     /// Stable snapshot for the UI, most recently active first.
@@ -416,5 +430,22 @@ mod tests {
             1,
         );
         assert_eq!(board.snapshot()[0].state, SessionState::WaitingApproval);
+    }
+
+    #[test]
+    fn the_board_stops_growing_at_its_cap_and_says_when_to_collect() {
+        let mut board = SessionBoard::new();
+        assert_eq!(board.next_gc_ms(), None);
+        for n in 0..MAX_SESSIONS + 5 {
+            let start = format!(r#"{{"hook_event_name":"SessionStart","session_id":"s{n}"}}"#);
+            assert_eq!(board.apply(&ev(&start), 1000), n < MAX_SESSIONS);
+        }
+        assert_eq!(board.len(), MAX_SESSIONS);
+        // A session already on the board still gets its events.
+        assert!(board.apply(&ev(r#"{"hook_event_name":"Stop","session_id":"s0"}"#), 2000));
+        assert_eq!(board.next_gc_ms(), Some(2000 + FINISHED_LINGER_MS));
+        assert!(!board.gc(2000 + FINISHED_LINGER_MS - 1));
+        assert!(board.gc(2000 + FINISHED_LINGER_MS));
+        assert_eq!(board.next_gc_ms(), Some(1000 + STALE_AFTER_MS));
     }
 }

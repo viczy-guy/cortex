@@ -4,11 +4,15 @@
 //! One task per connection. Malformed input is dropped silently — this is the
 //! untrusted boundary of the app.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use cortex_core::{Decision, DecisionResponse, HookEvent};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
+use tokio::sync::Semaphore;
 
 use crate::state::{AppState, Blocking};
 
@@ -23,6 +27,48 @@ const DECISION_GUARD: Duration = Duration::from_secs(118);
 
 /// Largest accepted line; everything beyond is hostile or broken.
 const MAX_LINE: usize = cortex_core::event::MAX_EVENT_BYTES + 1024;
+
+/// Connections served at once. A hook's connection lasts milliseconds, or
+/// until its card is answered. Beyond this a new one is closed unread, and
+/// its agent carries on as if Cortex were not running.
+const MAX_CONNECTIONS: usize = 64;
+static CONNECTIONS: Semaphore = Semaphore::const_new(MAX_CONNECTIONS);
+
+/// The id of a pending request. The server makes it, never the client: two
+/// connections can then never claim the same card.
+fn next_request_id() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!("{:x}-{n:x}", crate::state::now_ms())
+}
+
+/// Lines of at most [`MAX_LINE`] bytes, never holding more than that of one.
+struct Lines<R> {
+    reader: R,
+    /// The line being read: kept here so a cancelled read loses nothing.
+    buf: Vec<u8>,
+}
+
+impl<R: AsyncBufRead + Unpin> Lines<R> {
+    /// `None` when the peer closed, the read failed, or a line went over the
+    /// limit; the connection is over in every case.
+    async fn next_line(&mut self) -> Option<String> {
+        let room = (MAX_LINE + 1).saturating_sub(self.buf.len()) as u64;
+        let read = (&mut self.reader)
+            .take(room)
+            .read_until(b'\n', &mut self.buf)
+            .await
+            .ok()?;
+        // Over the limit: MAX_LINE bytes and still no newline after them.
+        let ended = self.buf.last() == Some(&b'\n');
+        if (!ended && self.buf.len() > MAX_LINE) || (read == 0 && self.buf.is_empty()) {
+            return None;
+        }
+        let mut line = String::from_utf8(std::mem::take(&mut self.buf)).ok()?;
+        line.truncate(line.trim_end_matches(['\r', '\n']).len());
+        Some(line)
+    }
+}
 
 pub fn emit_state(app: &AppHandle) {
     let state = app.state::<AppState>();
@@ -40,14 +86,17 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (read_half, mut write_half) = tokio::io::split(stream);
-    let mut lines = BufReader::with_capacity(64 * 1024, read_half).lines();
+    let mut lines = Lines {
+        reader: BufReader::with_capacity(64 * 1024, read_half),
+        buf: Vec::new(),
+    };
 
     loop {
-        let line = match lines.next_line().await {
-            Ok(Some(line)) => line,
-            _ => return, // closed or broken: nothing to clean, responders have guards
+        // Closed or broken: nothing to clean, responders have guards.
+        let Some(line) = lines.next_line().await else {
+            return;
         };
-        if line.len() > MAX_LINE || line.trim().is_empty() {
+        if line.trim().is_empty() {
             continue;
         }
         let Ok(event) = HookEvent::parse(&line) else {
@@ -55,11 +104,7 @@ where
         };
 
         if event.is_blocking() {
-            // The hook always injects a request id; synthesize one defensively.
-            let request_id = event
-                .request_id
-                .clone()
-                .unwrap_or_else(|| format!("anon-{:x}", crate::state::now_ms()));
+            let request_id = next_request_id();
 
             let state = app.state::<AppState>();
             let blocking = state.register_blocking(&event, request_id.clone());
@@ -76,10 +121,10 @@ where
                             decided = &mut rx => break decided.unwrap_or_else(|_| ask()),
                             read = lines.next_line() => match read {
                                 // Stray input while waiting is ignored.
-                                Ok(Some(_)) => continue,
+                                Some(_) => continue,
                                 // Connection closed: the hook gave up or the
                                 // user answered in the terminal. Drop the card.
-                                _ => {
+                                None => {
                                     if app.state::<AppState>().cancel(&request_id) {
                                         emit_state(&app);
                                     }
@@ -107,20 +152,22 @@ where
     }
 }
 
-/// Janitor: sweeps finished/stale sessions and expired approvals, but only
-/// while there is something on the board — 0% CPU when the island is idle.
+/// Janitor: sweeps finished/stale sessions and expired approvals. It sleeps
+/// until the next thing is due, or until an event changes what is due: no
+/// timer at all while the board is empty, and no polling while it is not.
 pub async fn janitor(app: AppHandle) {
     loop {
         let state = app.state::<AppState>();
-        let (changed, empty) = state.sweep();
+        let (changed, next_due_ms) = state.sweep();
         if changed {
             emit_state(&app);
         }
-        if empty {
-            // Park until the next event arrives. No timers while idle.
-            state.janitor.notified().await;
-        } else {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+        match next_due_ms {
+            None => state.janitor.notified().await,
+            Some(due) => {
+                let wait = Duration::from_millis(due.saturating_sub(crate::state::now_ms()));
+                let _ = tokio::time::timeout(wait, state.janitor.notified()).await;
+            }
         }
     }
 }
@@ -148,8 +195,14 @@ pub async fn serve(app: AppHandle) -> std::io::Result<()> {
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
+                let Ok(permit) = CONNECTIONS.try_acquire() else {
+                    continue;
+                };
                 let app = app.clone();
-                tokio::spawn(handle_connection(stream, app));
+                tokio::spawn(async move {
+                    handle_connection(stream, app).await;
+                    drop(permit);
+                });
             }
             Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
         }
@@ -164,18 +217,95 @@ pub async fn serve(app: AppHandle) -> std::io::Result<()> {
     use tokio::net::windows::named_pipe::ServerOptions;
 
     let path = endpoint_path();
-    // Default pipe security on Windows grants access to the creating user;
-    // remote clients are rejected by the pipe namespace itself.
-    let mut server = ServerOptions::new()
-        .first_pipe_instance(true)
-        .create(&path)?;
+    // Remote clients are rejected by the pipe namespace itself (tokio's default).
+    let security = pipe_security::owner_only()?;
+    let create = |first: bool| {
+        // SAFETY: `security` is a valid SECURITY_ATTRIBUTES that outlives every call.
+        unsafe {
+            ServerOptions::new()
+                .first_pipe_instance(first)
+                .create_with_security_attributes_raw(&path, security.as_ptr())
+        }
+    };
+    let mut server = create(true)?;
 
     loop {
         server.connect().await?;
         let connected = server;
-        server = ServerOptions::new().create(&path)?;
+        server = create(false)?;
+        let Ok(permit) = CONNECTIONS.try_acquire() else {
+            continue;
+        };
         let app = app.clone();
-        tokio::spawn(handle_connection(connected, app));
+        tokio::spawn(async move {
+            handle_connection(connected, app).await;
+            drop(permit);
+        });
+    }
+}
+
+/// Who may open the pipe. Windows' default would also let every local account
+/// open it for reading, and hold its connections.
+#[cfg(windows)]
+mod pipe_security {
+    use std::ffi::c_void;
+
+    /// Full access for the pipe's owner, the user running Cortex, and no entry
+    /// for anyone else.
+    const OWNER_ONLY: &str = "D:P(A;;GA;;;OW)";
+    const SDDL_REVISION_1: u32 = 1;
+
+    /// Win32 `SECURITY_ATTRIBUTES`.
+    #[repr(C)]
+    pub struct SecurityAttributes {
+        length: u32,
+        descriptor: *mut c_void,
+        inherit_handle: i32,
+    }
+
+    // The pointer is to memory the system allocated for this process and that
+    // nothing frees or changes.
+    unsafe impl Send for SecurityAttributes {}
+    unsafe impl Sync for SecurityAttributes {}
+
+    impl SecurityAttributes {
+        pub fn as_ptr(&self) -> *mut c_void {
+            std::ptr::from_ref(self).cast_mut().cast()
+        }
+    }
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            string: *const u16,
+            revision: u32,
+            descriptor: *mut *mut c_void,
+            size: *mut u32,
+        ) -> i32;
+    }
+
+    pub fn owner_only() -> std::io::Result<SecurityAttributes> {
+        let sddl: Vec<u16> = OWNER_ONLY.encode_utf16().chain([0]).collect();
+        let mut descriptor = std::ptr::null_mut();
+        // SAFETY: `sddl` is NUL-terminated and alive during the call, and
+        // `descriptor` is a valid place for the result. The descriptor is
+        // never freed: the pipe needs it for as long as the app runs.
+        let converted = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut descriptor,
+                std::ptr::null_mut(),
+            )
+        };
+        if converted == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(SecurityAttributes {
+            length: std::mem::size_of::<SecurityAttributes>() as u32,
+            descriptor,
+            inherit_handle: 0,
+        })
     }
 }
 
@@ -210,4 +340,63 @@ fn default_endpoint() -> String {
 fn default_endpoint() -> String {
     let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".into());
     format!(r"\\.\pipe\cortex-{user}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::async_runtime::block_on;
+
+    fn lines<R: AsyncBufRead + Unpin>(reader: R) -> Lines<R> {
+        Lines {
+            reader,
+            buf: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn lines_come_without_their_ending_and_the_last_one_needs_none() {
+        block_on(async {
+            let mut lines = lines(&b"one\r\n\ntwo\nthree"[..]);
+            for expected in ["one", "", "two", "three"] {
+                assert_eq!(lines.next_line().await.as_deref(), Some(expected));
+            }
+            assert_eq!(lines.next_line().await, None);
+        });
+    }
+
+    #[test]
+    fn a_line_over_the_limit_ends_the_connection_without_being_held() {
+        block_on(async {
+            let mut input = vec![b'x'; MAX_LINE];
+            input.extend_from_slice(b"\nnext\n");
+            let mut ok = lines(&input[..]);
+            assert_eq!(ok.next_line().await.map(|l| l.len()), Some(MAX_LINE));
+            assert_eq!(ok.next_line().await.as_deref(), Some("next"));
+
+            let endless = vec![b'x'; 3 * MAX_LINE];
+            let mut over = lines(&endless[..]);
+            assert_eq!(over.next_line().await, None);
+            assert_eq!(over.buf.len(), MAX_LINE + 1);
+            assert_eq!(over.next_line().await, None);
+        });
+    }
+
+    #[test]
+    fn a_cancelled_read_keeps_what_it_had() {
+        block_on(async {
+            let (mut tx, rx) = tokio::io::duplex(64);
+            let mut lines = lines(BufReader::new(rx));
+            tx.write_all(b"hal").await.unwrap();
+            let waited = tokio::time::timeout(Duration::from_millis(50), lines.next_line()).await;
+            assert!(waited.is_err(), "half a line is not a line yet");
+            tx.write_all(b"f\n").await.unwrap();
+            assert_eq!(lines.next_line().await.as_deref(), Some("half"));
+        });
+    }
+
+    #[test]
+    fn request_ids_never_repeat() {
+        assert_ne!(next_request_id(), next_request_id());
+    }
 }

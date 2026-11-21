@@ -218,11 +218,19 @@ pub fn is_current(settings: &Value, hook_command: &str) -> bool {
     install(settings, hook_command).is_ok_and(|merged| &merged == settings)
 }
 
+/// A hook whose program is the relay, wherever it is installed. Matching the
+/// program, not the whole text, leaves alone a command of the user's that
+/// only mentions the name.
 fn is_ours(entry: &Value) -> bool {
-    entry
-        .get("command")
-        .and_then(Value::as_str)
-        .is_some_and(|c| c.contains(MARKER))
+    let Some(command) = entry.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    let program = match command.strip_prefix('"') {
+        Some(quoted) => quoted.split('"').next(),
+        None => command.split_whitespace().next(),
+    };
+    let name = program.and_then(|p| p.rsplit(['/', '\\']).next());
+    name == Some(MARKER) || name.and_then(|n| n.strip_suffix(".exe")) == Some(MARKER)
 }
 
 /// Point an existing Cortex entry at the current command. Returns `false`
@@ -365,5 +373,22 @@ mod tests {
         let out = install(&settings, CMD).unwrap();
         let keys: Vec<&String> = out.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["zeta", "alpha", "model", "hooks"]);
+    }
+
+    #[test]
+    fn only_a_command_that_runs_the_relay_is_ours() {
+        let ours = |command: &str| is_ours(&json!({ "command": command }));
+        assert!(ours(CMD));
+        assert!(ours(
+            r#""C:\Users\u\AppData\Local\Cortex\bin\cortex-hook.exe""#
+        ));
+        assert!(ours(
+            r#""/Users/a b/Library/Application Support/Cortex/bin/cortex-hook" --agent x"#
+        ));
+        assert!(ours("/usr/bin/cortex-hook --agent x"));
+        assert!(!ours("echo cortex-hook >> /tmp/log"));
+        assert!(!ours(r#""/home/u/bin/my-cortex-hook-wrapper.sh""#));
+        assert!(!ours("/opt/cortex-hook/notify.sh"));
+        assert!(!is_ours(&json!({ "type": "command" })));
     }
 }

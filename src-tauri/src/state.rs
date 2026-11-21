@@ -71,7 +71,9 @@ impl AppState {
             .to_vec()
     }
 
-    pub fn remove_rule(&self, rule: &AlwaysRule) -> bool {
+    /// `Ok(changed)`. On `Err` the rule is gone for now but still on disk:
+    /// the caller must tell the user it comes back at the next launch.
+    pub fn remove_rule(&self, rule: &AlwaysRule) -> Result<bool, String> {
         let changed = self
             .domain
             .lock()
@@ -79,12 +81,13 @@ impl AppState {
             .approvals
             .remove_rule(rule);
         if changed {
-            self.persist_rules();
+            self.persist_rules()?;
         }
-        changed
+        Ok(changed)
     }
 
-    pub fn clear_rules(&self) -> bool {
+    /// As [`remove_rule`](Self::remove_rule), for every rule.
+    pub fn clear_rules(&self) -> Result<bool, String> {
         let changed = self
             .domain
             .lock()
@@ -92,17 +95,14 @@ impl AppState {
             .approvals
             .clear_rules();
         if changed {
-            self.persist_rules();
+            self.persist_rules()?;
         }
-        changed
+        Ok(changed)
     }
 
-    fn persist_rules(&self) {
+    fn persist_rules(&self) -> Result<(), String> {
         let _io = self.rules_io.lock().expect("rules I/O poisoned");
-        let rules = self.rules();
-        if let Err(error) = crate::rules::save(&rules) {
-            eprintln!("cortex: {error}");
-        }
+        crate::rules::save(&self.rules())
     }
 
     /// Apply a non-blocking event. Returns `true` when visible state changed.
@@ -176,7 +176,10 @@ impl AppState {
         // Answer the agent first: it must never wait on our disk.
         self.send(request_id, DecisionResponse::new(decision));
         if ui_decision == "always" {
-            self.persist_rules();
+            // Not saved means asked again after a restart: the safe direction.
+            if let Err(error) = self.persist_rules() {
+                eprintln!("cortex: {error}");
+            }
         }
         true
     }
@@ -226,9 +229,10 @@ impl AppState {
     }
 
     /// Janitor pass: GC sessions, expire stale approvals (answering `Ask`).
-    /// Returns `(visible state changed, board is empty)`.
-    pub fn sweep(&self) -> (bool, bool) {
-        let (changed, expired, empty) = {
+    /// Returns `(visible state changed, when the next pass is due)`; `None`
+    /// when nothing is left to clean.
+    pub fn sweep(&self) -> (bool, Option<u64>) {
+        let (changed, expired, next_due_ms) = {
             let mut domain = self.domain.lock().expect("state poisoned");
             let now = now_ms();
             let gc_changed = domain.board.gc(now);
@@ -236,13 +240,16 @@ impl AppState {
             for approval in &expired {
                 domain.board.approval_closed(&approval.session);
             }
-            let empty = domain.board.is_empty() && domain.approvals.pending().is_empty();
-            (gc_changed || !expired.is_empty(), expired, empty)
+            let next_due_ms = [domain.board.next_gc_ms(), domain.approvals.next_expiry_ms()]
+                .into_iter()
+                .flatten()
+                .min();
+            (gc_changed || !expired.is_empty(), expired, next_due_ms)
         };
         for approval in expired {
             self.send(&approval.request_id, DecisionResponse::new(Decision::Ask));
         }
-        (changed, empty)
+        (changed, next_due_ms)
     }
 
     /// A card is waiting for the user.

@@ -1,8 +1,7 @@
 //! cortex-hook — the relay agents call on every hook event.
 //!
 //! Contract (see docs/AGENTS.md):
-//! 1. Read one JSON event from stdin, inject `cortex_agent` (from `--agent`)
-//!    and a fresh `cortex_request_id`.
+//! 1. Read one JSON event from stdin and inject `cortex_agent` (from `--agent`).
 //! 2. Forward it, newline-terminated, to the Cortex endpoint.
 //! 3. For blocking events (a `PermissionRequest`, or the `PreToolUse` of
 //!    `AskUserQuestion`), wait for one response line on the same connection
@@ -24,7 +23,8 @@ const DECISION_TIMEOUT: Duration = Duration::from_secs(110);
 /// Connect/write budget. If the app is running, this is milliseconds; if it is
 /// not, connecting fails instantly anyway.
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
-/// Stdin larger than this is hostile or broken.
+/// Stdin larger than this is hostile or broken. The same cap applies to the
+/// line sent: it is `cortex_core::event::MAX_EVENT_BYTES`, what the app accepts.
 const MAX_STDIN: usize = 1_000_000;
 
 fn main() {
@@ -34,7 +34,17 @@ fn main() {
 }
 
 fn run() -> Option<()> {
-    let agent = parse_agent_arg(std::env::args().skip(1));
+    // One deadline for everything (stdin, connect, write, the decision), on
+    // every platform: no read or connect below can outlive it. Exiting here
+    // is the contract's "exit 0 with no output".
+    std::thread::spawn(|| {
+        std::thread::sleep(DECISION_TIMEOUT + IO_TIMEOUT);
+        std::process::exit(0);
+    });
+
+    // `args()` panics on an argument that is not UTF-8; such a name is invalid anyway.
+    let args = std::env::args_os().map(|a| a.into_string().unwrap_or_default());
+    let agent = parse_agent_arg(args.skip(1));
 
     let mut raw = String::new();
     std::io::stdin()
@@ -51,13 +61,9 @@ fn run() -> Option<()> {
     if let Some(name) = agent {
         obj.insert("cortex_agent".into(), Value::String(name));
     }
-    let request_id = fresh_request_id();
-    obj.insert("cortex_request_id".into(), Value::String(request_id));
 
     let blocking = blocking_kind(&event);
-
-    let mut line = serde_json::to_string(&event).ok()?;
-    line.push('\n');
+    let line = outgoing_line(&event)?;
 
     let response = transport::send(&line, blocking.is_some())?;
 
@@ -106,15 +112,16 @@ fn blocking_kind(event: &Value) -> Option<Blocking> {
     }
 }
 
-/// Unique among live requests, which is what the app keys pending approvals
-/// by: this process creates only one, and two hooks running at the same time
-/// never share a process id.
-fn fresh_request_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{:x}-{:x}", nanos, std::process::id())
+/// The line for the app, or `None` when it would be dropped there for its
+/// size: better to hand the request to the terminal now than to wait for a
+/// card that will never appear.
+fn outgoing_line(event: &Value) -> Option<String> {
+    let mut line = serde_json::to_string(event).ok()?;
+    if line.len() > MAX_STDIN {
+        return None;
+    }
+    line.push('\n');
+    Some(line)
 }
 
 /// Translate Cortex's response line into the agent's hook output, following
@@ -355,11 +362,15 @@ mod tests {
     }
 
     #[test]
-    fn a_request_id_carries_the_process_id() {
-        // Two ids from one process can match at the clock's resolution; the
-        // process id is what keeps concurrent hooks apart.
-        let suffix = format!("-{:x}", std::process::id());
-        assert!(fresh_request_id().ends_with(&suffix));
+    fn a_line_the_app_would_drop_is_not_sent() {
+        let padded = |len: usize| {
+            let event = serde_json::json!({ "hook_event_name": "Stop", "pad": "" });
+            let empty = serde_json::to_string(&event).unwrap().len();
+            serde_json::json!({ "hook_event_name": "Stop", "pad": "x".repeat(len - empty) })
+        };
+        let line = outgoing_line(&padded(MAX_STDIN)).unwrap();
+        assert_eq!(line.len(), MAX_STDIN + 1); // the newline is not part of the event
+        assert!(outgoing_line(&padded(MAX_STDIN + 1)).is_none());
     }
 
     #[cfg(unix)]

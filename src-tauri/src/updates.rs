@@ -12,6 +12,8 @@ use tokio::sync::Notify;
 
 pub const UPDATES_EVENT: &str = "cortex://updates";
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// A download that stalls must not hold the checker (and its buffer) forever.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Clone, Serialize)]
 pub struct UpdateStatus {
@@ -208,9 +210,9 @@ async fn fetch(app: &AppHandle, revision: u64) -> Result<Option<(Update, Vec<u8>
         inner.status.version = Some(update.version.clone());
         inner.emit(app);
     }
-    let bytes = update
-        .download(|_, _| {}, || {})
+    let bytes = tokio::time::timeout(DOWNLOAD_TIMEOUT, update.download(|_, _| {}, || {}))
         .await
+        .map_err(|_| format!("Update {} took too long to download", update.version))?
         .map_err(|e| format!("Update {} rejected: {e}", update.version))?;
     Ok(Some((update, bytes)))
 }

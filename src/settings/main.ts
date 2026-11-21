@@ -132,18 +132,24 @@ function clearConfirmation(): void {
   confirmationTimer = undefined;
 }
 
+// Kept as state: the rules event of the same change can arrive after the
+// error and redraw the block.
+let rulesError: string | null = null;
+
 async function changeRules(change: () => Promise<void>): Promise<void> {
+  rulesError = null;
   try {
     await change();
   } catch (error) {
-    renderRules();
-    rulesBlock.append(el("div", "note note-error", String(error)));
+    rulesError = String(error);
   }
+  renderRules();
 }
 
 function renderRules(): void {
   clearConfirmation();
   rulesBlock.replaceChildren(el("div", "note", 'Requests matching a rule are allowed without asking. Rules are created by "Always" on an approval card and stored only on this computer.'));
+  if (rulesError) rulesBlock.append(el("div", "note note-error", rulesError));
   if (rules.length === 0) {
     rulesBlock.append(el("div", "note empty", "No rules yet."));
     return;
