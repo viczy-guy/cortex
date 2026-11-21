@@ -48,9 +48,10 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
 
-      - name: Frontend — install, typecheck, build
+      - name: Frontend — install, lint, typecheck, build
         run: |
           npm ci
+          npm run lint
           npm run build
 
       - name: Rust — format
