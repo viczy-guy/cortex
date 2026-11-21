@@ -32,6 +32,8 @@ follows [Semantic Versioning](https://semver.org).
   that builds them from a tag and drafts a release with SHA-256 checksums.
 
 ### Fixed
+- Account names in the GitHub card were black on the dark island and hard
+  to read; text without its own color now uses the island's text color.
 - The folded island no longer repaints on every agent event, which with the
   screen locked kept WebKit busy at a fraction of a percent of CPU.
 - A question longer than 300 characters, or two questions with the same text,
