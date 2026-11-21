@@ -25,6 +25,7 @@ env:
 
 jobs:
   bundle:
+    if: false # TEMP
     name: Bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -119,7 +120,7 @@ jobs:
   # decision through the relay it ships (scripts/smoke-test.sh).
   smoke:
     name: Install and start (${{ matrix.package }})
-    needs: bundle
+    permissions: { actions: read, contents: read } # TEMP
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -129,8 +130,6 @@ jobs:
           # A newer Ubuntu than the one that built them.
           - { package: deb, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
           - { package: AppImage, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { package: nsis, os: windows-latest, target: x86_64-pc-windows-msvc }
-          - { package: msi, os: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,6 +139,8 @@ jobs:
         with:
           name: installers-${{ matrix.target }}
           path: out
+          run-id: 44872149036 # TEMP
+          github-token: ${{ github.token }} # TEMP
 
       - name: Install and start (.deb)
         if: matrix.package == 'deb'
@@ -155,9 +156,22 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb libegl1
           chmod +x out/*.AppImage
           xvfb-run -a scripts/smoke-test.sh out/*.AppImage
+
+      - name: TEMP diagnostics
+        if: failure()
+        run: |
+          ls -laR ~/.local/share/cortex || true
+          ls -la /usr/bin/cortex* || true
+          echo "XDG_DATA_HOME=${XDG_DATA_HOME:-} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-} HOME=$HOME"
+          sudo apt-get install -y gdb >/dev/null 2>&1
+          if [ -x /usr/bin/cortex-app ]; then
+            xvfb-run -a /usr/bin/cortex-app & sleep 15
+            sudo gdb -batch -ex "thread apply all bt 12" -p "$(pgrep -n cortex-app)" 2>&1 | grep -v "^\[New\|warning" | head -150
+            ls -laR ~/.local/share/cortex || true
+          fi
 
       - name: Install and start (NSIS setup)
         if: matrix.package == 'nsis'
