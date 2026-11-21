@@ -21,7 +21,7 @@ What is planned beyond the current version. Order within a section is not a comm
       (verified on macOS; Windows and Linux installers get their first real
       run with the first tag)
 - [ ] First tagged release (v0.1.0): check the Windows and Linux installers
-- [ ] Signed auto-updates, opt-in — once the repository is public (ADR 0004)
+- [x] Signed auto-updates, opt-in (ADR 0004)
 - [x] GitHub integration (PRs, requested reviews, CI status), read through `gh` — first service pill
 - [x] Clicking anywhere outside the island folds it, even with a card waiting;
       the folded island shows that something waits, and hover brings it back
