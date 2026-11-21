@@ -24,7 +24,8 @@ permissions and answer questions. Read `docs/SPEC.md` before changing behavior.
 - **The hook never blocks the agent**: any failure in `cortex-hook` means exit 0
   with no output.
 - **Hook payloads are untrusted**: validate in Rust; the UI sets dynamic data
-  with `textContent` only (use `el()` from `src/shared/dom.ts`), never innerHTML.
+  with `textContent` only (use `el()` from `src/shared/dom.ts`), never innerHTML
+  (ESLint rejects it).
 - **Never write to the user's files** (e.g. `~/.claude/settings.json`) outside
   the reviewed installer flow in `src-tauri/src/hooks.rs`.
 - Platform code is `cfg`-gated and must compile on macOS, Linux and Windows.
