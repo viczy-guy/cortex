@@ -3,8 +3,8 @@ use crate::prefs::{self, Prefs};
 use cortex_core::{
     github::{
         account_is_shown, active_account, device_code, has_account, is_valid_login, is_valid_token,
-        overall_state, parse_accounts, parse_summary, GhAccount, CLI_URL, DEVICE_URL, MAX_ACCOUNTS,
-        QUERY,
+        overall_state, parse_accounts, parse_summary, release_notes_url, GhAccount, CLI_URL,
+        DEVICE_URL, MAX_ACCOUNTS, QUERY,
     },
     GithubSummary,
 };
@@ -440,9 +440,10 @@ pub fn github_refresh(state: State<'_, GithubState>) {
 }
 
 #[tauri::command]
-pub fn open_url(url: String, state: State<'_, GithubState>) -> Result<(), String> {
+pub fn open_url(url: String, app: AppHandle, state: State<'_, GithubState>) -> Result<(), String> {
     if url != DEVICE_URL
         && url != CLI_URL
+        && url != release_notes_url(&app.package_info().version.to_string())
         && !state
             .lock()
             .status

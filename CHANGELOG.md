@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Settings → About: "What's new" opens the release notes of the installed
+  version, and a local test build shows the commit it was built from.
+
 ## [0.1.0] - 2026-11-20
 
 ### Added
