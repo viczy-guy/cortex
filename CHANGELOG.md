@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-20
+
 ### Added
 - Signed, opt-in updates: Cortex asks once whether to check for updates,
   downloads a new release in the background, verifies its signature and

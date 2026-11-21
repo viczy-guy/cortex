@@ -43,6 +43,19 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the next step needs main's history
+
+      # Catches a tag made on the wrong commit by mistake. A tag made on purpose
+      # on a branch could remove this step: the tag ruleset (admins only) covers that.
+      - name: The tag is on main
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag ${GITHUB_REF_NAME} points to a commit that is not on main"
+            exit 1
+          fi
 
       - name: The tag matches the app version
         if: github.ref_type == 'tag'
