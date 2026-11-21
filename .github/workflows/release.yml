@@ -147,7 +147,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb ./out/*.deb
-          xvfb-run -a scripts/smoke-test.sh /usr/bin/cortex-app
+          xvfb-run -a dbus-run-session -- scripts/smoke-test.sh /usr/bin/cortex-app
 
       - name: Start (AppImage)
         if: matrix.package == 'AppImage'
@@ -156,9 +156,9 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libegl1
+          sudo apt-get install -y xvfb libegl1 libgles2
           chmod +x out/*.AppImage
-          xvfb-run -a scripts/smoke-test.sh out/*.AppImage
+          xvfb-run -a dbus-run-session -- scripts/smoke-test.sh out/*.AppImage
 
       - name: TEMP diagnostics
         if: failure()
