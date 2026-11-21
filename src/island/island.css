@@ -4,6 +4,7 @@ html,
 body {
   background: transparent;
   overflow: hidden;
+  color: var(--text);
   font-family: var(--font);
   user-select: none;
   -webkit-user-select: none;
