@@ -114,6 +114,66 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Nobody installs these packages by hand before a release, so the workflow
+  # does: each one is installed on a clean runner, started, and asked for a
+  # decision through the relay it ships (scripts/smoke-test.sh).
+  smoke:
+    name: Install and start (${{ matrix.package }})
+    needs: bundle
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A newer Ubuntu than the one that built them.
+          - { package: deb, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { package: AppImage, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { package: nsis, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { package: msi, os: windows-latest, target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-${{ matrix.target }}
+          path: out
+
+      - name: Install and start (.deb)
+        if: matrix.package == 'deb'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb ./out/*.deb
+          xvfb-run -a scripts/smoke-test.sh /usr/bin/cortex-app
+
+      - name: Start (AppImage)
+        if: matrix.package == 'AppImage'
+        env:
+          # The runner has no FUSE; the AppImage unpacks itself instead.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          chmod +x out/*.AppImage
+          xvfb-run -a scripts/smoke-test.sh out/*.AppImage
+
+      - name: Install and start (NSIS setup)
+        if: matrix.package == 'nsis'
+        shell: bash
+        run: |
+          # /S: silent. The installer returns before it is done unless waited for.
+          powershell -Command 'Start-Process -Wait -FilePath (Get-Item out\*-setup.exe).FullName -ArgumentList "/S"'
+          scripts/smoke-test.sh "$LOCALAPPDATA/Cortex/cortex-app.exe"
+
+      - name: Install and start (.msi)
+        if: matrix.package == 'msi'
+        shell: bash
+        run: |
+          powershell -Command '$p = Start-Process -Wait -PassThru msiexec -ArgumentList "/i", (Get-Item out\*.msi).FullName, "/qn", "/norestart"; exit $p.ExitCode'
+          scripts/smoke-test.sh "$PROGRAMFILES/Cortex/cortex-app.exe"
+
   sign:
     name: Sign the update packages
     needs: bundle
