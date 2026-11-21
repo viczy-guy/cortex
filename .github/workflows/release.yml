@@ -3,8 +3,8 @@ name: Release
 # Pushing a tag `vX.Y.Z` builds the installers on the three platforms and
 # attaches them, with their SHA-256 checksums, to a DRAFT GitHub release.
 # A human reviews the draft and publishes it.
-# Running it by hand (workflow_dispatch) only builds and signs the installers:
-# a dry run that publishes nothing.
+# Running it by hand (workflow_dispatch) builds, signs and checks the same
+# files without creating the release: a dry run that publishes nothing.
 #
 # Update signing (ADR 0004): no machine that ran the build sees the signing
 # key. The `sign` job starts clean, installs the Tauri CLI from the lockfile
@@ -226,15 +226,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  draft-release:
-    name: Draft release
+  release-files:
+    name: Release files
     needs: [bundle, sign]
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
-    # The only job that can write, and it runs no project code.
-    permissions:
-      contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -243,7 +247,8 @@ jobs:
       - name: Update manifest
         working-directory: out
         run: |
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          version="$(node -p "require('../src-tauri/tauri.conf.json').version")"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}"
           # One platform entry: the single file matching the pattern and its signature.
           entry() {
             set -- $1
@@ -255,7 +260,7 @@ jobs:
           linux="$(entry '*.AppImage')"
           nsis="$(entry '*-setup.exe')"
           msi="$(entry '*.msi')"
-          jq -n --arg version "${GITHUB_REF_NAME#v}" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          jq -n --arg version "$version" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson mac_arm "$mac_arm" --argjson mac_x64 "$mac_x64" --argjson linux "$linux" \
             --argjson nsis "$nsis" --argjson msi "$msi" \
             '{version: $version, pub_date: $date, platforms: {
@@ -269,6 +274,38 @@ jobs:
         run: |
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      # What used to be checked by hand on the draft: nothing missing, nothing
+      # extra, and a manifest that matches the files.
+      - name: The release is complete and consistent
+        shell: bash
+        run: |
+          shopt -s nullglob
+          node scripts/verify-release.mjs out "$GITHUB_REPOSITORY"
+          node scripts/verify-update-signatures.mjs \
+            out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  draft-release:
+    name: Draft release
+    needs: release-files
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    # The only job that can write, and it runs no project code: it publishes
+    # exactly the files the job before it checked.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: out
 
       - name: Create the draft release
         env:

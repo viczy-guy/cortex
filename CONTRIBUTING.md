@@ -29,5 +29,5 @@ Issues and PRs are welcome. The short version of how this codebase stays clean:
 npm ci
 npm run tauri dev     # run the app
 cargo test            # core + hook tests
-npm run check         # typecheck the UI
+npm run check         # typecheck and lint the UI
 ```
