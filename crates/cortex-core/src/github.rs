@@ -6,6 +6,11 @@ pub const MAX_ACCOUNTS: usize = 10;
 pub const DEVICE_URL: &str = "https://github.com/login/device";
 pub const CLI_URL: &str = "https://cli.github.com/";
 
+/// The release page of a Cortex version (Settings → About → "What's new").
+pub fn release_notes_url(version: &str) -> String {
+    format!("https://github.com/viczy-guy/cortex/releases/tag/v{version}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GhAccount {
     pub login: String,
@@ -284,6 +289,13 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn release_notes_url_points_at_the_version_tag() {
+        assert_eq!(
+            release_notes_url("0.1.0"),
+            "https://github.com/viczy-guy/cortex/releases/tag/v0.1.0"
+        );
+    }
     #[test]
     fn github_accounts_include_broken_accounts_and_skip_invalid_entries() {
         let input = json!({"hosts":{"github.com":[

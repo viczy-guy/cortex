@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
-  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL,
+  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, releaseNotesUrl,
   type GithubStatus, UPDATES_EVENT, type UpdateStatus,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
@@ -350,15 +350,20 @@ async function start(): Promise<void> {
     api.rulesList().then((value) => { if (!rulesChanged) rules = value; renderRules(); }).catch((error: unknown) => {
       rulesBlock.append(el("div", "note note-error", String(error)));
     }),
-    getVersion().then((version) => { aboutBlock.prepend(el("div", undefined, `Cortex ${version}`)); }).catch((error: unknown) => {
+    getVersion().then((version) => {
+      const commit = import.meta.env.VITE_CORTEX_COMMIT;
+      aboutBlock.prepend(el("div", undefined, commit ? `Cortex ${version} · test build ${commit}` : `Cortex ${version}`));
+      aboutActions.prepend(button("btn-neutral", "What's new", () => {
+        api.openUrl(releaseNotesUrl(version)).catch((error: unknown) => { aboutBlock.append(el("div", "note note-error", String(error))); });
+      }));
+    }).catch((error: unknown) => {
       aboutBlock.prepend(el("div", "note note-error", String(error)));
     }),
   ]);
 }
 
-aboutBlock.append(
-  el("div", "note", "Local by design: no account, no telemetry."),
-  button("btn-neutral", "Quit Cortex", () => void api.quit()),
-);
+const aboutActions = el("div", "actions");
+aboutActions.append(button("btn-neutral", "Quit Cortex", () => void api.quit()));
+aboutBlock.append(el("div", "note", "Local by design: no account, no telemetry."), aboutActions);
 window.addEventListener("pagehide", clearConfirmation);
 void start();

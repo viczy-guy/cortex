@@ -121,6 +121,8 @@ Windows shows a similar SmartScreen notice (**More info → Run anyway**).
 
 **Build the installers yourself:** `npm run bundle` (output in
 `target/release/bundle/`). The relay is built and embedded automatically.
+For a test build, `VITE_CORTEX_COMMIT=$(git rev-parse --short HEAD) npm run bundle`
+shows the commit in Settings → About.
 
 ## License
 

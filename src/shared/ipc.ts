@@ -208,4 +208,6 @@ export interface GithubStatus {
 }
 export const GITHUB_DEVICE_URL = "https://github.com/login/device";
 export const GITHUB_CLI_URL = "https://cli.github.com/";
+/** Must match `release_notes_url` in cortex-core: `open_url` accepts only that page. */
+export const releaseNotesUrl = (version: string): string => `https://github.com/viczy-guy/cortex/releases/tag/v${version}`;
 export const GITHUB_EVENT = "cortex://github";
