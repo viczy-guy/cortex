@@ -5,6 +5,8 @@ name: Release
 # A human reviews the draft and publishes it.
 # Running it by hand (workflow_dispatch) builds, signs and checks the same
 # files without creating the release: a dry run that publishes nothing.
+# Either way, the Linux and Windows packages are installed and started on
+# clean runners first, and a package that does not start stops the release.
 #
 # Update signing (ADR 0004): no machine that ran the build sees the signing
 # key. The `sign` job starts clean, installs the Tauri CLI from the lockfile
@@ -141,12 +143,14 @@ jobs:
           name: installers-${{ matrix.target }}
           path: out
 
+      # No desktop here. Without a session bus of its own, GTK waits half a
+      # minute at startup for desktop services that the runner's bus never starts.
       - name: Install and start (.deb)
         if: matrix.package == 'deb'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb ./out/*.deb
-          xvfb-run -a scripts/smoke-test.sh /usr/bin/cortex-app
+          xvfb-run -a dbus-run-session -- scripts/smoke-test.sh /usr/bin/cortex-app
 
       - name: Start (AppImage)
         if: matrix.package == 'AppImage'
@@ -155,9 +159,11 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          # An AppImage leaves the graphics driver libraries to the system;
+          # a desktop has them, the runner does not.
+          sudo apt-get install -y xvfb libegl1 libgles2
           chmod +x out/*.AppImage
-          xvfb-run -a scripts/smoke-test.sh out/*.AppImage
+          xvfb-run -a dbus-run-session -- scripts/smoke-test.sh out/*.AppImage
 
       - name: Install and start (NSIS setup)
         if: matrix.package == 'nsis'
@@ -228,7 +234,7 @@ jobs:
 
   release-files:
     name: Release files
-    needs: [bundle, sign]
+    needs: [bundle, sign, smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
