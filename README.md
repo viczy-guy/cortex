@@ -14,8 +14,9 @@ with one click, without leaving what you are doing.
 
 > **Status: early development.** The core loop works on macOS — live sessions,
 > approvals, questions, Always rules, Settings and the hook installer — and
-> builds on Windows and Linux. Installers are built by CI from a tag; there is
-> no published release yet. Follow the [roadmap](ROADMAP.md).
+> builds on Windows and Linux. **[Download the latest release](https://github.com/viczy-guy/cortex/releases/latest)**:
+> tested by hand on macOS; the Windows and Linux installers are checked by CI
+> but not yet tried on real machines. Follow the [roadmap](ROADMAP.md).
 
 ## Why
 
