@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
 ### Fixed
 - Settings says so when removing an Always rule could not be saved, instead
   of showing it as removed until the next launch.

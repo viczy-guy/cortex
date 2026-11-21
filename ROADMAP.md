@@ -18,8 +18,8 @@ What is planned beyond the current version. Order within a section is not a comm
 - [x] The island stays folded into a handle until a card needs the user; hover shows the sessions
 - [x] Packaging: `npm run bundle` embeds the relay; a tag builds dmg / msi /
       exe / AppImage / deb / rpm and drafts a release with checksums
-      (verified on macOS; Windows and Linux installers get their first real
-      run with the first tag)
+      (every release installs the Windows and Linux packages on clean CI
+      runners and starts the app before the draft is created)
 - [x] First release, v0.1.0 (tested by hand on macOS)
 - [ ] Windows and Linux installers tried on real machines
 - [x] Signed auto-updates, opt-in (ADR 0004)
