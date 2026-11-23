@@ -26,7 +26,8 @@ const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: 
   action: { tone: "red", say: () => "An action failed!" },
   review: { tone: "blue", say: () => "A PR needs your review" },
   // The maintainer's words (#135): "Seu PR#000 (titulo breve do PR) - Foi aprovado!"
-  approved: { tone: "green", say: (n) => `Your PR #${n.number} (${n.title}) was approved!` },
+  // Blue, like a review request: both are about reviews (#141).
+  approved: { tone: "blue", say: (n) => `Your PR #${n.number} (${n.title}) was approved!` },
 };
 
 export function githubNotice(notice: GithubNotice): ViewNotice {
