@@ -228,10 +228,13 @@ export interface PullRequest {
 export interface GithubNotice {
   /** The same while the notice stands; a new failure or plan gets a new one. */
   key: string;
-  kind: "review" | "ready" | "failed" | "critical" | "action";
+  kind: "review" | "approved" | "failed" | "critical" | "action";
   /** Where it happened: "cortex #128 · checks". */
   detail: string;
   url: string;
+  /** The pull request's number and short title; 0 and "" for an action. */
+  number: number;
+  title: string;
 }
 export interface GithubSummary {
   login: string;

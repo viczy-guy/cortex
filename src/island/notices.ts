@@ -18,16 +18,18 @@ export interface ViewNotice {
   url?: string;
 }
 
-const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: string }> = {
-  critical: { tone: "red", say: "A PR has critical changes, review it!" },
-  failed: { tone: "red", say: "A PR failed!" },
-  action: { tone: "red", say: "An action failed!" },
-  review: { tone: "blue", say: "A PR needs your review" },
-  ready: { tone: "green", say: "Your PR is ready" },
+const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: GithubNotice) => string }> = {
+  critical: { tone: "red", say: () => "A PR has critical changes, review it!" },
+  failed: { tone: "red", say: () => "A PR failed!" },
+  action: { tone: "red", say: () => "An action failed!" },
+  review: { tone: "blue", say: () => "A PR needs your review" },
+  // The maintainer's words (#135): "Seu PR#000 (titulo breve do PR) - Foi aprovado!"
+  approved: { tone: "green", say: (n) => `Your PR #${n.number} (${n.title}) was approved!` },
 };
 
 export function githubNotice(notice: GithubNotice): ViewNotice {
-  return { key: `github:${notice.key}`, ...GITHUB[notice.kind], detail: notice.detail, url: notice.url };
+  const { tone, say } = GITHUB[notice.kind];
+  return { key: `github:${notice.key}`, tone, say: say(notice), detail: notice.detail, url: notice.url };
 }
 
 const AGENT_SAYS: Partial<Record<SessionView["state"], string>> = {

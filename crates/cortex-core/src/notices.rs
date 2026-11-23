@@ -1,5 +1,5 @@
 //! What the island tells the user about GitHub (#131): a review requested, a
-//! pull request ready or failing, a plan that destroys something, a failed
+//! pull request approved or failing, a plan that destroys something, a failed
 //! action. The shell fetches; everything here only reads what came back.
 
 use crate::github::{Checks, GithubSummary, PullRequest, Review};
@@ -20,14 +20,16 @@ pub const MAX_RUNS: usize = 10;
 /// Failed actions older than this are not news.
 const RUNS_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_DETAIL_CHARS: usize = 60;
+/// A title inside a phrase: the island is at most 460 points wide.
+const MAX_TITLE_CHARS: usize = 28;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeKind {
     /// Someone asked for your review.
     Review,
-    /// Your pull request is approved and its checks pass.
-    Ready,
+    /// Your pull request was approved (and its checks do not fail) (#135).
+    Approved,
     /// Your pull request's checks fail.
     Failed,
     /// An Atlantis plan on the pull request destroys something.
@@ -44,6 +46,10 @@ pub struct Notice {
     /// Where it happened: "cortex #128 · checks".
     pub detail: String,
     pub url: String,
+    /// The pull request's number and short title, for the phrases that name
+    /// it ("Your PR #128 (Short title) was approved!"); 0 and empty otherwise.
+    pub number: u64,
+    pub title: String,
 }
 
 /// A failed workflow run the user started, from GitHub's own notice of it.
@@ -70,6 +76,8 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
         kind,
         detail: bounded(&format!("{} #{} · {what}", short(&pull.repo), pull.number)),
         url: pull.url.clone(),
+        number: pull.number,
+        title: short_title(&pull.title),
     };
     let mut out = Vec::new();
     for pull in summary.mine.iter().chain(&summary.review_requests) {
@@ -109,6 +117,8 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
                 run.reference
             )),
             url: run.url(),
+            number: 0,
+            title: String::new(),
         });
     }
     for pull in &summary.review_requests {
@@ -116,11 +126,11 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
         out.push(pr(NoticeKind::Review, "review", pull, who.into()));
     }
     for pull in &summary.mine {
-        if !pull.draft
-            && pull.review == Review::Approved
-            && matches!(pull.checks, Checks::Passing | Checks::None)
-        {
-            out.push(pr(NoticeKind::Ready, "ready", pull, "approved".into()));
+        // Approved with failing checks is "A PR failed!": one notice per pull request.
+        if !pull.draft && pull.review == Review::Approved && pull.checks != Checks::Failing {
+            let mut notice = pr(NoticeKind::Approved, "approved", pull, String::new());
+            notice.detail = bounded(short(&pull.repo));
+            out.push(notice);
         }
     }
     out
@@ -132,6 +142,15 @@ fn short(repo: &str) -> &str {
 
 fn bounded(text: &str) -> String {
     truncate(text, MAX_DETAIL_CHARS)
+}
+
+/// "Notices on the island, with…": cut on a character, never after a space.
+fn short_title(title: &str) -> String {
+    if title.chars().count() <= MAX_TITLE_CHARS {
+        return title.into();
+    }
+    let cut: String = title.chars().take(MAX_TITLE_CHARS).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// "owner/name", as GitHub allows them: owners are letters, digits and
@@ -455,17 +474,20 @@ mod tests {
         let mut s = summary();
         let mut failing = pull("viczy-guy/cortex", 128);
         failing.checks = Checks::Failing;
-        let mut ready = pull("viczy-guy/cortex", 130);
-        ready.review = Review::Approved;
-        ready.checks = Checks::Passing;
-        let mut draft_ready = ready.clone();
-        draft_ready.number = 131;
-        draft_ready.url.push('1');
-        draft_ready.draft = true;
-        let waiting = pull("viczy-guy/cortex", 132);
+        failing.review = Review::Approved;
+        let mut approved = pull("viczy-guy/cortex", 130);
+        approved.review = Review::Approved;
+        approved.checks = Checks::Passing;
+        approved.title = "Notices on the island, with a long title".into();
+        let mut draft = approved.clone();
+        draft.number = 131;
+        draft.url.push('1');
+        draft.draft = true;
+        let mut pending = pull("viczy-guy/cortex", 132);
+        pending.review = Review::Approved;
         let mut destroys = pull("mt/infra", 482);
         destroys.destroy = 3;
-        s.mine = vec![failing, ready, draft_ready, waiting];
+        s.mine = vec![failing, approved, draft, pending];
         s.review_requests = vec![destroys];
         let run = |reference: &str| FailedRun {
             id: "27485366758".into(),
@@ -488,8 +510,17 @@ mod tests {
                 (NoticeKind::Failed, "cortex #128 · checks"),
                 (NoticeKind::Action, "cortex · CI (main)"),
                 (NoticeKind::Review, "infra #482 · pessoa-b"),
-                (NoticeKind::Ready, "cortex #130 · approved"),
+                (NoticeKind::Approved, "cortex"),
+                (NoticeKind::Approved, "cortex"),
             ]
+        );
+        assert_eq!(
+            (notices[4].number, notices[4].title.as_str()),
+            (130, "Notices on the island, with…")
+        );
+        assert_eq!(
+            notices[5].number, 132,
+            "checks still running: approved all the same"
         );
         assert_eq!(
             notices[2].url,
