@@ -180,7 +180,8 @@ fn iso_utc(ms: u64) -> String {
 }
 
 /// The failed runs among GitHub's notices: "CI workflow run failed for main
-/// branch", which GitHub sends to whoever started the run.
+/// branch", which GitHub sends to whoever started the run. One per workflow
+/// and branch, the latest (GitHub lists the newest first).
 pub fn parse_failed_runs(json: &str) -> Vec<FailedRun> {
     let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else {
         return Vec::new();
@@ -221,6 +222,15 @@ pub fn parse_failed_runs(json: &str) -> Vec<FailedRun> {
                 updated_at: updated_at.into(),
             })
         })
+        .fold(Vec::<FailedRun>::new(), |mut runs, run| {
+            if !runs.iter().any(|r| {
+                r.repo == run.repo && r.workflow == run.workflow && r.reference == run.reference
+            }) {
+                runs.push(run);
+            }
+            runs
+        })
+        .into_iter()
         .take(MAX_RUNS)
         .collect()
 }
@@ -617,6 +627,13 @@ mod tests {
                 "ci_activity",
                 true,
                 "Release workflow run failed for v0.3.2 tag",
+                "viczy-guy/cortex"
+            ),
+            // An older failure of the same workflow on the same branch: one notice.
+            item(
+                "ci_activity",
+                true,
+                "CI workflow run failed for main branch",
                 "viczy-guy/cortex"
             ),
             item(

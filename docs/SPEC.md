@@ -263,7 +263,8 @@ storing or logging it.
 
 Each check of an account runs up to three requests, all reads (#131): the
 summary query above; GitHub's unread notices of the last day, of which only
-"… workflow run failed for …" (an action the user started) is kept; and, for
+"… workflow run failed for …" (an action the user started) is kept, one per
+workflow and branch; and, for
 up to 2 pull requests whose `updatedAt` changed since their plan was last read
 (the least recently tried first, per account), their last 5 comments, to read
 the latest Atlantis plan: the comment that starts with "Ran Plan for" (a quote
