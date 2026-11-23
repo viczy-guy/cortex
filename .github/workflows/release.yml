@@ -44,7 +44,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the next step needs main's history
 
@@ -76,7 +76,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libssl-dev pkg-config build-essential rpm
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -109,7 +109,7 @@ jobs:
           ls -l out
           test -n "$(ls -A out)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: installers-${{ matrix.target }}
           path: out/*
@@ -134,11 +134,11 @@ jobs:
           - { package: nsis, os: windows-latest, target: x86_64-pc-windows-msvc }
           - { package: msi, os: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: installers-${{ matrix.target }}
           path: out
@@ -186,18 +186,18 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
       - name: Tauri CLI from the lockfile, without install scripts
         run: npm ci --ignore-scripts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           pattern: installers-*
@@ -225,7 +225,7 @@ jobs:
           node scripts/verify-update-signatures.mjs \
             out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: signatures
           path: out/*.sig
@@ -237,15 +237,15 @@ jobs:
     needs: [bundle, sign, smoke]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           merge-multiple: true
@@ -291,7 +291,7 @@ jobs:
           node scripts/verify-update-signatures.mjs \
             out/*.app.tar.gz out/*.AppImage out/*.msi out/*-setup.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-files
           path: out/*
@@ -308,7 +308,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-files
           path: out
