@@ -25,6 +25,7 @@ import {
   type UpdateStatus,
 } from "../shared/ipc";
 import { type Mascot, mascotSvg } from "../shared/mascots";
+import { playSound } from "../shared/sounds";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
 import { agentShort, agentTag, byUrgency, prIcon, sessionKey, sessionTone, type Tone, topTone } from "./notch";
@@ -45,6 +46,8 @@ let github: GithubStatus | null = null;
 let updates: UpdateStatus | null = null;
 let updatesError: string | null = null;
 let mascot: Mascot = "eyes";
+let sound = true;
+let soundReady = false;
 /** True when the panel was opened by an approval, not by the user. */
 let autoExpanded = false;
 /** `null` until Rust answers; the "Connect" chip shows only on a definite `false`. */
@@ -59,6 +62,10 @@ let dismissed = new Set<string>();
 let folded: string | null = null;
 /** Each session's last event when the user last looked at the island. */
 const seen = new Map<string, number>();
+/** Each session's color from its state alone (not what was seen), to ring on a real change. */
+const previousTones = new Map<string, Tone>();
+/** Cards already rung for: a new card rings even when its session was amber already. */
+const rungCards = new Set<string>();
 /** Green (finished) or red (failed) sessions nobody looked at yet, kept after the session is gone. */
 const unseen = new Map<string, Tone>();
 let tone: Tone = "gray";
@@ -89,14 +96,24 @@ function updateTone(): void {
   // What changes while the user is looking has been seen.
   if (hovered) acknowledge();
   const live = new Set<string>();
+  let notice: Tone = "gray";
   for (const session of snapshot.sessions) {
     const key = sessionKey(session);
     live.add(key);
     const t = toneOf(session);
+    const state = sessionTone(session, false);
+    if (state !== previousTones.get(key)) notice = topTone([notice, state]);
+    previousTones.set(key, state);
     if (t === "green" || t === "red") unseen.set(key, t);
     else unseen.delete(key);
   }
   for (const key of seen.keys()) if (!live.has(key)) seen.delete(key);
+  for (const key of previousTones.keys()) if (!live.has(key)) previousTones.delete(key);
+  const cards = new Set(snapshot.approvals.map((a) => a.request_id));
+  for (const id of cards) if (!rungCards.has(id)) notice = topTone([notice, "amber"]);
+  for (const id of rungCards) if (!cards.has(id)) rungCards.delete(id);
+  for (const id of cards) rungCards.add(id);
+  if (soundReady && sound && notice !== "gray") playSound(notice);
   const next = topTone([...snapshot.sessions.map(toneOf), ...unseen.values()]);
   if (topTone([next, tone]) !== tone && next !== tone) bounce = true;
   tone = next;
@@ -419,8 +436,10 @@ async function start(): Promise<void> {
     hooksInstalled = event.payload.installed;
     render();
   });
+  let islandChanged = false;
   await listen<IslandPrefs>(ISLAND_PREFS_EVENT, (event) => {
-    mascot = event.payload.mascot;
+    islandChanged = true;
+    ({ mascot, sound } = event.payload);
     render();
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
@@ -429,12 +448,16 @@ async function start(): Promise<void> {
   window.addEventListener("blur", foldAway);
   document.documentElement.addEventListener("mouseenter", () => setHovered(true));
   document.documentElement.addEventListener("mouseleave", () => setHovered(false));
+  let snapshotChanged = false;
   await listen<Snapshot>(STATE_EVENT, (event) => {
+    snapshotChanged = true;
     snapshot = event.payload;
     render();
   });
-  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { mascot = value.mascot; }).catch(() => { /* The default mascot stays. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) ({ mascot, sound } = value); }).catch(() => { /* Keep the island defaults. */ })]);
+  if (!snapshotChanged) snapshot = initialSnapshot;
   render();
+  soundReady = true;
 }
 
 void start();

@@ -10,6 +10,7 @@ import {
 } from "../shared/ipc";
 import { type Mascot, MASCOT_NAMES, MASCOTS, mascotSvg } from "../shared/mascots";
 import { alwaysScope } from "../shared/rules";
+import { playSound } from "../shared/sounds";
 
 const root = document.getElementById("settings")!;
 function section(title: string): HTMLElement {
@@ -37,6 +38,7 @@ let updates: UpdateStatus | null = null;
 let updatesBusy = false;
 let updatesError: string | null = null;
 let island: IslandPrefs | null = null;
+let soundBusy = false;
 let startup: AutostartStatus | null = null;
 let startupError: string | null = null;
 let startupBusy = false;
@@ -340,7 +342,18 @@ function renderIsland(): void {
       choice.append(mascotSvg(mascot) ?? el("span", "mascot-none"), el("span", "mascot-name", MASCOT_NAMES[mascot]));
       gallery.append(choice);
     }
-    islandBlock.append(gallery);
+    const on = island.sound;
+    const row = el("div", "status-row");
+    const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeSound(!on));
+    toggle.disabled = soundBusy;
+    row.append(el("span", on ? "status-dot connected" : "status-dot"), el("span", undefined, on ? "Sounds on" : "Sounds off"), toggle);
+    const previews = el("div", "actions");
+    previews.append(
+      button("btn-neutral", "Done", () => playSound("green", true)),
+      button("btn-neutral", "Needs you", () => playSound("amber", true)),
+      button("btn-neutral", "Failed", () => playSound("red", true)),
+    );
+    islandBlock.append(gallery, row, previews);
   }
   if (islandError) islandBlock.append(el("div", "note note-error", islandError));
 }
@@ -351,6 +364,21 @@ async function chooseMascot(mascot: Mascot): Promise<void> {
     await api.islandSetMascot(mascot);
   } catch (error) {
     islandError = String(error);
+    renderIsland();
+  }
+}
+
+async function changeSound(enabled: boolean): Promise<void> {
+  if (soundBusy) return;
+  soundBusy = true;
+  islandError = null;
+  renderIsland();
+  try {
+    await api.islandSetSound(enabled);
+  } catch (error) {
+    islandError = String(error);
+  } finally {
+    soundBusy = false;
     renderIsland();
   }
 }

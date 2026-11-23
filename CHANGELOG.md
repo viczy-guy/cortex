@@ -20,6 +20,8 @@ follows [Semantic Versioning](https://semver.org).
   none. (#27)
 - An opening screen when you open Cortex: a growing dot, "Welcome", then
   your mascot. About two seconds; a click skips it. (#80)
+- A sound for each kind of notice: an agent done, an agent waiting for you,
+  an agent failed. On by default; mute and samples in Settings → Island. (#79)
 
 ### Changed
 - A new app icon: a dot with two rings, the dot that opens the island.

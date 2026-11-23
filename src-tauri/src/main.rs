@@ -318,6 +318,7 @@ fn main() {
             autostart::autostart_status,
             autostart::autostart_set,
             prefs::island_set_mascot,
+            prefs::island_set_sound,
             splash_done,
             open_settings,
             quit,

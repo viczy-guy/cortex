@@ -125,9 +125,10 @@ export const OUTSIDE_CLICK_EVENT = "cortex://outside-click";
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
-/** How the island looks; sent to both windows when Settings changes it. */
+/** Island preferences sent when Settings changes them. */
 export interface IslandPrefs {
   mascot: Mascot;
+  sound: boolean;
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
 
@@ -166,6 +167,7 @@ export const api = {
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
+  islandSetSound: (enabled: boolean) => invoke<void>("island_set_sound", { enabled }),
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),

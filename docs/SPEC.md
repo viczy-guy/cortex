@@ -47,6 +47,12 @@ are doing.
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.
 
+Each notice has its own sound, about two seconds long, played once per
+change: a session's state turning done (green), waiting for the user or a new
+card (amber), or failed (red). If several come together, the most urgent
+plays; a lower one arriving while a higher one plays is not played. Sounds
+are on by default and can be muted or sampled in Settings → Island.
+
 ## Opening screen
 
 On manual launch, a small centered window shows a growing colored dot,
@@ -138,7 +144,8 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
-- **Island** chooses the mascot from a gallery of eight, or none.
+- **Island** chooses the mascot from a gallery of eight, or none, and controls
+  and previews notice sounds.
 - **Startup** turns launch at login on or off (see below).
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
