@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 - Cortex opens when you log in. **It is on from the first launch of this
   version**; turn it off in Settings → Startup. (#81)
