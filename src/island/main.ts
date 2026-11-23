@@ -132,10 +132,12 @@ function acknowledge(): void {
 
 /** A click on a session's card: that session goes back to gray. */
 function acknowledgeSession(session: SessionView): void {
+  const before = toneOf(session);
   const key = sessionKey(session);
   seen.set(key, session.last_event_ms);
   unseen.delete(key);
-  render();
+  // A redraw for nothing would drop a text selection or cut the mascot's jump.
+  if (toneOf(session) !== before) render();
 }
 
 /** Pull requests waiting for your review, and your own with failing checks. */
@@ -186,8 +188,7 @@ function render(): void {
     const node = el("div", "notch");
     node.addEventListener("click", () => {
       acknowledge();
-      if (hovered) render();
-      else setHovered(true);
+      setHovered(true);
     });
     const left = mascotNode();
     const totals = prTotals();
@@ -345,17 +346,23 @@ function bar(): HTMLElement {
   const firstTags = tags.slice(0, 2);
   if (cutout) splitAtCamera(node, [center, ...firstTags], right);
   else node.append(...firstTags, center, ...right);
-  node.addEventListener("click", () => {
-    acknowledge();
-    if (sessions.length > 0) toggle();
-    else render();
-  });
-  if (!cutout || chips.length === 0) return node;
+  if (!cutout || chips.length === 0) return onClick(node, sessions.length > 0);
   const wrap = el("div");
   const below = el("div", "chip-row");
   below.append(...chips);
   wrap.append(node, below);
-  return wrap;
+  return onClick(wrap, sessions.length > 0);
+}
+
+/**
+ * Any click on the bar is a click on the island: it clears the colors, even
+ * on a button (seen while capturing, before the button stops it). A click
+ * beside the buttons opens or closes the session cards.
+ */
+function onClick(top: HTMLElement, toggles: boolean): HTMLElement {
+  top.addEventListener("click", acknowledge, { capture: true });
+  top.addEventListener("click", () => (toggles ? toggle() : render()));
+  return top;
 }
 
 function sessionLabel(session: SessionView): string {
