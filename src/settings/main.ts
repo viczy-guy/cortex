@@ -201,7 +201,7 @@ function renderRules(): void {
 
 function renderGithub(): void {
   githubBlock.replaceChildren(
-    el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks every 3 minutes while on."),
+    el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks about once a minute while on."),
     el("div", "note", "Every account signed in to gh is shown; hide the ones you don't want."),
   );
   const action = (style: string, label: string, change: () => Promise<void>, disabled = false): HTMLButtonElement => {

@@ -7,8 +7,8 @@ use cortex_core::{
         DEVICE_URL, MAX_ACCOUNTS, QUERY,
     },
     notices::{
-        notices, notifications_path, parse_failed_runs, parse_plans, plan_query, FailedRun,
-        PlanCache,
+        notices, notifications_path, parse_failed_runs, parse_plans, plan_query,
+        split_poll_interval, FailedRun, PlanCache,
     },
     GithubSummary,
 };
@@ -28,7 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Notify;
 
 pub const GITHUB_EVENT: &str = "cortex://github";
-const POLL: Duration = Duration::from_secs(180);
+const POLL: Duration = Duration::from_secs(60);
 const GH_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_STDOUT: u64 = 2 * 1024 * 1024;
 const MAX_DIAGNOSTICS: u64 = 64 * 1024;
@@ -324,13 +324,17 @@ fn fetch_summary(gh: &Path, login: &str) -> Result<GithubSummary, GhError> {
 /// What the notices remember between checks (#131).
 struct Memory {
     plans: PlanCache,
-    /// Each account's failed actions, kept when reading them fails once.
+    /// Each account's failed actions, kept between reads and when one fails.
     runs: BTreeMap<String, Vec<FailedRun>>,
+    /// When each account may read its notifications again: GitHub's
+    /// `X-Poll-Interval`, which "Refresh now" does not skip either.
+    runs_due: BTreeMap<String, u64>,
 }
 
 static MEMORY: Mutex<Memory> = Mutex::new(Memory {
     plans: PlanCache::new(),
     runs: BTreeMap::new(),
+    runs_due: BTreeMap::new(),
 });
 
 /// The failed actions and plans behind the island's notices (#131). A request
@@ -339,20 +343,41 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
     let now = crate::state::now_ms();
     let login = summary.login.to_ascii_lowercase();
     let path = notifications_path(now);
-    let runs = run_gh(gh, &["api", "--hostname", "github.com", &path], Some(token));
+    let due = MEMORY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .runs_due
+        .get(&login)
+        .is_none_or(|&at| now >= at);
+    let runs = due.then(|| {
+        run_gh(
+            gh,
+            &["api", "--include", "--hostname", "github.com", &path],
+            Some(token),
+        )
+    });
     let mut memory = MEMORY.lock().unwrap_or_else(|e| e.into_inner());
-    match runs {
-        Ok(text) => {
-            summary.failed_runs = parse_failed_runs(&text);
-            memory
-                .runs
-                .insert(login.clone(), summary.failed_runs.clone());
+    let read = match runs {
+        None => None,
+        Some(Ok(text)) => {
+            let answer = split_poll_interval(&text);
+            if answer.is_none() {
+                eprintln!("cortex: failed actions not read: unexpected response from gh");
+            }
+            answer.map(|(secs, body)| (secs, parse_failed_runs(body)))
         }
-        Err(GhError(err)) => {
+        Some(Err(GhError(err))) => {
             eprintln!("cortex: failed actions not read: {err}");
-            summary.failed_runs = memory.runs.get(&login).cloned().unwrap_or_default();
+            None
         }
+    };
+    if let Some((secs, runs)) = read {
+        memory.runs.insert(login.clone(), runs);
+        memory
+            .runs_due
+            .insert(login.clone(), now.saturating_add(secs * 1000));
     }
+    summary.failed_runs = memory.runs.get(&login).cloned().unwrap_or_default();
     let due = memory
         .plans
         .due(&login, summary.mine.iter().chain(&summary.review_requests));
