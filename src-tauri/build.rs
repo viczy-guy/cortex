@@ -20,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "island_screens",
     "island_set_position",
     "island_set_screen",
+    "island_set_sound",
     "splash_done",
     "open_settings",
     "quit",

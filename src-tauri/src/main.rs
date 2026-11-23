@@ -442,6 +442,7 @@ fn main() {
             island_screens,
             island_set_position,
             island_set_screen,
+            prefs::island_set_sound,
             splash_done,
             open_settings,
             quit,

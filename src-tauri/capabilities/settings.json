@@ -12,6 +12,7 @@
     "allow-island-screens",
     "allow-island-set-position",
     "allow-island-set-screen",
+    "allow-island-set-sound",
     "allow-github-status",
     "allow-github-set-enabled",
     "allow-github-refresh",

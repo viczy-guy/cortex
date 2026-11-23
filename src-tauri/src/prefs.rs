@@ -3,7 +3,7 @@ pub use cortex_core::prefs::Prefs;
 use cortex_core::prefs::{checked_prefs_from_json, is_mascot, prefs_to_json, DEFAULT_MASCOT};
 use tauri::{AppHandle, Emitter};
 
-/// How the island looks, for both windows.
+/// Island preferences shared by the webviews.
 pub const ISLAND_PREFS_EVENT: &str = "cortex://island-prefs";
 
 #[derive(serde::Serialize, Clone)]
@@ -11,6 +11,7 @@ pub struct IslandPrefs {
     pub mascot: String,
     pub position: String,
     pub screen: Option<String>,
+    pub sound: bool,
 }
 
 impl From<&Prefs> for IslandPrefs {
@@ -19,6 +20,7 @@ impl From<&Prefs> for IslandPrefs {
             mascot: prefs.mascot.as_deref().unwrap_or(DEFAULT_MASCOT).to_owned(),
             position: prefs.island_position.as_deref().unwrap_or("top").to_owned(),
             screen: prefs.island_screen.clone(),
+            sound: prefs.sound.unwrap_or(true),
         }
     }
 }
@@ -37,6 +39,13 @@ pub fn island_set_mascot(app: AppHandle, mascot: String) -> Result<(), String> {
     let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
     Ok(())
 }
+#[tauri::command]
+pub fn island_set_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let prefs = update(|p| p.sound = Some(enabled))?;
+    let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
+    Ok(())
+}
+
 pub fn load() -> Prefs {
     let read = || -> Result<Option<String>, String> {
         let path = crate::hooks::data_dir()?.join("prefs.json");

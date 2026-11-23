@@ -139,6 +139,7 @@ export interface IslandPrefs {
   mascot: Mascot;
   position: IslandPosition;
   screen: string | null;
+  sound: boolean;
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
 export const ISLAND_SCREENS_EVENT = "cortex://island-screens";
@@ -181,6 +182,7 @@ export const api = {
   islandScreens: () => invoke<IslandScreen[]>("island_screens"),
   islandSetPosition: (position: IslandPosition) => invoke<void>("island_set_position", { position }),
   islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
+  islandSetSound: (enabled: boolean) => invoke<void>("island_set_sound", { enabled }),
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),

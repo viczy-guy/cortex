@@ -10,6 +10,8 @@ pub struct Prefs {
     pub updates: Option<bool>,
     /// The island's mascot, one of [`MASCOTS`]; `None` is the default.
     pub mascot: Option<String>,
+    /// Island notice sounds; `None` means on.
+    pub sound: Option<bool>,
     /// Launch at login (#81). `None` until the first launch turns it on.
     pub launch_at_login: Option<bool>,
     pub island_position: Option<String>,
@@ -72,6 +74,7 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
         github_hidden,
         updates,
         mascot,
+        sound: v.get("sound").and_then(Value::as_bool),
         launch_at_login: v.get("launch_at_login").and_then(Value::as_bool),
         island_position: v["island_position"]
             .as_str()
@@ -85,7 +88,7 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen})
         .to_string()
 }
 #[cfg(test)]
@@ -164,6 +167,30 @@ mod tests {
         let old = prefs_from_json(r#"{"version":1,"github":true}"#);
         assert!(old.github);
         assert_eq!(old.launch_at_login, None);
+    }
+
+    #[test]
+    fn sound_round_trips_and_invalid_values_keep_the_other_preferences() {
+        for sound in [None, Some(false), Some(true)] {
+            let p = Prefs {
+                github: true,
+                sound,
+                ..Prefs::default()
+            };
+            assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        }
+        for json in [
+            r#"{"version":1,"github":true}"#,
+            r#"{"version":1,"github":true,"sound":"false"}"#,
+        ] {
+            assert_eq!(
+                checked_prefs_from_json(json),
+                Some(Prefs {
+                    github: true,
+                    ..Prefs::default()
+                })
+            );
+        }
     }
 
     #[test]

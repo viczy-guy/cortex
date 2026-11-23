@@ -22,6 +22,8 @@ follows [Semantic Versioning](https://semver.org).
   your mascot. About two seconds; a click skips it. (#80)
 - Choose the island's screen and one of five positions (top center, either
   side, either bottom corner) in Settings → Island. (#43)
+- A sound for each kind of notice: an agent done, an agent waiting for you,
+  an agent failed. On by default; mute and samples in Settings → Island. (#79)
 
 ### Changed
 - A new app icon: a dot with two rings, the dot that opens the island.
