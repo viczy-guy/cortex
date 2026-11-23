@@ -17,13 +17,16 @@ to every AI agent working here, Claude included.
 
 ## How we work
 
-- Claude specifies, reviews and decides; well-scoped implementation tasks are
-  delegated to the Codex CLI from a written spec. Security-sensitive code
-  (socket, approvals, anything that writes user files), architecture and
-  visual debugging stay with Claude.
-- Delegated runs log to `.codex-runs/` (git-ignored) so the user can follow
-  them with `tail -f`. Codex never commits; Claude re-runs every check outside
-  the Codex sandbox and reviews the diff before committing.
+- Claude implements; the Codex CLI reviews. Every pull request gets
+  `/code-review` and a read-only Codex review before it merges:
+  `codex exec -s read-only -C <repo> -o .codex-runs/review-<PR>.md - < prompt`,
+  where the prompt names the diff (`git diff origin/main...HEAD`), what to
+  check and the context. Real findings are fixed in the pull request; the
+  ones left out are named there with the reason. (Until 0.3.0 Codex
+  implemented from written specs; the maintainer found that it drifted from
+  the design, so since 0.3.1 it only reviews.)
+- Codex runs log to `.codex-runs/` (git-ignored). Codex never edits or
+  commits.
 
 ## Working by milestone
 
