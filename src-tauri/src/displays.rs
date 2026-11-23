@@ -33,8 +33,9 @@ pub fn watch(app: &AppHandle) {
     }
 }
 
-// shortcut: Windows and Linux learn of a screen change only at the island's
-// next redraw (any agent event or hover); watch their display messages if
-// an island left on a vanished screen turns out to matter there.
+// shortcut: on Windows and Linux the island is placed again only when it
+// next changes size (hover, a card, a color change); the system has already
+// moved it onto a remaining screen. Watch their display messages if that
+// turns out not to be enough.
 #[cfg(not(target_os = "macos"))]
 pub fn watch(_: &AppHandle) {}

@@ -370,7 +370,7 @@ function renderIsland(): void {
     displays.append(islandChoice("Main screen", prefs.screen === null, () => api.islandSetScreen(null)));
     for (const screen of screens ?? []) {
       displays.append(islandChoice(
-        `${screen.name} · ${screen.width} × ${screen.height}`,
+        `${screen.name} · ${screen.width} × ${screen.height}${screen.primary ? " · main" : ""}`,
         screen.name === prefs.screen,
         () => api.islandSetScreen(screen.name),
       ));
@@ -465,6 +465,9 @@ async function start(): Promise<void> {
     renderIsland();
   });
   await listen(ISLAND_SCREENS_EVENT, () => void refreshScreens());
+  // Only macOS reports a screen change; elsewhere the list is read again
+  // whenever Settings comes forward.
+  window.addEventListener("focus", () => void refreshScreens());
   let hooksChanged = false;
   let rulesChanged = false;
   await listen<HooksStatus>(HOOKS_EVENT, (event) => {

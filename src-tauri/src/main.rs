@@ -235,6 +235,8 @@ fn quit(app: AppHandle) {
 const ISLAND_WIDTH: f64 = 460.0;
 /// Bounds for what the UI may ask in `island_fit`.
 const ISLAND_MIN_WIDTH: f64 = 40.0;
+/// The window height in `tauri.conf.json`, until the UI asks for its own.
+const ISLAND_START_HEIGHT: f64 = 50.0;
 const ISLAND_MIN_HEIGHT: f64 = 6.0;
 const ISLAND_MAX_HEIGHT: f64 = 600.0;
 
@@ -417,7 +419,7 @@ fn main() {
             position: island.position,
             screen: island.screen,
             width: ISLAND_WIDTH,
-            height: 50.0,
+            height: ISLAND_START_HEIGHT,
         }))
         .invoke_handler(tauri::generate_handler![
             updates::updates_status,
@@ -468,6 +470,16 @@ fn main() {
 
             displays::watch(&handle);
             place_island(&handle);
+            // A window moved onto a screen of another scale is rescaled by the
+            // system after the move: place it again with the new scale.
+            if let Some(island) = handle.get_webview_window("island") {
+                let replace = handle.clone();
+                island.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                        place_island(&replace);
+                    }
+                });
+            }
 
             autostart::on_launch();
             if !std::env::args().any(|a| a == cortex_core::autostart::AUTOSTART_ARG) {
