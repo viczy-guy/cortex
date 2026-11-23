@@ -55,9 +55,9 @@ are doing.
 - The window is always exactly as large as what it draws, so no invisible area
   eats clicks. Only while the island opens or folds (about a third of a
   second, eased, from the edge it hangs on) is the window as large as both
-  sizes; with reduced motion the change is instant. The UI cannot move or resize windows itself: it asks Rust for a
-  size. Rust fits the window to the content within the screen bounds and
-  positions it at the selected edge.
+  sizes; with reduced motion the change is instant. The UI cannot move or
+  resize windows itself: it asks Rust for a size. Rust fits the window to
+  the content within the screen bounds and positions it at the selected edge.
 - Theming: all colors/spacing come from CSS tokens under a `data-theme`
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.
