@@ -349,9 +349,9 @@ function renderIsland(): void {
     row.append(el("span", on ? "status-dot connected" : "status-dot"), el("span", undefined, on ? "Sounds on" : "Sounds off"), toggle);
     const previews = el("div", "actions");
     previews.append(
-      button("btn-neutral", "Done", () => playSound("green")),
-      button("btn-neutral", "Needs you", () => playSound("amber")),
-      button("btn-neutral", "Failed", () => playSound("red")),
+      button("btn-neutral", "Done", () => playSound("green", true)),
+      button("btn-neutral", "Needs you", () => playSound("amber", true)),
+      button("btn-neutral", "Failed", () => playSound("red", true)),
     );
     islandBlock.append(gallery, row, previews);
   }

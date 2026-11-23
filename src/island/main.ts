@@ -62,7 +62,10 @@ let dismissed = new Set<string>();
 let folded: string | null = null;
 /** Each session's last event when the user last looked at the island. */
 const seen = new Map<string, number>();
+/** Each session's color from its state alone (not what was seen), to ring on a real change. */
 const previousTones = new Map<string, Tone>();
+/** Cards already rung for: a new card rings even when its session was amber already. */
+const rungCards = new Set<string>();
 /** Green (finished) or red (failed) sessions nobody looked at yet, kept after the session is gone. */
 const unseen = new Map<string, Tone>();
 let tone: Tone = "gray";
@@ -98,13 +101,18 @@ function updateTone(): void {
     const key = sessionKey(session);
     live.add(key);
     const t = toneOf(session);
-    if (t !== previousTones.get(key)) notice = topTone([notice, t]);
-    previousTones.set(key, t);
+    const state = sessionTone(session, false);
+    if (state !== previousTones.get(key)) notice = topTone([notice, state]);
+    previousTones.set(key, state);
     if (t === "green" || t === "red") unseen.set(key, t);
     else unseen.delete(key);
   }
   for (const key of seen.keys()) if (!live.has(key)) seen.delete(key);
   for (const key of previousTones.keys()) if (!live.has(key)) previousTones.delete(key);
+  const cards = new Set(snapshot.approvals.map((a) => a.request_id));
+  for (const id of cards) if (!rungCards.has(id)) notice = topTone([notice, "amber"]);
+  for (const id of rungCards) if (!cards.has(id)) rungCards.delete(id);
+  for (const id of cards) rungCards.add(id);
   if (soundReady && sound && notice !== "gray") playSound(notice);
   const next = topTone([...snapshot.sessions.map(toneOf), ...unseen.values()]);
   if (topTone([next, tone]) !== tone && next !== tone) bounce = true;

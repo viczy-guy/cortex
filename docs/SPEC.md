@@ -47,10 +47,11 @@ are doing.
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.
 
-Island sounds play once when a session changes to green (Done), amber (Needs
-you), or red (Failed). If several sessions change together, the most urgent
-sound plays. Sounds are on by default and can be muted or previewed in
-Settings → Island.
+Each notice has its own sound, about two seconds long, played once per
+change: a session's state turning done (green), waiting for the user or a new
+card (amber), or failed (red). If several come together, the most urgent
+plays; a lower one arriving while a higher one plays is not played. Sounds
+are on by default and can be muted or sampled in Settings → Island.
 
 ## Opening screen
 

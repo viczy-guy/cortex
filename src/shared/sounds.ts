@@ -30,14 +30,19 @@ function stop(): void {
   }
 }
 
-export function playSound(kind: SoundKind): void {
+/** `force`: a sample the user asked for plays over anything. */
+export function playSound(kind: SoundKind, force = false): void {
   const { rank, repeats, interval, notes } = SOUNDS[kind];
-  if (active && active.rank >= rank) return;
+  if (!force && active && active.rank >= rank) return;
   stop();
 
   try {
     const context = new AudioContext();
+    // Some webviews start a context suspended; resuming is free where allowed.
+    void context.resume().catch(() => { /* Audio is optional. */ });
     active = { context, rank };
+    const done = (): void => { if (active?.context === context) stop(); };
+    let last: OscillatorNode | undefined;
     const start = context.currentTime + 0.01;
     let end = start;
     for (let i = 0; i < repeats; i++) {
@@ -57,10 +62,12 @@ export function playSound(kind: SoundKind): void {
         gain.connect(context.destination);
         oscillator.start(at);
         oscillator.stop(end);
+        last = oscillator;
       }
     }
+    if (last) last.onended = done;
     // A suspended context may never dispatch an oscillator's ended event.
-    active.timer = window.setTimeout(stop, (end - context.currentTime) * 1000 + 100);
+    active.timer = window.setTimeout(done, (end - context.currentTime) * 1000 + 100);
   } catch {
     stop();
   }
