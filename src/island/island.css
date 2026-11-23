@@ -105,6 +105,7 @@ body {
 
 /* The color stays on the mascot and the border until the user acts. */
 .island.tone-green { --tone: var(--tone-green); }
+.island.tone-blue { --tone: var(--tone-blue); }
 .island.tone-amber { --tone: var(--tone-amber); }
 .island.tone-red { --tone: var(--tone-red); }
 .island:not(.tone-gray) {
@@ -255,9 +256,14 @@ body {
   box-shadow: 0 0 0 1.5px var(--tag-text);
 }
 .tag-dot.tone-gray { background: var(--state-idle); }
-.tag-dot.tone-green { background: var(--tone-green); }
-.tag-dot.tone-amber { background: var(--tone-amber); }
-.tag-dot.tone-red { background: var(--tone-red); }
+.tag-dot.tone-green,
+.notice-dot.tone-green { background: var(--tone-green); }
+.tag-dot.tone-blue,
+.notice-dot.tone-blue { background: var(--tone-blue); }
+.tag-dot.tone-amber,
+.notice-dot.tone-amber { background: var(--tone-amber); }
+.tag-dot.tone-red,
+.notice-dot.tone-red { background: var(--tone-red); }
 
 .agent-claude-code { background: var(--agent-claude-code); }
 .agent-codex { background: var(--agent-codex); }
@@ -278,10 +284,11 @@ body {
 }
 .btn-pr:hover { background: var(--btn-neutral-bg); }
 
-/* Session states, in the cards below. */
+/* Session states, in the cards below. Working is gray, as on the island:
+   blue means a review was requested (#131). */
 .state-idle { background: var(--state-idle); }
 .state-thinking { background: var(--state-thinking); }
-.state-working { background: var(--state-working); }
+.state-working { background: var(--state-idle); }
 .state-waiting_approval { background: var(--state-waiting); }
 .state-waiting_input { background: var(--state-waiting); }
 .state-finished { background: var(--state-finished); }
@@ -513,7 +520,7 @@ body {
 /* GitHub data shares session colors without session animations. */
 .github-dot-passing { background: var(--state-finished); }
 .github-dot-failing { background: var(--state-error); }
-.github-dot-pending { background: var(--state-working); }
+.github-dot-pending { background: var(--state-idle); }
 .github-dot-attention { background: var(--state-waiting); }
 .github-dot-none { background: var(--text-faint); }
 .github-row {
@@ -566,6 +573,89 @@ body {
 
 .cutout-row .btn-chip + .btn-icon {
   margin-left: 0;
+}
+
+/* ---- Notices (#131): a phrase for a few seconds, a list on hover ------- */
+
+.notch--say {
+  justify-content: flex-start;
+  padding: 0 14px 0 10px;
+}
+
+.say-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.say-text b {
+  flex: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.say-text small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.notch--say .more { margin-left: auto; }
+
+/* Beside the camera the phrase gets a row of its own under it. */
+.say-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  max-width: 440px;
+  padding: 0 12px 9px;
+}
+
+.notice-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 330px;
+}
+
+.notice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.notice-row:hover { background: var(--btn-neutral-bg); }
+.notice-row b { flex: none; font-weight: 600; }
+.notice-row small {
+  min-width: 0;
+  margin-left: auto;
+  padding-left: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+
+.notice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
 }
 
 /* Beside the camera: chips sit on a row of their own under it. */

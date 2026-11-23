@@ -352,7 +352,7 @@ function islandChoice(label: string, selected: boolean, change?: () => Promise<v
 }
 
 function renderIsland(): void {
-  islandBlock.replaceChildren(el("div", "note", "The mascot sits in the island and takes the color of what needs you: green when an agent is done, amber when it waits for you, red when something failed."));
+  islandBlock.replaceChildren(el("div", "note", "The mascot sits in the island and takes the color of what needs you: green when an agent or a pull request of yours is done, blue when someone asks for your review, amber when an agent waits for you, red when something failed."));
   const prefs = island;
   if (prefs) {
     const gallery = el("div", "mascot-gallery");
@@ -389,6 +389,7 @@ function renderIsland(): void {
     const previews = el("div", "actions");
     previews.append(
       button("btn-neutral", "Done", () => playSound("green", true)),
+      button("btn-neutral", "Review", () => playSound("blue", true)),
       button("btn-neutral", "Needs you", () => playSound("amber", true)),
       button("btn-neutral", "Failed", () => playSound("red", true)),
     );

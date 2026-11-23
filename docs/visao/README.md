@@ -39,11 +39,12 @@ nova no lugar da [ADR 0002](../adr/0002-no-server.md).
 | A0 | v0.2.0 | Consolidação: socket com limites, instaladores abertos em máquinas limpas | Publicada em 21/11/2026 |
 | A1 | [v0.2.x](https://github.com/viczy-guy/cortex/milestone/5) | Manutenção: SPEC em dia, duas cópias abertas, encerrar o app com facilidade, Actions atualizadas | A SPEC e o app não divergem |
 | A2 | [v0.3.0](https://github.com/viczy-guy/cortex/milestone/6) | Nova ilha: formato do recorte da câmera, posições, até 4 agentes com cor de estado, mascote, sons, tela de abertura | A ilha é vista sem procurar |
-| A3 | [v0.4.0](https://github.com/viczy-guy/cortex/milestone/7) | Atualiza sozinho, nome novo: atualização sem clique, telas de atualização, canal de teste e canal estável | Uma versão chega a todas as máquinas sem ninguém clicar |
-| A4 | [v0.5.0](https://github.com/viczy-guy/cortex/milestone/8) | Pedir pela ilha: caixa de pedido, com escolha do agente, do modelo e da pasta | Dá-se uma ordem a um agente sem abrir o terminal |
-| A5 | [v0.6.0](https://github.com/viczy-guy/cortex/milestone/9) | Mais agentes: Codex CLI e Gemini CLI, agente que chama outro, regras por agente e por pasta, card vermelho | Um agente que não é o Claude Code pede aprovação pela ilha |
-| A6 | [v0.7.0](https://github.com/viczy-guy/cortex/milestone/10) | Agir nos PRs: aviso de pedido de revisão, análise do agente, aprovar ou pedir mudanças | Um coordenador aprova um PR sem abrir o GitHub |
-| A7 | [v0.8.0](https://github.com/viczy-guy/cortex/milestone/11) | Seus agentes: receita com IA, pasta, instruções, ferramentas e fontes | Cria-se um agente com receita própria e ele é chamado pela ilha |
+| A2b | [v0.4.0](https://github.com/viczy-guy/cortex/milestone/15) | Avisos na ilha: uma cor e uma frase curta por acontecimento (azul pediram sua revisão, verde pronto, âmbar agente precisa de você, vermelho PR ou action falhou, ou plan que destrói); a frase fica uns segundos, passar o mouse lista os avisos | Ser marcado como revisor acende a ilha em azul com a frase. Desenho: `Cortex-plano/avisos.html` |
+| A3 | [v0.5.0](https://github.com/viczy-guy/cortex/milestone/7) | Atualiza sozinho, nome novo: atualização sem clique, canal de teste e canal estável (as telas de atualização saíram na 0.3.2) | Uma versão chega a todas as máquinas sem ninguém clicar |
+| A4 | [v0.6.0](https://github.com/viczy-guy/cortex/milestone/8) | Pedir pela ilha: caixa de pedido, com escolha do agente, do modelo e da pasta | Dá-se uma ordem a um agente sem abrir o terminal |
+| A5 | [v0.7.0](https://github.com/viczy-guy/cortex/milestone/9) | Mais agentes: Codex CLI e Gemini CLI, agente que chama outro, regras por agente e por pasta, card vermelho | Um agente que não é o Claude Code pede aprovação pela ilha |
+| A6 | [v0.8.0](https://github.com/viczy-guy/cortex/milestone/10) | Agir nos PRs: aviso de pedido de revisão, análise do agente, aprovar ou pedir mudanças | Um coordenador aprova um PR sem abrir o GitHub |
+| A7 | [v0.9.0](https://github.com/viczy-guy/cortex/milestone/11) | Seus agentes: receita com IA, pasta, instruções, ferramentas e fontes | Cria-se um agente com receita própria e ele é chamado pela ilha |
 | A8 | [v1.0](https://github.com/viczy-guy/cortex/milestone/2) | App conectado: conta opcional, avisos e aprovações de agentes do servidor, Windows e Linux testados por gente | Encontra a fase P3 |
 
 ### Trilha da plataforma

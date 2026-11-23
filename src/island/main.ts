@@ -31,7 +31,8 @@ import { type Mascot, mascotSvg } from "../shared/mascots";
 import { playSound } from "../shared/sounds";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
-import { agentShort, agentTag, byUrgency, prIcon, sessionKey, sessionTone, type Tone, topTone } from "./notch";
+import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone, type Tone, topTone } from "./notch";
+import { agentNotice, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
@@ -42,6 +43,8 @@ const MORPH_MS = 360;
 const MAX_TAGS = 4;
 /** How long the pointer must be gone before an idle island folds. */
 const HIDE_DELAY_MS = 700;
+/** How long a new notice's phrase shows before the island folds back (#131). */
+const SAY_MS = 5000;
 
 const root = document.getElementById("island")!;
 
@@ -74,7 +77,14 @@ const previousTones = new Map<string, Tone>();
 /** Cards already rung for: a new card rings even when its session was amber already. */
 const rungCards = new Set<string>();
 /** Green (finished) or red (failed) sessions nobody clicked yet, kept after the session is gone. */
-const unseen = new Map<string, Tone>();
+const unseen = new Map<string, ViewNotice>();
+/** GitHub notices clicked away; forgotten once the notice goes, so its return is news. */
+const seenNotices = new Set<string>();
+/** GitHub notices already there; `null` until the first answer, which is not news. */
+let knownNotices: Set<string> | null = null;
+/** The notice whose phrase shows for a few seconds (#131). */
+let saying: ViewNotice | null = null;
+let sayTimer: number | undefined;
 let tone: Tone = "gray";
 /** The color just rose: the next mascot drawn jumps, once. */
 let bounce = false;
@@ -98,18 +108,79 @@ function isHidden(): boolean {
 const toneOf = (session: SessionView): Tone =>
   sessionTone(session, (seen.get(sessionKey(session)) ?? -1) >= session.last_event_ms);
 
-/** The island's color: the most urgent of the live sessions and the unseen ones. */
+/** Every GitHub notice of the shown accounts, once each, clicked away or not. */
+function allGithubNotices(): ViewNotice[] {
+  if (!github?.enabled) return [];
+  const byKey = new Map<string, ViewNotice>();
+  for (const { summary } of shownAccounts(github.accounts)) {
+    for (const notice of summary.notices) {
+      const view = githubNotice(notice);
+      if (!byKey.has(view.key)) byKey.set(view.key, view);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** Every notice standing, the most urgent first: agents', gone sessions' and GitHub's. */
+function activeNotices(): ViewNotice[] {
+  const live = new Set(snapshot.sessions.map(sessionKey));
+  const notices = [
+    ...snapshot.sessions.map((s) => agentNotice(s, toneOf(s))),
+    ...[...unseen.values()].filter((n) => !live.has(n.key)),
+    ...allGithubNotices().filter((n) => !seenNotices.has(n.key)),
+  ].filter((n): n is ViewNotice => n !== null);
+  return notices.sort((a, b) => rank(b.tone) - rank(a.tone));
+}
+
+/** Show a new notice's phrase for a while; a lower one never cuts a higher one short. */
+function announce(notice: ViewNotice): void {
+  if (rank(notice.tone) < rank(tone) || (saying && rank(notice.tone) < rank(saying.tone))) return;
+  saying = notice;
+  window.clearTimeout(sayTimer);
+  sayTimer = window.setTimeout(() => {
+    sayTimer = undefined;
+    saying = null;
+    render();
+  }, SAY_MS);
+}
+
+function stopSaying(): void {
+  window.clearTimeout(sayTimer);
+  sayTimer = undefined;
+  saying = null;
+}
+
+/** GitHub notices that just appeared ring and speak; their return after going is news too. */
+function updateGithubNotices(): ViewNotice | null {
+  const notices = allGithubNotices();
+  const keys = new Set(notices.map((n) => n.key));
+  for (const key of seenNotices) if (!keys.has(key)) seenNotices.delete(key);
+  const known = knownNotices;
+  // Not before an account has answered: what was already there is not news.
+  const answered = github?.enabled === true && shownAccounts(github.accounts).length > 0;
+  knownNotices = answered ? keys : null;
+  if (!known) return null;
+  const fresh = notices.filter((n) => !known.has(n.key) && !seenNotices.has(n.key));
+  return fresh.sort((a, b) => rank(b.tone) - rank(a.tone))[0] ?? null;
+}
+
+/** The island's color: the most urgent of the live sessions, the unseen ones and GitHub's notices. */
 function updateTone(): void {
   const live = new Set<string>();
   let notice: Tone = "gray";
+  let risen: SessionView | undefined;
   for (const session of snapshot.sessions) {
     const key = sessionKey(session);
     live.add(key);
     const t = toneOf(session);
     const state = sessionTone(session, false);
-    if (state !== previousTones.get(key)) notice = topTone([notice, state]);
+    if (state !== previousTones.get(key) && state !== "gray" && rank(state) >= rank(notice)) {
+      notice = state;
+      risen = session;
+    }
     previousTones.set(key, state);
-    if (t === "green" || t === "red") unseen.set(key, t);
+    const view = agentNotice(session, t);
+    if (view && (t === "green" || t === "red")) unseen.set(key, view);
     else unseen.delete(key);
   }
   for (const key of seen.keys()) if (!live.has(key)) seen.delete(key);
@@ -119,15 +190,45 @@ function updateTone(): void {
   for (const id of rungCards) if (!cards.has(id)) rungCards.delete(id);
   for (const id of cards) rungCards.add(id);
   if (soundReady && sound && notice !== "gray") playSound(notice);
-  const next = topTone([...snapshot.sessions.map(toneOf), ...unseen.values()]);
+  const fromGithub = updateGithubNotices();
+  if (soundReady && sound && fromGithub) playSound(fromGithub.tone);
+  const fromAgent = risen ? agentNotice(risen, toneOf(risen)) : null;
+  const news = [fromAgent, fromGithub].filter((n): n is ViewNotice => n !== null);
+  const top = news.sort((a, b) => rank(b.tone) - rank(a.tone))[0];
+  if (soundReady && top) announce(top);
+  const next = topTone([
+    ...snapshot.sessions.map(toneOf),
+    ...[...unseen.values()].map((n) => n.tone),
+    ...allGithubNotices().filter((n) => !seenNotices.has(n.key)).map((n) => n.tone),
+  ]);
   if (topTone([next, tone]) !== tone && next !== tone) bounce = true;
   tone = next;
 }
 
-/** A click on the island: every finished and failed session goes back to gray. */
+/** A click on the island: every notice goes back to gray, GitHub's included. */
 function acknowledge(): void {
   for (const session of snapshot.sessions) seen.set(sessionKey(session), session.last_event_ms);
   unseen.clear();
+  for (const notice of allGithubNotices()) seenNotices.add(notice.key);
+  stopSaying();
+}
+
+/** A click on one notice in the list: that one goes, and GitHub's open. */
+function actOn(notice: ViewNotice): void {
+  if (saying?.key === notice.key) stopSaying();
+  if (notice.url) {
+    seenNotices.add(notice.key);
+    void api.openUrl(notice.url).catch(() => { /* The notice is cleared either way. */ });
+    render();
+    return;
+  }
+  const session = snapshot.sessions.find((s) => sessionKey(s) === notice.key);
+  if (session) {
+    acknowledgeSession(session);
+  } else {
+    unseen.delete(notice.key);
+    render();
+  }
 }
 
 /** A click on a session's card: that session goes back to gray. */
@@ -156,7 +257,8 @@ function prTotals(): { reviews: number; failing: number } {
 /** Everything the folded notch shows: the same key means nothing to repaint. */
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
-  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}`;
+  const say = saying ? `${saying.key}|${activeNotices().length}` : "";
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}`;
 }
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
@@ -185,18 +287,31 @@ function render(): void {
     const before = sizeBefore();
     const fade = folded === null;
     setClass(false);
-    const node = el("div", "notch");
-    node.addEventListener("click", () => {
-      acknowledge();
-      setHovered(true);
-    });
+    const node = el("div", saying ? "notch notch--say" : "notch");
     const left = mascotNode();
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
-    if (cutout) splitAtCamera(node, [left], right);
-    else node.append(left, ...right);
+    // A new notice says what happened for a few seconds; beside the camera,
+    // on a row of its own under it.
+    const say = saying ? sayLine(saying, activeNotices().filter((n) => n.key !== saying?.key).length) : [];
+    let top: HTMLElement = node;
+    if (cutout) {
+      splitAtCamera(node, [left], right);
+      if (saying) {
+        top = el("div");
+        const below = el("div", "say-row");
+        below.append(...say);
+        top.append(node, below);
+      }
+    } else {
+      node.append(left, ...(saying ? say : right));
+    }
+    top.addEventListener("click", () => {
+      acknowledge();
+      setHovered(true);
+    });
     folded = foldedKey();
-    root.replaceChildren(node);
+    root.replaceChildren(top);
     void fitWindowToContent(before, fade);
     return;
   }
@@ -416,7 +531,11 @@ function panelContent(): HTMLElement[] {
     ];
   }
   const question = askingUpdates(updates) ? [updatesQuestion((enabled) => void answerUpdates(enabled), updatesError)] : [];
-  if (!expanded) return question;
+  if (!expanded) {
+    // Hovering lists what is standing, the most urgent first (#131).
+    const notices = hovered && snapshot.approvals.length === 0 ? activeNotices() : [];
+    return notices.length > 0 ? [...question, noticeRows(notices, actOn)] : question;
+  }
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
   const sessions = snapshot.sessions.map((session) => {
