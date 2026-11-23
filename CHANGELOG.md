@@ -19,6 +19,10 @@ follows [Semantic Versioning](https://semver.org).
 - A mascot of your choice, from a gallery of eight in Settings → Island, or
   none. (#27)
 
+### Changed
+- A new app icon: a dot with two rings, the dot that opens the island.
+  (#101)
+
 ## [0.2.1] - 2026-11-23
 
 ### Added
