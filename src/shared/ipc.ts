@@ -160,6 +160,7 @@ export const api = {
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
+  splashDone: () => invoke<void>("splash_done"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),
   snapshot: () => invoke<Snapshot>("snapshot"),

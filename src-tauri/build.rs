@@ -15,6 +15,7 @@ const COMMANDS: &[&str] = &[
     "island_fit",
     "island_prefs",
     "island_set_mascot",
+    "splash_done",
     "open_settings",
     "quit",
     "rules_list",
