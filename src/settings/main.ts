@@ -341,9 +341,10 @@ function renderIsland(): void {
   if (islandError) islandBlock.append(el("div", "note note-error", islandError));
 }
 async function chooseMascot(mascot: Mascot): Promise<void> {
+  // Cleared first: the change event redraws before the command returns.
+  islandError = null;
   try {
     await api.islandSetMascot(mascot);
-    islandError = null;
   } catch (error) {
     islandError = String(error);
     renderIsland();

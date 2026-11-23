@@ -19,6 +19,7 @@ body {
   align-items: stretch;
   width: max-content;
   min-width: var(--notch-min-width);
+  max-width: 460px;
   margin: 0 auto;
   padding: 0 10px;
   background: var(--notch);
@@ -93,6 +94,13 @@ body {
   font-weight: 600;
 }
 
+.pr-failing {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tone-red);
+}
+
 .pr-icon {
   width: 13px;
   height: 13px;
@@ -111,6 +119,7 @@ body {
   justify-content: center;
   gap: 8px;
   height: var(--notch-height);
+  overflow: hidden;
 }
 
 .bar-center {

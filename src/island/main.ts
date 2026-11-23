@@ -62,7 +62,7 @@ const seen = new Map<string, number>();
 /** Green (finished) or red (failed) sessions nobody looked at yet, kept after the session is gone. */
 const unseen = new Map<string, Tone>();
 let tone: Tone = "gray";
-/** The mascot jumps once when the color rises; it never moves on its own. */
+/** The color just rose: the next mascot drawn jumps, once. */
 let bounce = false;
 
 /**
@@ -86,6 +86,8 @@ const toneOf = (session: SessionView): Tone =>
 
 /** The island's color: the most urgent of the live sessions and the unseen ones. */
 function updateTone(): void {
+  // What changes while the user is looking has been seen.
+  if (hovered) acknowledge();
   const live = new Set<string>();
   for (const session of snapshot.sessions) {
     const key = sessionKey(session);
@@ -106,9 +108,29 @@ function acknowledge(): void {
   unseen.clear();
 }
 
-function reviewCount(): number {
-  if (!github?.enabled) return 0;
-  return shownAccounts(github.accounts).reduce((sum, { summary }) => sum + summary.review_requests_total, 0);
+/** Pull requests waiting for your review, and your own with failing checks. */
+function prTotals(): { reviews: number; failing: number } {
+  let reviews = 0;
+  let failing = 0;
+  if (github?.enabled) {
+    for (const { summary } of shownAccounts(github.accounts)) {
+      reviews += summary.review_requests_total;
+      failing += summary.mine.filter((pr) => pr.checks === "failing").length;
+    }
+  }
+  return { reviews, failing };
+}
+
+/** Everything the folded notch shows: the same key means nothing to repaint. */
+function foldedKey(): string {
+  const { reviews, failing } = prTotals();
+  return `${tone}|${mascot}|${reviews}|${failing}|${bounce}`;
+}
+
+/** Touch the class only when it changes: any DOM change costs a repaint (#51). */
+function setClass(open: boolean): void {
+  const name = `island tone-${tone}${open ? " island--open" : ""}`;
+  if (root.className !== name) root.className = name;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,22 +141,21 @@ function render(): void {
   dismissed = new Set([...dismissed].filter((id) => pending.has(id)));
   pruneSelections(pending);
   updateTone();
-  root.className = `island tone-${tone}`;
 
   if (isHidden()) {
     expanded = false;
     autoExpanded = false;
-    const reviews = reviewCount();
     // Same notch: paint nothing. Each paint with the screen locked keeps WebKit
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
-    const key = `${tone}|${mascot}|${reviews}|${bounce}`;
+    const key = foldedKey();
     if (folded === key) return;
-    folded = key;
-    root.classList.add("island--folded");
+    setClass(false);
     const node = el("div", "notch");
     node.addEventListener("click", () => setHovered(true));
     node.append(mascotNode());
-    if (reviews > 0) node.append(prCount(reviews));
+    const totals = prTotals();
+    if (totals.reviews > 0 || totals.failing > 0) node.append(prCount(totals));
+    folded = foldedKey();
     root.replaceChildren(node);
     void fitWindowToContent();
     return;
@@ -156,10 +177,10 @@ function render(): void {
   const scrolled = new Map<string, number>();
   root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => scrolled.set(n.dataset.scroll ?? "", n.scrollTop));
 
-  root.replaceChildren(bar());
   const panel = panelContent();
+  setClass(panel.length > 0);
+  root.replaceChildren(bar());
   if (panel.length > 0) {
-    root.classList.add("island--open");
     const node = el("div", "panel");
     node.dataset.scroll = "panel";
     node.append(...panel);
@@ -172,25 +193,30 @@ function render(): void {
   void fitWindowToContent();
 }
 
-/** The mascot in the island's color, or a dot when the user hid it. */
+/**
+ * The mascot in the island's color, or a dot when the user hid it. The jump
+ * is spent on the first mascot drawn after the color rose: a redraw never
+ * starts it again, so it cannot loop.
+ */
 function mascotNode(): Element {
-  const svg = mascotSvg(mascot);
-  const node: Element = svg ?? el("span", "brand-dot");
+  const node: Element = mascotSvg(mascot) ?? el("span", "brand-dot");
   if (bounce) {
+    bounce = false;
     node.classList.add("bounce");
-    node.addEventListener("animationend", () => {
-      bounce = false;
-      node.classList.remove("bounce");
-      if (folded !== null) folded = `${tone}|${mascot}|${reviewCount()}|false`;
-    });
   }
   return node;
 }
 
-function prCount(reviews: number): HTMLElement {
+function prCount({ reviews, failing }: { reviews: number; failing: number }): HTMLElement {
   const node = el("span", "pr-count");
-  node.title = `${reviews} pull request${reviews === 1 ? "" : "s"} waiting for your review`;
-  node.append(prIcon(), el("span", undefined, String(reviews)));
+  const notes = [`${reviews} pull request${reviews === 1 ? "" : "s"} waiting for your review`];
+  node.append(prIcon());
+  if (reviews > 0 || failing === 0) node.append(el("span", undefined, String(reviews)));
+  if (failing > 0) {
+    node.append(el("span", "pr-failing"));
+    notes.push(`${failing} of yours failing checks`);
+  }
+  node.title = notes.join(" · ");
   return node;
 }
 
@@ -235,24 +261,26 @@ function toggle(): void {
 function bar(): HTMLElement {
   const node = el("div", "bar");
   const sessions = byUrgency(snapshot.sessions, toneOf);
-  const tags = sessions.slice(0, MAX_TAGS).map((session) => agentTag(session, toneOf(session), sessionLabel(session)));
+  const chips = updateChips();
+  // An update chip takes the room of two tags: the bar never outgrows the window.
+  const room = chips.length > 0 ? 2 : MAX_TAGS;
+  const tags = sessions.slice(0, room).map((session) => agentTag(session, toneOf(session), sessionLabel(session)));
   const center = el("span", "bar-center");
   center.append(mascotNode());
   if (snapshot.approvals.length > 1) center.append(el("span", "queue", `1 of ${snapshot.approvals.length}`));
   node.append(...tags.slice(0, 2), center, ...tags.slice(2));
-  if (sessions.length > MAX_TAGS) node.append(el("span", "more", `+${sessions.length - MAX_TAGS}`));
+  if (sessions.length > room) node.append(el("span", "more", `+${sessions.length - room}`));
 
-  const reviews = reviewCount();
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
   if (accounts.length > 0) {
     const pr = button("btn-pr", "", toggle);
-    pr.append(prCount(reviews));
+    pr.append(prCount(prTotals()));
     node.append(pr);
   }
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
     node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
   }
-  node.append(...updateChips(), settingsButton());
+  node.append(...chips, settingsButton());
   if (sessions.length > 0) node.addEventListener("click", toggle);
   return node;
 }

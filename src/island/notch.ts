@@ -43,12 +43,12 @@ export function byUrgency(sessions: SessionView[], tone: (s: SessionView) => Ton
   return [...sessions].sort((a, b) => RANK[tone(b)] - RANK[tone(a)] || b.last_event_ms - a.last_event_ms);
 }
 
-const KNOWN: Record<string, string> = { "claude-code": "CC", codex: "CX", gemini: "GM" };
+const KNOWN = new Map([["claude-code", "CC"], ["codex", "CX"], ["gemini", "GM"]]);
 const PALETTE = 6;
 
 /** "CC" for claude-code, "IAC" for infra-as-code, "MY" for mytool. */
 export function agentShort(agent: string): string {
-  const known = KNOWN[agent];
+  const known = KNOWN.get(agent);
   if (known) return known;
   const words = agent.split("-").filter(Boolean);
   const short = words.length > 1 ? words.map((w) => w[0]).join("").slice(0, 3) : agent.slice(0, 2);
@@ -57,7 +57,7 @@ export function agentShort(agent: string): string {
 
 /** A stable color per agent name: known agents have their own, others share a palette. */
 export function agentColorClass(agent: string): string {
-  if (KNOWN[agent]) return `agent-${agent}`;
+  if (KNOWN.has(agent)) return `agent-${agent}`;
   let hash = 0;
   for (const ch of agent) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return `agent-c${hash % PALETTE}`;

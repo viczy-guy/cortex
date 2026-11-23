@@ -75,10 +75,6 @@ const SHAPES: Record<Exclude<Mascot, "none">, Shape[]> = {
 const SVG = "http://www.w3.org/2000/svg";
 const KIND = { f: "m-fill", s: "m-stroke", h: "m-hole" } as const;
 
-export function isMascot(value: unknown): value is Mascot {
-  return typeof value === "string" && (MASCOTS as readonly string[]).includes(value);
-}
-
 /** The mascot as an SVG element, or `null` for "none". */
 export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement | null {
   if (mascot === "none") return null;
