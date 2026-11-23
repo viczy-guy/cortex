@@ -613,7 +613,8 @@ fn main() {
 
             autostart::on_launch();
             let version = handle.package_info().version.to_string();
-            if last_version.as_deref() != Some(version.as_str()) {
+            // Never over a file that could not be read: it would lose every setting.
+            if last_version.as_deref() != Some(version.as_str()) && prefs::load_valid().is_some() {
                 let saved = version.clone();
                 if let Err(err) = prefs::update(|p| p.last_version = Some(saved)) {
                     eprintln!("cortex: {err}");
