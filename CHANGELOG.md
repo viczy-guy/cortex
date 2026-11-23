@@ -7,7 +7,12 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
-- A brief, skippable opening screen with your selected mascot on manual launch. (#80)
+- An opening screen when you open Cortex: a growing dot, "Welcome", then
+  your mascot. About two seconds; a click skips it. (#80)
+
+### Changed
+- A new app icon: a dot with two rings, the dot that opens the island.
+  (#101)
 
 ## [0.2.1] - 2026-11-23
 
