@@ -19,7 +19,9 @@ if (root) {
 
   let finished = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const timer = window.setTimeout(finish, reducedMotion ? 1200 : 2300);
+  // About six seconds (the maintainer found two too quick); the CSS delays
+  // follow this timeline.
+  const timer = window.setTimeout(finish, reducedMotion ? 3000 : 6300);
   // Only a click: the window never takes the keyboard from the user's app.
   window.addEventListener("click", finish);
 

@@ -220,7 +220,8 @@ fn open_splash(app: &AppHandle) {
 
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        // The page closes itself at 6.3 s; this is the fallback.
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         close_splash(&handle);
     });
 }

@@ -1,18 +1,30 @@
 type SoundKind = "green" | "amber" | "red";
-type Note = [frequency: number, start: number, duration: number, waveform: OscillatorType];
+/** Frequency (Hz), start and duration (s), waveform, peak volume. */
+type Note = [frequency: number, start: number, duration: number, waveform: OscillatorType, volume: number];
 
-const SOUNDS: Record<SoundKind, { rank: number; repeats: number; interval: number; notes: Note[] }> = {
+/**
+ * The sounds the maintainer chose on the vision page (`Cortex-plano`), note
+ * for note: change one only with him. `repeat` plays the figure `times`
+ * times, `every` seconds apart.
+ */
+const repeat = (notes: Note[], times: number, every: number): Note[] =>
+  Array.from({ length: times }, (_, i) => notes.map(([f, at, ...rest]): Note => [f, at + i * every, ...rest])).flat();
+
+const SOUNDS: Record<SoundKind, { rank: number; notes: Note[] }> = {
+  // "Alerta", twice.
   green: {
-    rank: 1, repeats: 2, interval: 0.95,
-    notes: [[587, 0, 0.16, "triangle"], [740, 0.16, 0.16, "triangle"], [988, 0.32, 0.34, "triangle"]],
+    rank: 1,
+    notes: repeat([[587, 0, 0.16, "triangle", 0.32], [740, 0.16, 0.16, "triangle", 0.32], [988, 0.32, 0.34, "triangle", 0.32]], 2, 0.95),
   },
+  // "Batida", twice.
   amber: {
-    rank: 2, repeats: 2, interval: 1.05,
-    notes: [[196, 0, 0.12, "triangle"], [196, 0.16, 0.12, "triangle"], [196, 0.32, 0.12, "triangle"], [1319, 0.5, 0.35, "sine"]],
+    rank: 2,
+    notes: repeat([[196, 0, 0.12, "triangle", 0.5], [196, 0.16, 0.12, "triangle", 0.5], [196, 0.32, 0.12, "triangle", 0.5], [1319, 0.5, 0.35, "sine", 0.22]], 2, 1.05),
   },
+  // "Sirene", once (the pair four times).
   red: {
-    rank: 3, repeats: 4, interval: 0.5,
-    notes: [[740, 0, 0.23, "sawtooth"], [554, 0.25, 0.23, "sawtooth"]],
+    rank: 3,
+    notes: repeat([[740, 0, 0.23, "sawtooth", 0.11], [554, 0.25, 0.23, "sawtooth", 0.11]], 4, 0.5),
   },
 };
 
@@ -32,7 +44,7 @@ function stop(): void {
 
 /** `force`: a sample the user asked for plays over anything. */
 export function playSound(kind: SoundKind, force = false): void {
-  const { rank, repeats, interval, notes } = SOUNDS[kind];
+  const { rank, notes } = SOUNDS[kind];
   if (!force && active && active.rank >= rank) return;
   stop();
 
@@ -43,31 +55,30 @@ export function playSound(kind: SoundKind, force = false): void {
     active = { context, rank };
     const done = (): void => { if (active?.context === context) stop(); };
     let last: OscillatorNode | undefined;
-    const start = context.currentTime + 0.01;
-    let end = start;
-    for (let i = 0; i < repeats; i++) {
-      for (const [frequency, offset, duration, waveform] of notes) {
-        const at = start + i * interval + offset;
+    let end = 0;
+    for (const [frequency, at, duration, waveform, volume] of notes) {
+      // A plucked note: up in 15 ms, then down exponentially to its end.
+      const t = context.currentTime + at;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = waveform;
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(volume, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(t);
+      oscillator.stop(t + duration + 0.05);
+      if (at + duration >= end) {
         end = at + duration;
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        const peak = waveform === "sawtooth" ? 0.08 : 0.2;
-        oscillator.type = waveform;
-        oscillator.frequency.value = frequency;
-        gain.gain.setValueAtTime(0, at);
-        gain.gain.linearRampToValueAtTime(peak, at + 0.005);
-        gain.gain.setValueAtTime(peak, end - 0.025);
-        gain.gain.linearRampToValueAtTime(0, end);
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start(at);
-        oscillator.stop(end);
         last = oscillator;
       }
     }
+    // One context per sound, closed after its last note: an open one keeps
+    // an audio thread running, and Cortex must use no CPU at rest.
     if (last) last.onended = done;
     // A suspended context may never dispatch an oscillator's ended event.
-    active.timer = window.setTimeout(done, (end - context.currentTime) * 1000 + 100);
+    active.timer = window.setTimeout(done, (end + 0.05) * 1000 + 100);
   } catch {
     stop();
   }

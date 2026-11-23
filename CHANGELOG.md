@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- The three sounds are again the ones chosen on the vision page: plucked
+  notes at their own volumes, instead of flat, organ-like tones. (#117)
+
+### Changed
+- The opening screen takes about 6 seconds instead of 2. (#117)
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
