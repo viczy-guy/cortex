@@ -1,7 +1,11 @@
-# Cortex — behavior spec (v1)
+# Cortex — behavior spec
 
 Short, normative description of how the app behaves. When code and spec diverge,
 one of them is wrong — fix that one.
+
+In one line: Cortex is the local gatekeeper of your coding agents. It shows what
+each session is doing and lets you approve and answer without leaving what you
+are doing.
 
 ## The island
 
@@ -38,11 +42,15 @@ One pill per (`cortex_agent`, `session_id`). State machine:
 |---|---|
 | `SessionStart` | `idle` |
 | `UserPromptSubmit` | `thinking` (prompt in ticker) |
-| `PreToolUse` | `working` (tool label in ticker) — or `waiting_approval` when a decision is requested |
-| `PostToolUse` | `working`; file edits record name and +N/−M |
-| `Notification` | `waiting_input` when the agent needs the user |
-| `Stop` | `finished` (5 s), then pill idles or is removed |
-| `SessionEnd` | pill removed (declared pills reset to `idle`) |
+| `PreToolUse` | `working` (tool label in ticker); `waiting_approval` when the tool is an `AskUserQuestion` |
+| `PermissionRequest` | `waiting_approval` |
+| `PostToolUse`, `PostToolUseFailure` | `working`; file edits record name and +N/−M |
+| `Notification` | `waiting_input` (message in ticker) |
+| `Stop` | `finished`, and the pill is removed 5 s later |
+| `StopFailure` | `error` |
+| `SubagentStart`, `SubagentStop` | a step in the ticker; state unchanged |
+| `SessionEnd` | pill removed |
+| any other event | keeps the session alive; state unchanged |
 
 Sessions stale for 30 min with no events are garbage-collected.
 
@@ -106,7 +114,10 @@ The gear in the island opens a separate, opaque Settings window:
   all requires a second click within four seconds.
 - **Updates** turns the update check on or off and offers **Update and
   restart** once a verified update is ready.
-- **About** shows the app version, its local-only policy, and Quit Cortex.
+- **GitHub** turns the pull request pill on or off and manages its accounts
+  (see [GitHub](#github)).
+- **About** shows the app version, a "What's new" link to the notes of that
+  version, its local-only policy, and Quit Cortex.
 
 ## GitHub
 
@@ -153,6 +164,21 @@ unavailable and update through the package manager.
 
 ## Resource budget (enforced, not aspirational)
 
-- Hidden island: 0% CPU (event-driven wakeups only).
-- Working set under ~120 MB on all three platforms.
+- Hidden island: 0% CPU. Cortex wakes on events, and otherwise only when a
+  card or a session is due to expire.
+- Working set under ~120 MB on all three platforms (about 45 MB measured on
+  macOS). A downloaded update waiting for its restart is held in memory, which
+  on Linux adds the size of the AppImage until the restart (#72).
 - `cortex-hook`: exits < 50 ms when the app is not running.
+
+## Limits
+
+Whatever a local process sends is bounded. Beyond a limit, the agent carries
+on as if Cortex were not running: nothing blocks and nothing piles up.
+
+| What | Limit | Beyond it |
+|---|---|---|
+| Connections served at once | 64 | the new one is closed unread |
+| One event line | 1 MB | the connection is closed |
+| Sessions on the board | 64 | a new session is not shown; known ones still update |
+| Cards waiting | 32 | the agent asks in its own terminal |
