@@ -263,23 +263,26 @@ fn sample_points(width: isize, height: isize) -> impl Iterator<Item = (isize, is
         .flat_map(move |y| (0..width).step_by(step_x).map(move |x| (x, y)))
 }
 
-/// The app icon's dot and two rings, drawn as a template image: AppKit
-/// colors it for a light or dark menu bar. 36 px for an 18 pt item.
+/// The app icon's eyes, drawn as a template image: AppKit colors it for a
+/// light or dark menu bar. 36 px for an 18 pt item.
 fn menu_bar_icon() -> tauri::image::Image<'static> {
     const SIZE: u32 = 36;
-    let center = SIZE as f32 / 2.0;
-    // Coverage of a band `half` px either side of `radius`, smoothed over a pixel.
-    let band = |d: f32, radius: f32, half: f32| (half + 0.5 - (d - radius).abs()).clamp(0.0, 1.0);
+    // Two 7 × 18 px capsules: close to the mascot's eyes (`src/shared/mascots.ts`)
+    // but whole pixels wide, so the edges stay sharp at 18 pt.
+    const RADIUS: f32 = 3.5;
+    const HALF_STRAIGHT: f32 = 5.5;
+    const EYES_X: [f32; 2] = [11.5, 24.5];
+    let center_y = SIZE as f32 / 2.0;
     let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let dx = x as f32 + 0.5 - center;
-            let dy = y as f32 + 0.5 - center;
-            let d = (dx * dx + dy * dy).sqrt();
-            let dot = (5.5 - d).clamp(0.0, 1.0);
-            let ring = band(d, 10.5, 1.4);
-            let outer = 0.5 * band(d, 15.0, 1.1);
-            let alpha = dot.max(ring).max(outer);
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let dy = ((py - center_y).abs() - HALF_STRAIGHT).max(0.0);
+            let edge = EYES_X
+                .iter()
+                .map(|&eye_x| ((px - eye_x).powi(2) + dy * dy).sqrt() - RADIUS)
+                .fold(f32::INFINITY, f32::min);
+            let alpha = (0.5 - edge).clamp(0.0, 1.0);
             rgba.extend_from_slice(&[0, 0, 0, (alpha * 255.0).round() as u8]);
         }
     }
@@ -304,14 +307,27 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_bar_icon_is_a_dot_and_rings_with_clear_corners() {
+    fn the_menu_bar_icon_is_two_eyes_with_clear_edges() {
         let icon = menu_bar_icon();
         let (w, h) = (icon.width() as usize, icon.height() as usize);
         let rgba = icon.rgba();
         assert_eq!(rgba.len(), w * h * 4);
         let alpha = |x: usize, y: usize| rgba[(y * w + x) * 4 + 3];
-        assert_eq!(alpha(w / 2, h / 2), 255, "the dot");
+        assert_eq!(alpha(11, h / 2), 255, "the left eye");
+        assert_eq!(alpha(24, h / 2), 255, "the right eye");
+        assert_eq!(alpha(w / 2, h / 2), 0, "between the eyes");
         assert_eq!(alpha(0, 0), 0, "a corner");
-        assert!((0..w).all(|x| alpha(x, 0) == 0), "the top edge is padding");
+        // Tall capsules, not dots: solid well above and below the middle.
+        assert_eq!(alpha(11, h / 2 - 6), 255);
+        assert_eq!(alpha(11, h / 2 + 5), 255);
+        let drawn: Vec<(usize, usize)> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| alpha(x, y) > 0)
+            .collect();
+        let span = |pick: fn(&(usize, usize)) -> usize| {
+            (drawn.iter().map(pick).min(), drawn.iter().map(pick).max())
+        };
+        assert_eq!(span(|p| p.0), (Some(8), Some(27)), "columns drawn");
+        assert_eq!(span(|p| p.1), (Some(9), Some(26)), "rows drawn");
     }
 }
