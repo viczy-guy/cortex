@@ -36,6 +36,8 @@ import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
 const MAX_HEIGHT = 440;
+/** How long the island takes to open or fold. */
+const MORPH_MS = 360;
 /** Agent tags shown side by side; the rest becomes a counter. */
 const MAX_TAGS = 4;
 /** How long the pointer must be gone before an idle island folds. */
@@ -172,6 +174,8 @@ function render(): void {
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
     const key = foldedKey();
     if (folded === key) return;
+    const before = sizeBefore();
+    const fade = folded === null;
     setClass(false);
     const node = el("div", "notch");
     node.addEventListener("click", () => setHovered(true));
@@ -182,9 +186,10 @@ function render(): void {
     else node.append(left, ...right);
     folded = foldedKey();
     root.replaceChildren(node);
-    void fitWindowToContent();
+    void fitWindowToContent(before, fade);
     return;
   }
+  const fade = folded !== null;
   folded = null;
 
   const hasCards = snapshot.approvals.length > 0;
@@ -203,6 +208,7 @@ function render(): void {
   root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => scrolled.set(n.dataset.scroll ?? "", n.scrollTop));
 
   const panel = panelContent();
+  const before = sizeBefore();
   setClass(panel.length > 0);
   root.replaceChildren(bar());
   if (panel.length > 0) {
@@ -215,7 +221,7 @@ function render(): void {
     const top = scrolled.get(n.dataset.scroll ?? "");
     if (top) n.scrollTop = top;
   });
-  void fitWindowToContent();
+  void fitWindowToContent(before, fade);
 }
 
 /**
@@ -396,10 +402,86 @@ function panelContent(): HTMLElement[] {
   return [...question, ...cardsInView(), ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
 }
 
-/** Size the window to what is drawn, so no invisible area eats clicks. */
-async function fitWindowToContent(): Promise<void> {
-  const rect = root.getBoundingClientRect();
-  await api.islandFit(Math.ceil(rect.width), Math.min(MAX_HEIGHT, Math.ceil(rect.height)));
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+type Size = { width: number; height: number };
+/** The island easing between two sizes, and where it is going. */
+let morph: { animation: Animation; from: Size; to: Size } | undefined;
+/** Bumped by every fit: a newer one takes over a morph mid-way. */
+let fitTurn = 0;
+/** The size last fitted; none yet: the first fit shows the island at once. */
+let lastFit: Size | undefined;
+
+const fitSize = (rect: DOMRect): Size => ({
+  width: Math.ceil(rect.width),
+  height: Math.min(MAX_HEIGHT, Math.ceil(rect.height)),
+});
+const sameSize = (a: Size, b: Size): boolean => a.width === b.width && a.height === b.height;
+/** What the island shows before a redraw: measured only while it eases. */
+const sizeBefore = (): Size | undefined => (morph ? fitSize(root.getBoundingClientRect()) : lastFit);
+
+/**
+ * Size the window to what is drawn, so no invisible area eats clicks. A
+ * change of size eases (#118): the window first grows to hold both sizes,
+ * the island eases from `before` to its new size (its content already laid
+ * out at the final width, so nothing rewraps), and the window then shrinks
+ * to fit. A redraw that keeps the destination (an agent event mid-way)
+ * carries on from where the ease was. Nothing animates at rest.
+ */
+async function fitWindowToContent(before: Size | undefined, fade: boolean): Promise<void> {
+  const turn = ++fitTurn;
+  const running = morph;
+  const elapsed = running?.animation.currentTime;
+  running?.animation.cancel();
+  morph = undefined;
+  root.classList.remove("island--morphing");
+  const to = fitSize(root.getBoundingClientRect());
+  const carryOn = running !== undefined && sameSize(running.to, to) && typeof elapsed === "number";
+  const from = carryOn ? running.from : before;
+  if (from === undefined || reducedMotion.matches || sameSize(from, to)) {
+    lastFit = to;
+    await api.islandFit(to.width, to.height);
+    return;
+  }
+  const inner = root.firstElementChild?.getBoundingClientRect().width ?? to.width;
+  root.style.setProperty("--morph-inner", `${inner}px`);
+  root.classList.add("island--morphing");
+  const animation = root.animate(
+    [{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }],
+    { duration: MORPH_MS, easing: "cubic-bezier(0.32, 0.72, 0, 1)", fill: "both" },
+  );
+  // Held where it is until the window can show the new size.
+  animation.pause();
+  if (carryOn) animation.currentTime = elapsed;
+  morph = { animation, from, to };
+  // Opening or folding, the new content comes in softly (it goes with its
+  // nodes on the next render); a redraw of what is shown must not blink.
+  if (fade) {
+    for (const child of root.children) {
+      child.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS * 0.7, delay: MORPH_MS * 0.15, easing: "ease-out", fill: "backwards" });
+    }
+  }
+  try {
+    const grown = { width: Math.max(from.width, to.width), height: Math.max(from.height, to.height) };
+    await api.islandFit(grown.width, grown.height);
+    // The page learns its new size a frame or so after the window: easing
+    // before that would push the island off its edge for a frame.
+    for (let i = 0; i < 3 && (window.innerWidth < grown.width || window.innerHeight < grown.height); i++) {
+      await new Promise(requestAnimationFrame);
+    }
+    if (turn !== fitTurn) return;
+    animation.play();
+    await animation.finished;
+  } catch {
+    // Cancelled by a newer change, which then owns the window; or the IPC
+    // failed, and the island must not stay held at its old size.
+    if (turn !== fitTurn) return;
+  }
+  if (turn !== fitTurn) return;
+  animation.cancel();
+  morph = undefined;
+  lastFit = to;
+  root.classList.remove("island--morphing");
+  await api.islandFit(to.width, to.height).catch(() => { /* The next redraw fits it again. */ });
 }
 
 // ---------------------------------------------------------------------------
