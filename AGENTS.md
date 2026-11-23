@@ -13,7 +13,8 @@ permissions and answer questions. Read `docs/SPEC.md` before changing behavior.
   OS integration, commands.
 - `src/` — the island UI (strict TypeScript, no framework). `src/shared/ipc.ts`
   is the only place the UI calls Rust.
-- `docs/` — spec, agent protocol, ADRs. `ROADMAP.md` — what is planned.
+- `docs/` — spec, agent protocol, ADRs; `docs/visao/` is the product vision
+  and phases, in Portuguese. `ROADMAP.md` — what is planned.
 
 ## Rules
 
