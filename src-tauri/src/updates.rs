@@ -193,11 +193,6 @@ pub async fn updates_install(
         inner.installing = true;
         (update, bytes, inner.revision)
     };
-    // Saved first: on Windows the installer ends this process inside `install`.
-    let from = app.package_info().version.to_string();
-    if let Err(err) = prefs::update(|p| p.updated_from = Some(from)) {
-        eprintln!("cortex: {err}");
-    }
     // `install` checks the signature again before it touches the app. It
     // unpacks for a while: off the main thread, so the screen keeps moving.
     let (update, bytes, result) = tauri::async_runtime::spawn_blocking(move || {
@@ -209,9 +204,6 @@ pub async fn updates_install(
     if let Err(err) = result {
         let message = format!("Update failed: {err}");
         eprintln!("cortex: {message}");
-        if let Err(err) = prefs::update(|p| p.updated_from = None) {
-            eprintln!("cortex: {err}");
-        }
         // The updater hid every window just before starting the installer,
         // which did not start (a declined admin prompt).
         #[cfg(windows)]

@@ -30,29 +30,35 @@ pub fn launch_action(launch_at_login: Option<bool>, entry_exists: bool) -> Launc
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpeningScreen {
     Welcome,
-    /// "Update complete": the user clicked to update, so even a launch at
-    /// login shows it.
+    /// "Update complete": shown even at login, since an update restart keeps
+    /// the old arguments (`--autostart`, `--recovered-at`).
     Updated,
     Nothing,
 }
 
-/// `updated_from`: the version that installed an update before restarting;
-/// the same version as now means the install never happened. Otherwise a
-/// launch at login or a recovery restart (#115) shows nothing. An update
-/// restart keeps the old arguments, `--autostart` and `--recovered-at`
-/// included, so those cannot hide "Update complete".
-pub fn opening_screen(
-    autostart: bool,
-    recovered: bool,
-    updated_from: Option<&str>,
-    current: &str,
-) -> OpeningScreen {
-    if updated_from.is_some_and(|from| from != current) {
+/// A launch at login or a recovery restart (#115) shows nothing, unless
+/// this is the first launch of a new version.
+pub fn opening_screen(autostart: bool, recovered: bool, updated: bool) -> OpeningScreen {
+    if updated {
         OpeningScreen::Updated
     } else if autostart || recovered {
         OpeningScreen::Nothing
     } else {
         OpeningScreen::Welcome
+    }
+}
+
+/// The first launch of a new version: another one ran last (#127). Before
+/// 0.3.2 no version was saved; the launch-at-login answer, saved by the first
+/// launch of an installed 0.3.0 or later, tells an update from a new install.
+pub fn was_updated(
+    last_version: Option<&str>,
+    launch_at_login: Option<bool>,
+    current: &str,
+) -> bool {
+    match last_version {
+        Some(last) => last != current,
+        None => launch_at_login.is_some(),
     }
 }
 
@@ -138,23 +144,26 @@ mod tests {
     #[test]
     fn an_update_says_so_even_at_login_or_after_a_recovery() {
         use OpeningScreen::*;
-        for (autostart, recovered, from, screen) in [
-            (false, false, None, Welcome),
-            (true, false, None, Nothing),
-            (false, false, Some("0.3.1"), Updated),
-            (true, false, Some("0.3.1"), Updated),
-            (false, false, Some("0.3.2"), Welcome),
-            (true, false, Some("0.3.2"), Nothing),
-            (false, true, Some("0.3.1"), Updated),
-            (false, true, Some("0.3.2"), Nothing),
-            (false, true, None, Nothing),
+        for (autostart, recovered, updated, screen) in [
+            (false, false, false, Welcome),
+            (true, false, false, Nothing),
+            (false, true, false, Nothing),
+            (false, false, true, Updated),
+            (true, false, true, Updated),
+            (false, true, true, Updated),
         ] {
-            assert_eq!(
-                opening_screen(autostart, recovered, from, "0.3.2"),
-                screen,
-                "{autostart} {recovered} {from:?}"
-            );
+            assert_eq!(opening_screen(autostart, recovered, updated), screen);
         }
+    }
+
+    #[test]
+    fn a_new_version_is_an_update_and_so_is_the_first_launch_after_0_3_1() {
+        assert!(was_updated(Some("0.3.2"), Some(true), "0.3.3"));
+        assert!(!was_updated(Some("0.3.3"), Some(true), "0.3.3"));
+        // 0.3.0 and 0.3.1 saved no version, but did save launch at login.
+        assert!(was_updated(None, Some(false), "0.3.2"));
+        // A new install: nothing saved yet.
+        assert!(!was_updated(None, None, "0.3.2"));
     }
 
     #[test]

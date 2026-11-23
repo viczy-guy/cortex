@@ -90,11 +90,11 @@ The same window shows the updates (#127):
   install starts after about a second, so the screen is seen.
 - **Update complete, let's get to work?**: the new copy shows it at its
   first launch, with the mascot green and the version at the bottom, even at
-  login or after a recovery restart (the update came from a click, and the
-  restart keeps the old arguments). It closes after about 4 seconds, or on a click. The old copy saves its
-  version in the preferences (`updated_from`) before installing (on Windows
-  the installer ends the process); the new one clears it, and shows nothing
-  if the version did not change.
+  login or after a recovery restart (an update restart keeps the old
+  arguments). It closes after about 4 seconds, or on a click. Each launch
+  saves its version in the preferences (`last_version`); another one there
+  means an update, however it was installed. 0.3.0 and 0.3.1 saved none: a
+  saved "open at login" answer then tells an update from a new install.
 - **Oops, something got in the way.**: the install failed. The mascot turns
   amber, with **Try again** and **Continue without updating**: a failed
   update never keeps the user from working. The package is kept, so the

@@ -535,7 +535,7 @@ fn main() {
 
     let prefs = prefs::load();
     let island = prefs::IslandPrefs::from(&prefs);
-    let updated_from = prefs.updated_from.clone();
+    let (last_version, launch_at_login) = (prefs.last_version.clone(), prefs.launch_at_login);
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::with_rules(rules::load()))
@@ -612,16 +612,21 @@ fn main() {
             }
 
             autostart::on_launch();
-            if updated_from.is_some() {
-                if let Err(err) = prefs::update(|p| p.updated_from = None) {
+            let version = handle.package_info().version.to_string();
+            if last_version.as_deref() != Some(version.as_str()) {
+                let saved = version.clone();
+                if let Err(err) = prefs::update(|p| p.last_version = Some(saved)) {
                     eprintln!("cortex: {err}");
                 }
             }
             let screen = cortex_core::autostart::opening_screen(
                 std::env::args().any(|a| a == cortex_core::autostart::AUTOSTART_ARG),
                 recovered_recently(),
-                updated_from.as_deref(),
-                &handle.package_info().version.to_string(),
+                cortex_core::autostart::was_updated(
+                    last_version.as_deref(),
+                    launch_at_login,
+                    &version,
+                ),
             );
             let opened = match screen {
                 OpeningScreen::Welcome => open_splash(&handle, None),
