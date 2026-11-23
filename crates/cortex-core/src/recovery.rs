@@ -15,13 +15,15 @@ pub fn recovered_arg(now_secs: u64) -> String {
     format!("{RECOVERED_ARG_PREFIX}{now_secs}")
 }
 
-/// Started by a restart less than [`RECOVERY_QUIET_SECS`] ago.
+/// Started by a restart less than [`RECOVERY_QUIET_SECS`] ago. A time that
+/// far ahead (the clock was corrected since) is stale too, not "recent"
+/// until the clock catches up.
 pub fn recovered_recently<S: AsRef<str>>(args: impl IntoIterator<Item = S>, now_secs: u64) -> bool {
     args.into_iter().any(|arg| {
         arg.as_ref()
             .strip_prefix(RECOVERED_ARG_PREFIX)
             .and_then(|secs| secs.parse::<u64>().ok())
-            .is_some_and(|at| now_secs.saturating_sub(at) < RECOVERY_QUIET_SECS)
+            .is_some_and(|at| now_secs.abs_diff(at) < RECOVERY_QUIET_SECS)
     })
 }
 
@@ -48,7 +50,17 @@ mod tests {
     }
 
     #[test]
-    fn a_clock_set_back_still_counts_as_recent() {
-        assert!(recovered_recently([recovered_arg(2_000)], 1_000));
+    fn a_small_clock_correction_keeps_it_recent_and_a_large_one_does_not() {
+        assert!(recovered_recently([recovered_arg(1_300)], 1_000));
+        assert!(!recovered_recently([recovered_arg(1_000 + 86_400)], 1_000));
+    }
+
+    #[test]
+    fn an_argument_carried_by_a_later_update_restart_is_stale() {
+        let arg = recovered_arg(1_000);
+        assert!(!recovered_recently(
+            ["cortex", arg.as_str()],
+            1_000 + 3 * 86_400
+        ));
     }
 }

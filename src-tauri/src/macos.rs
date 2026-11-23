@@ -169,7 +169,9 @@ pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
 /// Whether WebKit still draws the island. A GPU process that stops answering
 /// is given up by WebKit but can linger: the page runs on, the window stays
 /// empty, and nothing tells the page (#115). WebKit then refuses a snapshot,
-/// the one sign the app can see. A dropped sender: it could not be asked.
+/// the one sign the app can see: `false` is that refusal, `true` a drawn
+/// island. Anything unclear (a hidden or empty island, a blank picture)
+/// drops the sender, so it never counts against the island.
 pub fn island_draws(app: &AppHandle) -> tokio::sync::oneshot::Receiver<bool> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     if let Some(window) = app.get_webview_window("island") {
@@ -177,23 +179,24 @@ pub fn island_draws(app: &AppHandle) -> tokio::sync::oneshot::Receiver<bool> {
             let view = webview.inner().cast::<AnyObject>();
             // SAFETY: `inner()` is the island's live WKWebView, and this
             // closure runs on the main thread.
-            let window: *mut AnyObject = unsafe { msg_send![view, window] };
-            // Covered, locked or asleep, WebKit may refuse a snapshot of a
-            // healthy island: do not ask (`NSWindowOcclusionStateVisible`).
-            let occlusion: usize = if window.is_null() {
-                0
-            } else {
-                // SAFETY: a live NSWindow.
-                unsafe { msg_send![window, occlusionState] }
-            };
-            if occlusion & 2 == 0 {
+            if !unsafe { shown(view) } {
                 return;
             }
             let sender = std::cell::Cell::new(Some(sender));
             let done = RcBlock::new(move |image: *mut AnyObject, _error: *mut AnyObject| {
-                if let Some(sender) = sender.take() {
-                    // SAFETY: WebKit passes an NSImage, or nil with an error.
-                    let _ = sender.send(unsafe { has_opaque_pixel(image) });
+                let Some(sender) = sender.take() else { return };
+                // SAFETY: WebKit calls back on the main thread with an
+                // NSImage, or nil with an error; the island view lives as
+                // long as the app. The screen may have locked meanwhile.
+                unsafe {
+                    if !shown(view) {
+                        return;
+                    }
+                    if image.is_null() {
+                        let _ = sender.send(false);
+                    } else if has_opaque_pixel(image) {
+                        let _ = sender.send(true);
+                    }
                 }
             });
             let default_configuration: *mut AnyObject = std::ptr::null_mut();
@@ -210,12 +213,27 @@ pub fn island_draws(app: &AppHandle) -> tokio::sync::oneshot::Receiver<bool> {
     receiver
 }
 
+/// The view has an area and its window is visible: covered, locked or asleep,
+/// WebKit may refuse a snapshot of a healthy island.
+///
 /// # Safety
-/// `image` is an `NSImage` or null.
-unsafe fn has_opaque_pixel(image: *mut AnyObject) -> bool {
-    if image.is_null() {
+/// `view` is a live `NSView`, on the main thread.
+unsafe fn shown(view: *mut AnyObject) -> bool {
+    let bounds: NSRect = msg_send![view, bounds];
+    if bounds.size.width < 1.0 || bounds.size.height < 1.0 {
         return false;
     }
+    let window: *mut AnyObject = msg_send![view, window];
+    if window.is_null() {
+        return false;
+    }
+    let occlusion: usize = msg_send![window, occlusionState];
+    occlusion & 2 != 0 // NSWindowOcclusionStateVisible
+}
+
+/// # Safety
+/// `image` is an `NSImage`.
+unsafe fn has_opaque_pixel(image: *mut AnyObject) -> bool {
     let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
     if tiff.is_null() {
         return false;
