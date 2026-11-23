@@ -306,8 +306,8 @@ function bar(): HTMLElement {
   const chips = updateChips();
   // An update chip takes the room of two tags: the bar never outgrows the window.
   // Beside the camera the right side only has room for the counter, the PR
-  // count and the gear: tags stay on the left.
-  const room = cutout ? (chips.length > 0 ? 1 : 2) : chips.length > 0 ? 2 : MAX_TAGS;
+  // count and the gear: tags stay on the left, one when "1 of N" is there too.
+  const room = cutout ? (snapshot.approvals.length > 1 ? 1 : 2) : chips.length > 0 ? 2 : MAX_TAGS;
   const tags = sessions.slice(0, room).map((session) => agentTag(session, toneOf(session), sessionLabel(session)));
   const center = el("span", "bar-center");
   center.append(mascotNode());
@@ -322,14 +322,21 @@ function bar(): HTMLElement {
     right.push(pr);
   }
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
-    right.push(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
+    chips.unshift(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
   }
-  right.push(...chips, settingsButton());
+  // Beside the camera the chips get a row of their own below it.
+  if (!cutout) right.push(...chips);
+  right.push(settingsButton());
   const firstTags = tags.slice(0, 2);
   if (cutout) splitAtCamera(node, [center, ...firstTags], right);
   else node.append(...firstTags, center, ...right);
   if (sessions.length > 0) node.addEventListener("click", toggle);
-  return node;
+  if (!cutout || chips.length === 0) return node;
+  const wrap = el("div");
+  const below = el("div", "chip-row");
+  below.append(...chips);
+  wrap.append(node, below);
+  return wrap;
 }
 
 function sessionLabel(session: SessionView): string {

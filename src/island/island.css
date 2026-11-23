@@ -522,3 +522,11 @@ body {
 .cutout-row .btn-chip + .btn-icon {
   margin-left: 0;
 }
+
+/* Beside the camera: chips sit on a row of their own under it. */
+.chip-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}

@@ -254,6 +254,8 @@ pub const OUTSIDE_CLICK_EVENT: &str = "cortex://outside-click";
 
 const ISLAND_CUTOUT_EVENT: &str = "cortex://island-cutout";
 
+/// Only macOS knows of a camera cutout.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, PartialEq, serde::Serialize)]
 struct IslandCutout {
     width: f64,
@@ -400,7 +402,7 @@ fn place_island(app: &AppHandle) {
     let work = rect(monitor.work_area().position, monitor.work_area().size);
     #[cfg(target_os = "macos")]
     let cutout = if position == "top" {
-        macos::camera_cutout(screen.x, screen.width)
+        macos::camera_cutout(screen.x, screen.y, screen.width, screen.height)
             .map(|(width, height)| IslandCutout { width, height })
     } else {
         None

@@ -39,11 +39,18 @@ tauri_panel! {
     panel_event!(IslandPanelEvents {})
 }
 
-pub fn camera_cutout(x: f64, width: f64) -> Option<(f64, f64)> {
+/// The camera cutout of the screen at this place (logical points, y down
+/// from the top of the main screen, as Tauri counts): its width and height.
+pub fn camera_cutout(x: f64, y: f64, width: f64, height: f64) -> Option<(f64, f64)> {
     let screens = NSScreen::screens(MainThreadMarker::new()?);
+    // AppKit counts y up from the bottom of the main screen.
+    let main_height = screens.iter().next()?.frame().size.height;
+    let cocoa_y = main_height - (y + height);
     let screen = screens.iter().find(|screen| {
         let frame = screen.frame();
-        (frame.origin.x - x).abs() <= 1.0 && (frame.size.width - width).abs() <= 1.0
+        (frame.origin.x - x).abs() <= 1.0
+            && (frame.origin.y - cocoa_y).abs() <= 1.0
+            && (frame.size.width - width).abs() <= 1.0
     })?;
     // The safe-area and auxiliary-area selectors were introduced in macOS 12.
     if !screen.respondsToSelector(sel!(safeAreaInsets)) {
