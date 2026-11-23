@@ -13,6 +13,7 @@ pub mod hooks;
 pub mod placement;
 pub mod prefs;
 pub mod protocol;
+pub mod recovery;
 pub mod session;
 
 pub use approval::{

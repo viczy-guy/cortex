@@ -174,6 +174,21 @@ pub fn island_draws(app: &AppHandle) -> tokio::sync::oneshot::Receiver<bool> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     if let Some(window) = app.get_webview_window("island") {
         let _ = window.with_webview(move |webview| {
+            let view = webview.inner().cast::<AnyObject>();
+            // SAFETY: `inner()` is the island's live WKWebView, and this
+            // closure runs on the main thread.
+            let window: *mut AnyObject = unsafe { msg_send![view, window] };
+            // Covered, locked or asleep, WebKit may refuse a snapshot of a
+            // healthy island: do not ask (`NSWindowOcclusionStateVisible`).
+            let occlusion: usize = if window.is_null() {
+                0
+            } else {
+                // SAFETY: a live NSWindow.
+                unsafe { msg_send![window, occlusionState] }
+            };
+            if occlusion & 2 == 0 {
+                return;
+            }
             let sender = std::cell::Cell::new(Some(sender));
             let done = RcBlock::new(move |image: *mut AnyObject, _error: *mut AnyObject| {
                 if let Some(sender) = sender.take() {
@@ -181,10 +196,8 @@ pub fn island_draws(app: &AppHandle) -> tokio::sync::oneshot::Receiver<bool> {
                     let _ = sender.send(unsafe { has_opaque_pixel(image) });
                 }
             });
-            let view = webview.inner().cast::<AnyObject>();
             let default_configuration: *mut AnyObject = std::ptr::null_mut();
-            // SAFETY: `inner()` is the island's live WKWebView, and this
-            // closure runs on the main thread.
+            // SAFETY: as above.
             unsafe {
                 let _: () = msg_send![
                     view,
