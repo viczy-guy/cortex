@@ -219,6 +219,9 @@ fn check_island(app: AppHandle, delay: std::time::Duration) {
             eprintln!("cortex: the island is still not drawn after a restart");
             return;
         }
+        if app.state::<updates::UpdateState>().installing() {
+            return;
+        }
         eprintln!("cortex: WebKit stopped drawing the island; restarting");
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
@@ -246,6 +249,7 @@ fn spawn_open_settings(app: AppHandle) {
 
 #[tauri::command]
 fn splash_done(app: AppHandle) {
+    app.state::<updates::UpdateState>().disarm();
     close_splash(&app);
 }
 
@@ -619,15 +623,13 @@ fn main() {
                 updated_from.as_deref(),
                 &handle.package_info().version.to_string(),
             );
-            let query = match screen {
-                OpeningScreen::Welcome => Some(None),
-                OpeningScreen::Updated => Some(Some("mode=updated")),
-                OpeningScreen::Nothing => None,
+            let opened = match screen {
+                OpeningScreen::Welcome => open_splash(&handle, None),
+                OpeningScreen::Updated => open_splash(&handle, Some("mode=updated")),
+                OpeningScreen::Nothing => Ok(()),
             };
-            if let Some(query) = query {
-                if let Err(err) = open_splash(&handle, query) {
-                    eprintln!("cortex: opening screen failed: {err}");
-                }
+            if let Err(err) = opened {
+                eprintln!("cortex: opening screen failed: {err}");
             }
             // A GPU process that hangs while the system is busy (just after an
             // update or a login) leaves the island empty for good (#115).

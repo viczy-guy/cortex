@@ -111,6 +111,7 @@ body {
   font-weight: 400;
 }
 
+.stack .mascot { animation: none; }
 .failed .mascot { color: var(--tone-amber); }
 .stack .actions { margin-top: 8px; }
 

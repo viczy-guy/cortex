@@ -33,6 +33,11 @@ struct Inner {
     ready: Option<(Update, Vec<u8>)>,
     /// Bumped on every toggle, so a check started before it is discarded.
     revision: u64,
+    /// The user clicked **Update and restart**: only then may the update
+    /// screen install (the welcome screen shares its window and rights).
+    armed: bool,
+    /// An install runs: nothing checks, installs or restarts meanwhile.
+    installing: bool,
 }
 
 impl Inner {
@@ -82,6 +87,8 @@ impl UpdateState {
                 },
                 ready: None,
                 revision: 0,
+                armed: false,
+                installing: false,
             }),
             wake: Notify::new(),
         }
@@ -89,6 +96,16 @@ impl UpdateState {
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().expect("updates mutex poisoned")
+    }
+
+    /// The update screen closed: installing needs a new click.
+    pub fn disarm(&self) {
+        self.lock().armed = false;
+    }
+
+    /// A restart now could leave the app half replaced.
+    pub fn installing(&self) -> bool {
+        self.lock().installing
     }
 }
 
@@ -108,6 +125,7 @@ pub fn updates_set_enabled(
     prefs::update(|p| p.updates = Some(enabled))?;
     inner.revision += 1;
     inner.ready = None;
+    inner.armed = false;
     let status = &mut inner.status;
     status.enabled = Some(enabled);
     if status.state != "unsupported" {
@@ -139,8 +157,16 @@ pub async fn updates_start(
     board: State<'_, AppState>,
 ) -> Result<(), String> {
     no_cards(&board)?;
-    if state.lock().ready.is_none() {
-        return Err("No update is ready.".into());
+    {
+        let mut inner = state.lock();
+        // Its screen is up already.
+        if inner.installing {
+            return Ok(());
+        }
+        if inner.ready.is_none() {
+            return Err("No update is ready.".into());
+        }
+        inner.armed = true;
     }
     crate::open_splash(&app, Some("mode=updating"))
 }
@@ -158,9 +184,13 @@ pub async fn updates_install(
     no_cards(&board)?;
     let (update, bytes, revision) = {
         let mut inner = state.lock();
+        if !inner.armed || inner.installing {
+            return Err("No update is ready.".into());
+        }
         let Some((update, bytes)) = inner.ready.take() else {
             return Err("No update is ready.".into());
         };
+        inner.installing = true;
         (update, bytes, inner.revision)
     };
     // Saved first: on Windows the installer ends this process inside `install`.
@@ -182,7 +212,14 @@ pub async fn updates_install(
         if let Err(err) = prefs::update(|p| p.updated_from = None) {
             eprintln!("cortex: {err}");
         }
+        // The updater hid every window just before starting the installer,
+        // which did not start (a declined admin prompt).
+        #[cfg(windows)]
+        for window in app.webview_windows().values() {
+            let _ = window.show();
+        }
         let mut inner = state.lock();
+        inner.installing = false;
         if inner.revision == revision && inner.ready.is_none() {
             inner.ready = Some((update, bytes));
         }
@@ -200,6 +237,7 @@ pub async fn checker(app: AppHandle) {
         let due = {
             let mut inner = state.lock();
             let due = inner.status.enabled == Some(true)
+                && !inner.installing
                 && matches!(inner.status.state, "idle" | "error");
             if due {
                 inner.status.state = "checking";

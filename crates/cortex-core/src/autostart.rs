@@ -37,19 +37,19 @@ pub enum OpeningScreen {
 }
 
 /// `updated_from`: the version that installed an update before restarting;
-/// the same version as now means the install never happened. A recovery
-/// restart (#115) shows nothing.
+/// the same version as now means the install never happened. Otherwise a
+/// launch at login or a recovery restart (#115) shows nothing. An update
+/// restart keeps the old arguments, `--autostart` and `--recovered-at`
+/// included, so those cannot hide "Update complete".
 pub fn opening_screen(
     autostart: bool,
     recovered: bool,
     updated_from: Option<&str>,
     current: &str,
 ) -> OpeningScreen {
-    if recovered {
-        OpeningScreen::Nothing
-    } else if updated_from.is_some_and(|from| from != current) {
+    if updated_from.is_some_and(|from| from != current) {
         OpeningScreen::Updated
-    } else if autostart {
+    } else if autostart || recovered {
         OpeningScreen::Nothing
     } else {
         OpeningScreen::Welcome
@@ -136,7 +136,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_update_says_so_even_at_login_and_a_recovery_shows_nothing() {
+    fn an_update_says_so_even_at_login_or_after_a_recovery() {
         use OpeningScreen::*;
         for (autostart, recovered, from, screen) in [
             (false, false, None, Welcome),
@@ -145,7 +145,8 @@ mod tests {
             (true, false, Some("0.3.1"), Updated),
             (false, false, Some("0.3.2"), Welcome),
             (true, false, Some("0.3.2"), Nothing),
-            (false, true, Some("0.3.1"), Nothing),
+            (false, true, Some("0.3.1"), Updated),
+            (false, true, Some("0.3.2"), Nothing),
             (false, true, None, Nothing),
         ] {
             assert_eq!(

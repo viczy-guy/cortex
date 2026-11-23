@@ -73,6 +73,7 @@ function updating(root: HTMLElement): void {
   const view = el("div", "stack");
   root.append(view);
   const versions = el("p", "dim");
+  const mascot = mascotBox();
   Promise.all([getVersion(), api.updatesStatus()]).then(([from, status]) => {
     if (status.version) versions.textContent = `${from} → ${status.version}`;
   }).catch(() => { /* The versions are a nicety. */ });
@@ -83,7 +84,7 @@ function updating(root: HTMLElement): void {
     root.classList.remove("failed");
     const track = el("span", "track");
     track.append(el("i"));
-    view.replaceChildren(mascotBox(), el("p", "title", "Updating…"), track, versions);
+    view.replaceChildren(mascot, el("p", "title", "Updating…"), track, versions);
     await new Promise((resolve) => window.setTimeout(resolve, UPDATING_MIN_MS));
     try {
       await api.updatesInstall();
@@ -102,7 +103,7 @@ function updating(root: HTMLElement): void {
       button("btn-allow", "Try again", () => void install()),
     );
     view.replaceChildren(
-      mascotBox(),
+      mascot,
       el("p", "title", "Oops, something got in the way."),
       el("p", "dim", "Whenever you want to try again, click below."),
       actions,

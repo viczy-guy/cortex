@@ -90,8 +90,8 @@ The same window shows the updates (#127):
   install starts after about a second, so the screen is seen.
 - **Update complete, let's get to work?**: the new copy shows it at its
   first launch, with the mascot green and the version at the bottom, even at
-  login (the update came from a click), but not after a recovery restart.
-  It closes after about 4 seconds, or on a click. The old copy saves its
+  login or after a recovery restart (the update came from a click, and the
+  restart keeps the old arguments). It closes after about 4 seconds, or on a click. The old copy saves its
   version in the preferences (`updated_from`) before installing (on Windows
   the installer ends the process); the new one clears it, and shows nothing
   if the version did not change.
