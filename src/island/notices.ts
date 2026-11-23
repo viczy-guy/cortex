@@ -16,18 +16,36 @@ export interface ViewNotice {
   detail: string;
   /** GitHub's: opened on a click. */
   url?: string;
+  /** A phrase around a title: only the title gives way when space runs out. */
+  around?: { before: string; title: string; after: string };
 }
 
-const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: string }> = {
-  critical: { tone: "red", say: "A PR has critical changes, review it!" },
-  failed: { tone: "red", say: "A PR failed!" },
-  action: { tone: "red", say: "An action failed!" },
-  review: { tone: "blue", say: "A PR needs your review" },
-  ready: { tone: "green", say: "Your PR is ready" },
+const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: GithubNotice) => string }> = {
+  critical: { tone: "red", say: () => "A PR has critical changes, review it!" },
+  failed: { tone: "red", say: () => "A PR failed!" },
+  action: { tone: "red", say: () => "An action failed!" },
+  review: { tone: "blue", say: () => "A PR needs your review" },
+  // The maintainer's words (#135): "Seu PR#000 (titulo breve do PR) - Foi aprovado!"
+  approved: { tone: "green", say: (n) => `Your PR #${n.number} (${n.title}) was approved!` },
 };
 
 export function githubNotice(notice: GithubNotice): ViewNotice {
-  return { key: `github:${notice.key}`, ...GITHUB[notice.kind], detail: notice.detail, url: notice.url };
+  const { tone, say } = GITHUB[notice.kind];
+  const view: ViewNotice = { key: `github:${notice.key}`, tone, say: say(notice), detail: notice.detail, url: notice.url };
+  if (notice.kind === "approved") {
+    view.around = { before: `Your PR #${notice.number} (`, title: notice.title, after: ") was approved!" };
+  }
+  return view;
+}
+
+/** The phrase in bold; around a title, "was approved!" stays in sight. */
+function phrase(notice: ViewNotice): HTMLElement {
+  if (!notice.around) return el("b", undefined, notice.say);
+  const { before, title, after } = notice.around;
+  const node = el("b", "phrase");
+  node.title = notice.say;
+  node.append(el("span", undefined, before), el("span", "phrase-title", title), el("span", undefined, after));
+  return node;
 }
 
 const AGENT_SAYS: Partial<Record<SessionView["state"], string>> = {
@@ -50,7 +68,7 @@ export function agentNotice(session: SessionView, tone: Tone): ViewNotice | null
 /** The phrase, where it happened, and how many more wait behind it. */
 export function sayLine(notice: ViewNotice, more: number): HTMLElement[] {
   const text = el("span", "say-text");
-  text.append(el("b", undefined, notice.say), el("small", undefined, notice.detail));
+  text.append(phrase(notice), el("small", undefined, notice.detail));
   return more > 0 ? [text, el("span", "more", `+${more}`)] : [text];
 }
 
@@ -61,7 +79,7 @@ export function noticeRows(notices: ViewNotice[], act: (notice: ViewNotice) => v
     const row = el("button", "notice-row");
     row.type = "button";
     row.title = notice.url ? `${notice.say} · open on GitHub` : notice.say;
-    row.append(el("span", `notice-dot tone-${notice.tone}`), el("b", undefined, notice.say), el("small", undefined, notice.detail));
+    row.append(el("span", `notice-dot tone-${notice.tone}`), phrase(notice), el("small", undefined, notice.detail));
     row.addEventListener("click", (event) => {
       event.stopPropagation();
       act(notice);
