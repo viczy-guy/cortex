@@ -6,9 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-23
+
 ### Changed
 - The island opens and folds smoothly, growing from the edge it hangs on,
   instead of jumping to its new size. (#118)
+- The opening screen takes about 6 seconds instead of 2. (#117)
 
 ### Fixed
 - macOS: the island could stay invisible after an update, when the system
@@ -20,9 +23,6 @@ follows [Semantic Versioning](https://semver.org).
   the maintainer chose; 0.3.0 shipped the dot with rings by mistake. (#116)
 - The three sounds are again the ones chosen on the vision page: plucked
   notes at their own volumes, instead of flat, organ-like tones. (#117)
-
-### Changed
-- The opening screen takes about 6 seconds instead of 2. (#117)
 
 ### Security
 - `cookie` 0.18.3, for RUSTSEC-2026-0594 (repeated nonces in private cookies
