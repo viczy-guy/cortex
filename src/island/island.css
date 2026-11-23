@@ -85,6 +85,14 @@ body {
 .island--morphing[data-position="bottom-right"] {
   align-items: flex-end;
 }
+.island--morphing[data-position="left"],
+.island--morphing[data-position="right"] {
+  justify-content: center;
+}
+.island--morphing[data-position="bottom-left"],
+.island--morphing[data-position="bottom-right"] {
+  justify-content: flex-end;
+}
 
 /* With cards: the full width. Must match `ISLAND_WIDTH` in src-tauri/src/main.rs. */
 .island--open {

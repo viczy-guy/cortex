@@ -175,6 +175,8 @@ function render(): void {
     const key = foldedKey();
     if (folded === key) return;
     const before = root.getBoundingClientRect();
+    const fade = !isFoldedView;
+    isFoldedView = true;
     setClass(false);
     const node = el("div", "notch");
     node.addEventListener("click", () => setHovered(true));
@@ -185,7 +187,7 @@ function render(): void {
     else node.append(left, ...right);
     folded = foldedKey();
     root.replaceChildren(node);
-    void fitWindowToContent(before);
+    void fitWindowToContent(before, fade);
     return;
   }
   folded = null;
@@ -207,6 +209,8 @@ function render(): void {
 
   const panel = panelContent();
   const before = root.getBoundingClientRect();
+  const fade = isFoldedView;
+  isFoldedView = false;
   setClass(panel.length > 0);
   root.replaceChildren(bar());
   if (panel.length > 0) {
@@ -219,7 +223,7 @@ function render(): void {
     const top = scrolled.get(n.dataset.scroll ?? "");
     if (top) n.scrollTop = top;
   });
-  void fitWindowToContent(before);
+  void fitWindowToContent(before, fade);
 }
 
 /**
@@ -401,31 +405,42 @@ function panelContent(): HTMLElement[] {
 }
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-/** The island's size easing from what it was to what it now draws. */
-let morph: Animation | undefined;
+type Size = { width: number; height: number };
+/** The island easing between two sizes, and where it is going. */
+let morph: { animation: Animation; from: Size; to: Size } | undefined;
 /** Bumped by every fit: a newer one takes over a morph mid-way. */
 let fitTurn = 0;
+/** The first fit shows the island at once: there is nothing to ease from. */
+let drawn = false;
+/** The last render drew the folded notch (not the bar). */
+let isFoldedView = false;
 
-const fitSize = (rect: DOMRect): { width: number; height: number } => ({
+const fitSize = (rect: DOMRect): Size => ({
   width: Math.ceil(rect.width),
   height: Math.min(MAX_HEIGHT, Math.ceil(rect.height)),
 });
+const sameSize = (a: Size, b: Size): boolean => a.width === b.width && a.height === b.height;
 
 /**
  * Size the window to what is drawn, so no invisible area eats clicks. A
  * change of size eases (#118): the window first grows to hold both sizes,
  * the island eases from `before` to its new size (its content already laid
  * out at the final width, so nothing rewraps), and the window then shrinks
- * to fit. Runs only on a change: nothing animates at rest.
+ * to fit. A redraw that keeps the destination (an agent event mid-way)
+ * carries on from where the ease was. Nothing animates at rest.
  */
-async function fitWindowToContent(before: DOMRect): Promise<void> {
+async function fitWindowToContent(before: DOMRect, fade: boolean): Promise<void> {
   const turn = ++fitTurn;
-  morph?.cancel();
+  const running = morph;
+  const elapsed = running?.animation.currentTime;
+  running?.animation.cancel();
   morph = undefined;
   root.classList.remove("island--morphing");
-  const from = fitSize(before);
   const to = fitSize(root.getBoundingClientRect());
-  if (reducedMotion.matches || from.width === 0 || (from.width === to.width && from.height === to.height)) {
+  const carryOn = running !== undefined && sameSize(running.to, to) && typeof elapsed === "number";
+  const from = carryOn ? running.from : fitSize(before);
+  if (!drawn || reducedMotion.matches || sameSize(from, to)) {
+    drawn = true;
     await api.islandFit(to.width, to.height);
     return;
   }
@@ -436,26 +451,32 @@ async function fitWindowToContent(before: DOMRect): Promise<void> {
     [{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }],
     { duration: MORPH_MS, easing: "cubic-bezier(0.32, 0.72, 0, 1)", fill: "both" },
   );
-  // Held at the old size until the window can show the new one.
+  // Held where it is until the window can show the new size.
   animation.pause();
-  morph = animation;
-  // The new content comes in softly; it goes with its nodes on the next render.
-  for (const child of root.children) {
-    child.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS * 0.7, delay: MORPH_MS * 0.15, easing: "ease-out", fill: "backwards" });
+  if (carryOn) animation.currentTime = elapsed;
+  morph = { animation, from, to };
+  // Opening or folding, the new content comes in softly (it goes with its
+  // nodes on the next render); a redraw of what is shown must not blink.
+  if (fade && !running) {
+    for (const child of root.children) {
+      child.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS * 0.7, delay: MORPH_MS * 0.15, easing: "ease-out", fill: "backwards" });
+    }
   }
-  await api.islandFit(Math.max(from.width, to.width), Math.max(from.height, to.height));
-  if (turn !== fitTurn) return;
-  animation.play();
   try {
+    await api.islandFit(Math.max(from.width, to.width), Math.max(from.height, to.height));
+    if (turn !== fitTurn) return;
+    animation.play();
     await animation.finished;
   } catch {
-    return; // A newer change took over.
+    // Cancelled by a newer change, which then owns the window; or the IPC
+    // failed, and the island must not stay held at its old size.
+    if (turn !== fitTurn) return;
   }
   if (turn !== fitTurn) return;
   animation.cancel();
   morph = undefined;
   root.classList.remove("island--morphing");
-  await api.islandFit(to.width, to.height);
+  await api.islandFit(to.width, to.height).catch(() => { /* The next redraw fits it again. */ });
 }
 
 // ---------------------------------------------------------------------------
