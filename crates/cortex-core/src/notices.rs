@@ -3,11 +3,17 @@
 //! action. The shell fetches; everything here only reads what came back.
 
 use crate::github::{Checks, GithubSummary, PullRequest, Review};
+use crate::session::truncate;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 
-/// Pull requests whose comments are read per poll; the others wait for the next.
-pub const MAX_PLAN_FETCH: usize = 3;
+/// Pull requests whose comments are read per poll; the others wait for the
+/// next. Two keeps the answer (5 comments of up to 64 KiB each, JSON-escaped)
+/// well under the 2 MiB the shell reads.
+pub const MAX_PLAN_FETCH: usize = 2;
+/// Plans remembered; the least recently read go first.
+const MAX_PLANS: usize = 256;
 /// Comments read per pull request: an Atlantis plan and its continuations.
 const PLAN_COMMENTS: usize = 5;
 pub const MAX_RUNS: usize = 10;
@@ -85,6 +91,14 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
         }
     }
     for run in &summary.failed_runs {
+        // On one of the user's own pull requests: "A PR failed!" says it.
+        if summary
+            .mine
+            .iter()
+            .any(|p| p.repo == run.repo && p.head == run.reference)
+        {
+            continue;
+        }
         out.push(Notice {
             key: format!("action:{}:{}", run.id, run.updated_at),
             kind: NoticeKind::Action,
@@ -117,11 +131,7 @@ fn short(repo: &str) -> &str {
 }
 
 fn bounded(text: &str) -> String {
-    let mut out: String = text.chars().take(MAX_DETAIL_CHARS).collect();
-    if text.chars().count() > MAX_DETAIL_CHARS {
-        out.push('…');
-    }
-    out
+    truncate(text, MAX_DETAIL_CHARS)
 }
 
 /// "owner/name", as GitHub allows them: owners are letters, digits and
@@ -229,18 +239,18 @@ pub fn plan_query(count: usize) -> String {
     format!("query({}) {{{fields} }}", vars.join(", "))
 }
 
-/// What each pull request's latest Atlantis plan destroys, in the order asked;
-/// `None` when the answer is not a GraphQL response.
-pub fn parse_plans(json: &str, count: usize) -> Option<Vec<u32>> {
+/// What each pull request's latest Atlantis plan destroys, in the order asked
+/// (see [`destroy_count`]); `None` for the whole answer when it is not a
+/// GraphQL response, and for a pull request the account cannot read.
+pub fn parse_plans(json: &str, count: usize) -> Option<Vec<Option<u32>>> {
     let v: Value = serde_json::from_str(json).ok()?;
     let data = v.get("data")?;
     Some(
         (0..count)
             .map(|i| {
                 let bodies: Vec<&str> = data[format!("p{i}")]["comments"]["nodes"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
+                    .as_array()?
+                    .iter()
                     .filter_map(|c| c["body"].as_str())
                     .collect();
                 destroy_count(&bodies)
@@ -250,21 +260,18 @@ pub fn parse_plans(json: &str, count: usize) -> Option<Vec<u32>> {
 }
 
 /// Resources the latest Atlantis plan destroys, from a pull request's last
-/// comments, oldest first: the "Plan: … N to destroy" lines of the last "Ran
-/// Plan for" comment and its "Continued…" parts. Zero when nothing was
-/// planned, or once a later "Ran Apply for" applied it. Atlantis repeats each
-/// project's summary line outside its output block, so lines inside code
-/// blocks count first.
-pub fn destroy_count(bodies: &[&str]) -> u32 {
-    let Some(start) = bodies.iter().rposition(|b| b.contains("Ran Plan for")) else {
-        return 0;
-    };
-    if bodies[start + 1..]
+/// comments, oldest first: the "Plan: … N to destroy" lines of the last
+/// comment that starts with "Ran Plan for" (a quote of one does not) and of
+/// its "Continued…" parts. Atlantis repeats each project's summary line
+/// outside its output block, so lines inside code blocks count first.
+/// `None` when no plan is in sight: the caller keeps what it knew, since
+/// later comments may have pushed the plan out of the window. Applies are
+/// not read: a failed or partial apply must not hide what is left, and the
+/// notice goes once a new plan destroys nothing or the pull request closes.
+pub fn destroy_count(bodies: &[&str]) -> Option<u32> {
+    let start = bodies
         .iter()
-        .any(|b| b.contains("Ran Apply for"))
-    {
-        return 0;
-    }
+        .rposition(|b| b.trim_start().starts_with("Ran Plan for"))?;
     let parts = bodies[start..]
         .iter()
         .enumerate()
@@ -274,8 +281,7 @@ pub fn destroy_count(bodies: &[&str]) -> u32 {
     for body in parts {
         let mut fenced = false;
         for line in body.lines() {
-            let line = line.trim_start_matches(|c: char| c.is_whitespace() || c == '+' || c == '-');
-            if line.starts_with("```") {
+            if line.trim_start().starts_with("```") {
                 fenced = !fenced;
                 continue;
             }
@@ -290,16 +296,14 @@ pub fn destroy_count(bodies: &[&str]) -> u32 {
             }
         }
     }
-    if seen_inside {
-        inside
-    } else {
-        outside
-    }
+    Some(if seen_inside { inside } else { outside })
 }
 
-/// "Plan: 1 to add, 0 to change, 2 to destroy." → 2.
+/// "Plan: 1 to add, 0 to change, 2 to destroy." → 2, also behind a log
+/// prefix ("16:47:01 STDOUT terraform: Plan: …", as Terragrunt prints it).
 fn plan_destroys(line: &str) -> Option<u32> {
-    line.strip_prefix("Plan:")?.split(',').find_map(|part| {
+    let at = line.find("Plan: ")?;
+    line[at + "Plan: ".len()..].split(',').find_map(|part| {
         part.trim()
             .trim_end_matches('.')
             .strip_suffix(" to destroy")?
@@ -307,6 +311,99 @@ fn plan_destroys(line: &str) -> Option<u32> {
             .parse()
             .ok()
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlanRead {
+    /// The pull request's `updatedAt` when its plan was last read.
+    updated_at: String,
+    destroy: u32,
+    tried_ms: u64,
+}
+
+/// What the latest plan of each pull request destroys, per account, read
+/// again only once the pull request changed.
+#[derive(Debug, Default)]
+pub struct PlanCache {
+    reads: BTreeMap<String, PlanRead>,
+}
+
+impl PlanCache {
+    pub const fn new() -> Self {
+        Self {
+            reads: BTreeMap::new(),
+        }
+    }
+
+    fn key(login: &str, url: &str) -> String {
+        format!("{}\n{url}", login.to_ascii_lowercase())
+    }
+
+    /// Up to [`MAX_PLAN_FETCH`] pull requests (`url`, `updatedAt`) changed
+    /// since their plan was read, the least recently tried first, so a few
+    /// busy ones never keep the others waiting.
+    pub fn due<'a>(
+        &self,
+        login: &str,
+        pulls: impl IntoIterator<Item = &'a PullRequest>,
+    ) -> Vec<(String, String)> {
+        let mut due: Vec<(u64, &PullRequest)> = pulls
+            .into_iter()
+            .filter_map(|p| match self.reads.get(&Self::key(login, &p.url)) {
+                Some(read) if read.updated_at == p.updated_at => None,
+                read => Some((read.map_or(0, |r| r.tried_ms), p)),
+            })
+            .collect();
+        due.sort_by_key(|(tried, _)| *tried);
+        due.into_iter()
+            .take(MAX_PLAN_FETCH)
+            .map(|(_, p)| (p.url.clone(), p.updated_at.clone()))
+            .collect()
+    }
+
+    /// The outcome of reading one pull request at `updated_at`: `None` when
+    /// the request failed (read again later, after the others), `Some(None)`
+    /// when no plan was in sight (what was known stands).
+    pub fn record(
+        &mut self,
+        login: &str,
+        url: &str,
+        updated_at: &str,
+        read: Option<Option<u32>>,
+        now_ms: u64,
+    ) {
+        let entry = self
+            .reads
+            .entry(Self::key(login, url))
+            .or_insert_with(|| PlanRead {
+                updated_at: String::new(),
+                destroy: 0,
+                tried_ms: 0,
+            });
+        entry.tried_ms = now_ms;
+        if let Some(destroy) = read {
+            entry.updated_at = updated_at.into();
+            if let Some(destroy) = destroy {
+                entry.destroy = destroy;
+            }
+        }
+        while self.reads.len() > MAX_PLANS {
+            let oldest = self
+                .reads
+                .iter()
+                .min_by_key(|(_, read)| read.tried_ms)
+                .map(|(key, _)| key.clone());
+            if let Some(oldest) = oldest {
+                self.reads.remove(&oldest);
+            }
+        }
+    }
+
+    pub fn destroy(&self, login: &str, url: &str) -> u32 {
+        self.reads
+            .get(&Self::key(login, url))
+            .map_or(0, |read| read.destroy)
+    }
 }
 
 #[cfg(test)]
@@ -326,6 +423,7 @@ mod tests {
             review: Review::Required,
             updated_at: String::new(),
             destroy: 0,
+            head: format!("feat/{number}"),
         }
     }
 
@@ -359,13 +457,15 @@ mod tests {
         destroys.destroy = 3;
         s.mine = vec![failing, ready, draft_ready, waiting];
         s.review_requests = vec![destroys];
-        s.failed_runs = vec![FailedRun {
+        let run = |reference: &str| FailedRun {
             id: "27485366758".into(),
             repo: "viczy-guy/cortex".into(),
             workflow: "CI".into(),
-            reference: "main".into(),
+            reference: reference.into(),
             updated_at: "2026-11-23T16:38:01Z".into(),
-        }];
+        };
+        // The second is #128 failing: its own notice says so.
+        s.failed_runs = vec![run("main"), run("feat/128")];
         let notices = notices(&s);
         let found: Vec<_> = notices
             .iter()
@@ -392,33 +492,94 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_destroys_what_its_latest_comment_says_until_it_is_applied() {
+    fn a_plan_destroys_what_its_latest_atlantis_comment_says() {
         let plan = |n: u32| {
             format!(
                 "Ran Plan for dir: `vpn` workspace: `default`\n\n<details><summary>Show Output</summary>\n\n```diff\n- resource \"x\"\n\nPlan: 1 to add, 0 to change, {n} to destroy.\n```\n</details>\nPlan: 1 to add, 0 to change, {n} to destroy.\n"
             )
         };
-        let two = plan(2);
-        let zero = plan(0);
+        let (two, zero) = (plan(2), plan(0));
         assert_eq!(
             destroy_count(&[&two]),
-            2,
+            Some(2),
             "the line outside the block is the same plan"
         );
-        assert_eq!(destroy_count(&[&two, "lgtm"]), 2);
-        assert_eq!(destroy_count(&[&two, &zero]), 0, "the latest plan wins");
-        assert_eq!(destroy_count(&[&two, "Ran Apply for dir: `vpn`"]), 0);
+        assert_eq!(destroy_count(&[&two, "lgtm"]), Some(2));
         assert_eq!(
-            destroy_count(&["no plan here", "Plan: 0 to add, 0 to change, 9 to destroy."]),
-            0
+            destroy_count(&[&two, &zero]),
+            Some(0),
+            "the latest plan wins"
+        );
+        // Applies are not read: a failed or partial one must not hide anything.
+        assert_eq!(
+            destroy_count(&[&two, "Ran Apply for dir: `vpn`\n**Apply Error**"]),
+            Some(2)
+        );
+        // A quote is not Atlantis.
+        let quoted = format!("> {}", plan(5).replace('\n', "\n> "));
+        assert_eq!(destroy_count(&[&two, &quoted]), Some(2));
+        // No plan in sight: unknown, not zero.
+        assert_eq!(
+            destroy_count(&["lgtm", "Plan: 0 to add, 0 to change, 9 to destroy."]),
+            None
         );
         let two_projects = "Ran Plan for 2 projects:\n```diff\nPlan: 0 to add, 0 to change, 1 to destroy.\n```\n```diff\nPlan: 0 to add, 0 to change, 1 to destroy.\n```\n";
-        assert_eq!(destroy_count(&[two_projects]), 2);
+        assert_eq!(destroy_count(&[two_projects]), Some(2));
         let split = [
             "Ran Plan for dir: `big`\n```diff\n- lots of output",
             "Continued plan output from previous comment.\n```diff\nPlan: 1 to import, 0 to add, 0 to change, 4 to destroy.\n```",
         ];
-        assert_eq!(destroy_count(&split), 4);
+        assert_eq!(destroy_count(&split), Some(4));
+        let terragrunt = "Ran Plan for dir: `live/db`\n```\n16:47:01.511 STDOUT terraform: Plan: 0 to add, 1 to change, 3 to destroy.\n```";
+        assert_eq!(destroy_count(&[terragrunt]), Some(3));
+    }
+
+    #[test]
+    fn plans_are_read_again_only_when_the_pull_request_changed_and_never_starve() {
+        let mut cache = PlanCache::new();
+        let mut pulls: Vec<PullRequest> = (1..=3).map(|n| pull("mt/infra", n)).collect();
+        for p in &mut pulls {
+            p.updated_at = "t1".into();
+        }
+        let due = cache.due("Me", &pulls);
+        assert_eq!(due.len(), MAX_PLAN_FETCH);
+        // #1 destroys 3; reading #2 failed.
+        cache.record("me", &due[0].0, "t1", Some(Some(3)), 10);
+        cache.record("me", &due[1].0, "t1", None, 10);
+        assert_eq!(cache.destroy("ME", &pulls[0].url), 3);
+        // #3 was never tried: it goes before #2, which failed.
+        let due: Vec<_> = cache
+            .due("me", &pulls)
+            .into_iter()
+            .map(|(u, _)| u)
+            .collect();
+        assert_eq!(due, [pulls[2].url.clone(), pulls[1].url.clone()]);
+        // A change brings #1 back; a window without the plan keeps what was known.
+        pulls[0].updated_at = "t2".into();
+        assert!(cache
+            .due("me", &pulls)
+            .iter()
+            .any(|(u, _)| *u == pulls[0].url));
+        cache.record("me", &pulls[0].url, "t2", Some(None), 20);
+        assert_eq!(cache.destroy("me", &pulls[0].url), 3);
+        assert!(!cache
+            .due("me", &pulls)
+            .iter()
+            .any(|(u, _)| *u == pulls[0].url));
+        // Another account reads for itself.
+        assert_eq!(cache.destroy("other", &pulls[0].url), 0);
+        assert_eq!(cache.due("other", &pulls).len(), MAX_PLAN_FETCH);
+    }
+
+    #[test]
+    fn the_plan_cache_forgets_the_least_recently_read_first() {
+        let mut cache = PlanCache::new();
+        for i in 0..=MAX_PLANS as u64 {
+            cache.record("me", &format!("u{i}"), "t", Some(Some(1)), i + 1);
+        }
+        assert_eq!(cache.reads.len(), MAX_PLANS);
+        assert_eq!(cache.destroy("me", "u0"), 0);
+        assert_eq!(cache.destroy("me", &format!("u{MAX_PLANS}")), 1);
     }
 
     #[test]
@@ -431,7 +592,10 @@ mod tests {
             "p0": {"comments": {"nodes": [{"body": "Ran Plan for dir: `a`\n```\nPlan: 0 to add, 0 to change, 2 to destroy.\n```"}]}},
             "p1": null
         }});
-        assert_eq!(parse_plans(&response.to_string(), 2), Some(vec![2, 0]));
+        assert_eq!(
+            parse_plans(&response.to_string(), 2),
+            Some(vec![Some(2), None])
+        );
         assert_eq!(parse_plans("{\"errors\":[]}", 1), None);
     }
 

@@ -140,7 +140,7 @@ pub const QUERY: &str = r#"query {
   viewer { login }
   mine: search(query: "is:open is:pr author:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
-    nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
+    nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt headRefName repository { nameWithOwner } author { login }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } }
   }
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
@@ -182,6 +182,9 @@ pub struct PullRequest {
     /// What its latest Atlantis plan destroys; filled in by the shell (#131).
     #[serde(skip)]
     pub destroy: u32,
+    /// Its branch: a failed run there is this pull request failing.
+    #[serde(skip)]
+    pub head: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GithubSummary {
@@ -278,6 +281,11 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
                 review,
                 updated_at: updated_at.into(),
                 destroy: 0,
+                head: n["headRefName"]
+                    .as_str()
+                    .filter(|h| h.chars().count() <= 255)
+                    .unwrap_or_default()
+                    .into(),
             })
         })
         .take(MAX_PULLS)

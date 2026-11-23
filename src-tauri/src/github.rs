@@ -7,7 +7,8 @@ use cortex_core::{
         DEVICE_URL, MAX_ACCOUNTS, QUERY,
     },
     notices::{
-        notices, notifications_path, parse_failed_runs, parse_plans, plan_query, MAX_PLAN_FETCH,
+        notices, notifications_path, parse_failed_runs, parse_plans, plan_query, FailedRun,
+        PlanCache,
     },
     GithubSummary,
 };
@@ -320,55 +321,63 @@ fn fetch_summary(gh: &Path, login: &str) -> Result<GithubSummary, GhError> {
     Ok(summary)
 }
 
-/// Each pull request's last Atlantis plan (`updatedAt` when read, resources
-/// destroyed), read again only once the pull request changed.
-// shortcut: one map for every account, emptied past 256 entries; key it by
-// account if people with many accounts see plans read twice.
-static PLANS: Mutex<BTreeMap<String, (String, u32)>> = Mutex::new(BTreeMap::new());
+/// What the notices remember between checks (#131).
+struct Memory {
+    plans: PlanCache,
+    /// Each account's failed actions, kept when reading them fails once.
+    runs: BTreeMap<String, Vec<FailedRun>>,
+}
+
+static MEMORY: Mutex<Memory> = Mutex::new(Memory {
+    plans: PlanCache::new(),
+    runs: BTreeMap::new(),
+});
 
 /// The failed actions and plans behind the island's notices (#131). A request
 /// that fails costs only its own notices, never the summary.
 fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
-    let path = notifications_path(crate::state::now_ms());
-    match run_gh(gh, &["api", "--hostname", "github.com", &path], Some(token)) {
-        Ok(text) => summary.failed_runs = parse_failed_runs(&text),
-        Err(GhError(err)) => eprintln!("cortex: failed actions not read: {err}"),
+    let now = crate::state::now_ms();
+    let login = summary.login.to_ascii_lowercase();
+    let path = notifications_path(now);
+    let runs = run_gh(gh, &["api", "--hostname", "github.com", &path], Some(token));
+    let mut memory = MEMORY.lock().unwrap_or_else(|e| e.into_inner());
+    match runs {
+        Ok(text) => {
+            summary.failed_runs = parse_failed_runs(&text);
+            memory
+                .runs
+                .insert(login.clone(), summary.failed_runs.clone());
+        }
+        Err(GhError(err)) => {
+            eprintln!("cortex: failed actions not read: {err}");
+            summary.failed_runs = memory.runs.get(&login).cloned().unwrap_or_default();
+        }
     }
-    let mut plans = PLANS.lock().unwrap_or_else(|e| e.into_inner());
-    if plans.len() > 256 {
-        plans.clear();
-    }
-    let changed: Vec<(String, String)> = summary
-        .mine
-        .iter()
-        .chain(&summary.review_requests)
-        .filter(|p| !matches!(plans.get(&p.url), Some((at, _)) if *at == p.updated_at))
-        .map(|p| (p.url.clone(), p.updated_at.clone()))
-        .take(MAX_PLAN_FETCH)
-        .collect();
-    if !changed.is_empty() {
+    let due = memory
+        .plans
+        .due(&login, summary.mine.iter().chain(&summary.review_requests));
+    if !due.is_empty() {
         let mut args = vec![
             "api".to_owned(),
             "graphql".into(),
             "--hostname".into(),
             "github.com".into(),
             "-f".into(),
-            format!("query={}", plan_query(changed.len())),
+            format!("query={}", plan_query(due.len())),
         ];
-        for (i, (url, _)) in changed.iter().enumerate() {
+        for (i, (url, _)) in due.iter().enumerate() {
             args.extend(["-f".to_owned(), format!("u{i}={url}")]);
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        match run_gh(gh, &args, Some(token))
+        let read = run_gh(gh, &args, Some(token))
             .ok()
-            .and_then(|text| parse_plans(&text, changed.len()))
-        {
-            Some(counts) => {
-                for ((url, at), destroy) in changed.into_iter().zip(counts) {
-                    plans.insert(url, (at, destroy));
-                }
-            }
-            None => eprintln!("cortex: pull request plans not read"),
+            .and_then(|text| parse_plans(&text, due.len()));
+        if read.is_none() {
+            eprintln!("cortex: pull request plans not read");
+        }
+        for (i, (url, updated_at)) in due.iter().enumerate() {
+            let outcome = read.as_ref().map(|counts| counts[i]);
+            memory.plans.record(&login, url, updated_at, outcome, now);
         }
     }
     for pull in summary
@@ -376,9 +385,9 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
         .iter_mut()
         .chain(summary.review_requests.iter_mut())
     {
-        pull.destroy = plans.get(&pull.url).map_or(0, |(_, destroy)| *destroy);
+        pull.destroy = memory.plans.destroy(&login, &pull.url);
     }
-    drop(plans);
+    drop(memory);
     summary.notices = notices(summary);
 }
 
