@@ -172,6 +172,16 @@ The gear in the island opens a separate, opaque Settings window:
 On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
 Cortex**. It is a native menu, so it still quits when the island's web view
 does not respond; a background app is not listed in Force Quit.
+Opening Cortex while it runs (the Finder, Launchpad, Spotlight) opens
+Settings.
+
+WebKit can give up on the process that draws the island and leave the window
+empty while the page runs on. So on macOS, 30 seconds after launch and each
+time Cortex is opened while it runs, the app asks WebKit for a picture of the
+visible island (up to three tries, 15 seconds apart). Two refusals restart
+Cortex; the new copy gets `--recovered-at=<time>`, and for ten minutes it shows
+no opening screen and does not restart again. A slow picture never counts.
+Cards still waiting go back to their agents, which then ask in the terminal.
 
 ## Launch at login
 
