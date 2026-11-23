@@ -11,6 +11,13 @@ body {
   cursor: default;
 }
 
+/* While the island eases (#118) the window is larger than it: keep it at
+   its edge, the same place it has when the window fits it exactly. */
+body {
+  display: flex;
+  min-height: 100vh;
+}
+
 /* The window is exactly the size of the island. */
 .island {
   display: flex;
@@ -19,7 +26,8 @@ body {
   width: max-content;
   min-width: var(--notch-min-width);
   max-width: 460px;
-  margin: 0 auto;
+  flex: none;
+  margin: 0 auto auto;
   padding: 0 10px;
   background: var(--notch);
   border: 1.5px solid transparent;
@@ -31,6 +39,7 @@ body {
 }
 
 .island[data-position="left"] {
+  margin: auto auto auto 0;
   --edge-glow: -6px 0;
   border-top-width: 1.5px;
   border-left-width: 0;
@@ -38,6 +47,7 @@ body {
 }
 
 .island[data-position="right"] {
+  margin: auto 0 auto auto;
   --edge-glow: 6px 0;
   border-top-width: 1.5px;
   border-right-width: 0;
@@ -50,6 +60,41 @@ body {
   border-top-width: 1.5px;
   border-bottom-width: 0;
   border-radius: var(--radius-notch) var(--radius-notch) 0 0;
+}
+
+.island[data-position="bottom-left"] {
+  margin: auto auto 0 0;
+}
+
+.island[data-position="bottom-right"] {
+  margin: auto 0 0 auto;
+}
+
+/* Easing between sizes: the content keeps its final width and the shape
+   reveals it from the edge the island hangs on. */
+.island--morphing {
+  overflow: hidden;
+  align-items: center;
+}
+.island--morphing > * {
+  flex: none;
+  width: var(--morph-inner);
+}
+.island--morphing[data-position="left"],
+.island--morphing[data-position="bottom-left"] {
+  align-items: flex-start;
+}
+.island--morphing[data-position="right"],
+.island--morphing[data-position="bottom-right"] {
+  align-items: flex-end;
+}
+.island--morphing[data-position="left"],
+.island--morphing[data-position="right"] {
+  justify-content: center;
+}
+.island--morphing[data-position="bottom-left"],
+.island--morphing[data-position="bottom-right"] {
+  justify-content: flex-end;
 }
 
 /* With cards: the full width. Must match `ISLAND_WIDTH` in src-tauri/src/main.rs. */
