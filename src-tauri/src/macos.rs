@@ -6,8 +6,9 @@ use std::ptr::NonNull;
 
 use block2::RcBlock;
 use tauri::{AppHandle, Emitter, Manager};
-// `NSEvent`, `MainThreadMarker` and `NSObjectProtocol` come in with `tauri_panel!`.
-use tauri_nspanel::objc2::sel;
+// `NSEvent`, `MainThreadMarker`, `NSObjectProtocol`, `AnyObject` and
+// `msg_send!` come in with `tauri_panel!`.
+use tauri_nspanel::objc2::{class, sel};
 use tauri_nspanel::objc2_app_kit::{NSEventMask, NSScreen};
 use tauri_nspanel::{
     tauri_panel, CollectionBehavior, PanelLevel, StyleMask, TrackingAreaOptions, WebviewWindowExt,
@@ -165,6 +166,103 @@ pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Whether WebKit still draws the island. A GPU process that stops answering
+/// is given up by WebKit but can linger: the page runs on, the window stays
+/// empty, and nothing tells the page (#115). WebKit then refuses a snapshot,
+/// the one sign the app can see: `false` is that refusal, `true` a drawn
+/// island. Anything unclear (a hidden or empty island, a blank picture)
+/// drops the sender, so it never counts against the island.
+pub fn island_draws(app: &AppHandle) -> tokio::sync::oneshot::Receiver<bool> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    if let Some(window) = app.get_webview_window("island") {
+        let _ = window.with_webview(move |webview| {
+            let view = webview.inner().cast::<AnyObject>();
+            // SAFETY: `inner()` is the island's live WKWebView, and this
+            // closure runs on the main thread.
+            if !unsafe { shown(view) } {
+                return;
+            }
+            let sender = std::cell::Cell::new(Some(sender));
+            let done = RcBlock::new(move |image: *mut AnyObject, _error: *mut AnyObject| {
+                let Some(sender) = sender.take() else { return };
+                // SAFETY: WebKit calls back on the main thread with an
+                // NSImage, or nil with an error; the island view lives as
+                // long as the app. The screen may have locked meanwhile.
+                unsafe {
+                    if !shown(view) {
+                        return;
+                    }
+                    if image.is_null() {
+                        let _ = sender.send(false);
+                    } else if has_opaque_pixel(image) {
+                        let _ = sender.send(true);
+                    }
+                }
+            });
+            let default_configuration: *mut AnyObject = std::ptr::null_mut();
+            // SAFETY: as above.
+            unsafe {
+                let _: () = msg_send![
+                    view,
+                    takeSnapshotWithConfiguration: default_configuration,
+                    completionHandler: &*done
+                ];
+            }
+        });
+    }
+    receiver
+}
+
+/// The view has an area and its window is visible: covered, locked or asleep,
+/// WebKit may refuse a snapshot of a healthy island.
+///
+/// # Safety
+/// `view` is a live `NSView`, on the main thread.
+unsafe fn shown(view: *mut AnyObject) -> bool {
+    let bounds: NSRect = msg_send![view, bounds];
+    if bounds.size.width < 1.0 || bounds.size.height < 1.0 {
+        return false;
+    }
+    let window: *mut AnyObject = msg_send![view, window];
+    if window.is_null() {
+        return false;
+    }
+    let occlusion: usize = msg_send![window, occlusionState];
+    occlusion & 2 != 0 // NSWindowOcclusionStateVisible
+}
+
+/// # Safety
+/// `image` is an `NSImage`.
+unsafe fn has_opaque_pixel(image: *mut AnyObject) -> bool {
+    let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
+    if tiff.is_null() {
+        return false;
+    }
+    let bitmap: *mut AnyObject = msg_send![class!(NSBitmapImageRep), imageRepWithData: tiff];
+    if bitmap.is_null() {
+        return false;
+    }
+    let width: isize = msg_send![bitmap, pixelsWide];
+    let height: isize = msg_send![bitmap, pixelsHigh];
+    sample_points(width, height).any(|(x, y)| {
+        let color: *mut AnyObject = msg_send![bitmap, colorAtX: x, y: y];
+        if color.is_null() {
+            return false;
+        }
+        let alpha: f64 = msg_send![color, alphaComponent];
+        alpha > 0.5
+    })
+}
+
+/// At most 16 × 16 points spread over a `width` × `height` image.
+fn sample_points(width: isize, height: isize) -> impl Iterator<Item = (isize, isize)> {
+    let step = |size: isize| ((size + 15) / 16).max(1) as usize;
+    let (step_x, step_y) = (step(width), step(height));
+    (0..height)
+        .step_by(step_y)
+        .flat_map(move |y| (0..width).step_by(step_x).map(move |x| (x, y)))
+}
+
 /// The app icon's dot and two rings, drawn as a template image: AppKit
 /// colors it for a light or dark menu bar. 36 px for an 18 pt item.
 fn menu_bar_icon() -> tauri::image::Image<'static> {
@@ -191,6 +289,19 @@ fn menu_bar_icon() -> tauri::image::Image<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_samples_stay_inside_the_image_and_are_few() {
+        for (width, height) in [(0, 0), (1, 1), (80, 31), (460, 600), (920, 1200)] {
+            let points: Vec<_> = sample_points(width, height).collect();
+            assert!(points.len() <= 16 * 16, "{width}x{height}");
+            assert!(points
+                .iter()
+                .all(|&(x, y)| (0..width).contains(&x) && (0..height).contains(&y)));
+        }
+        assert_eq!(sample_points(1, 1).count(), 1);
+        assert_eq!(sample_points(80, 31).count(), 16 * 16);
+    }
 
     #[test]
     fn the_menu_bar_icon_is_a_dot_and_rings_with_clear_corners() {
