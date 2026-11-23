@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- The app icon and the macOS menu-bar icon are the mascot's eyes, the icon
+  the maintainer chose; 0.3.0 shipped the dot with rings by mistake. (#116)
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
