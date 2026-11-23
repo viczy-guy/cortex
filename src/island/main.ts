@@ -372,7 +372,7 @@ function sessionLabel(session: SessionView): string {
 /** Never offered over a card: restarting would drop the agent's waiting request. */
 function updateChips(): HTMLElement[] {
   if (snapshot.approvals.length > 0) return [];
-  return updateChip(updates, () => void installUpdate(), () => void api.openSettings());
+  return updateChip(updates, () => void installUpdate());
 }
 
 function settingsButton(): HTMLButtonElement {
@@ -555,9 +555,9 @@ async function answerUpdates(enabled: boolean): Promise<void> {
 
 async function installUpdate(): Promise<void> {
   try {
-    await api.updatesInstall();
+    await api.updatesStart();
   } catch {
-    // Rust reports a failed install through the update status ("Update failed").
+    // Only refused over a card, and the chip is not offered then.
   }
 }
 

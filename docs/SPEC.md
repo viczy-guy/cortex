@@ -82,6 +82,25 @@ version at the bottom. It closes after about 6 seconds. A click skips it
 frame without animation for 3 seconds. Launches at login (`--autostart`)
 skip it. Rust closes the window after 10 seconds if it is still open.
 
+The same window shows the updates (#127):
+
+- **Updating…**: a click on **Update and restart** (island or Settings)
+  opens it with the mascot, a moving bar (the package is already downloaded
+  and checked: there is no percentage to show) and "0.3.1 → 0.3.2". The
+  install starts after about a second, so the screen is seen.
+- **Update complete, let's get to work?**: the new copy shows it at its
+  first launch, with the mascot green and the version at the bottom, even at
+  login or after a recovery restart (an update restart keeps the old
+  arguments). It closes after about 4 seconds, or on a click. Each launch
+  saves its version in the preferences (`last_version`); another one there
+  means an update, however it was installed. 0.3.0 and 0.3.1 saved none: a
+  saved "open at login" answer then tells an update from a new install.
+- **Oops, something got in the way.**: the install failed. The mascot turns
+  amber, with **Try again** and **Continue without updating**: a failed
+  update never keeps the user from working. The package is kept, so the
+  island still offers the update. Only this screen can install; the 10-second
+  fallback does not close it once its page answered.
+
 ## Sessions
 
 One pill per (`cortex_agent`, `session_id`). State machine:
@@ -235,8 +254,9 @@ announced version, so a tampered manifest cannot downgrade to an older signed
 build. A package that fails verification is discarded and reported in Settings.
 
 A verified update waits for a click on **Update and restart**, in Settings or as
-a chip in the island bar. Cortex never restarts on its own, and the chip is not
-offered (and the command refuses) while an approval card is waiting. On Linux,
+a chip in the island bar, which opens the update screen (see "Opening
+screen"). Cortex never restarts on its own, and the chip is not offered (and
+both commands refuse) while an approval card is waiting. On Linux,
 only the AppImage updates itself; `.deb` and `.rpm` installs show the setting as
 unavailable and update through the package manager.
 

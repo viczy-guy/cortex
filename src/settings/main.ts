@@ -318,7 +318,7 @@ function renderUpdates(): void {
     updatesBlock.append(row);
     if (state !== "unsupported") {
       const actions = el("div", "actions");
-      if (state === "ready") actions.append(button("btn-allow", "Update and restart", () => void changeUpdates(api.updatesInstall)));
+      if (state === "ready") actions.append(button("btn-allow", "Update and restart", () => void changeUpdates(api.updatesStart)));
       const on = enabled === true;
       actions.append(button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeUpdates(() => api.updatesSetEnabled(!on))));
       actions.querySelectorAll("button").forEach((node) => { node.disabled = updatesBusy; });

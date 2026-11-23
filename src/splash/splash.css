@@ -91,7 +91,58 @@ body {
   font-weight: 400;
 }
 
+/* ---- After an update, and while updating (#127) ---------------------- */
+
+.updated .ready { animation-delay: 0ms; }
+.updated .mascot { color: var(--tone-green); animation-delay: 100ms; }
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0 28px;
+  text-align: center;
+}
+
+.dim {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.stack .mascot { animation: none; }
+.failed .mascot { color: var(--tone-amber); }
+.stack .actions { margin-top: 8px; }
+
+/* No real progress to show (the package is already downloaded and checked):
+   a bar that keeps moving says "working on it" without pretending a percent. */
+.track {
+  position: relative;
+  width: 160px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-border);
+}
+
+.track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--brand);
+  animation: progress 1100ms ease-in-out infinite;
+}
+
+@keyframes progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .opening-dot, .welcome { display: none; }
   .ready, .mascot { animation: none; }
+  .track i { width: 100%; animation: none; }
 }

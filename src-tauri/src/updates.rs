@@ -1,5 +1,5 @@
 //! Opt-in, signed self-update (ADR 0004). All of it runs here in Rust: the
-//! web views get no updater permission, only these three commands.
+//! web views get no updater permission, only these commands.
 use crate::{prefs, state::AppState};
 use serde::Serialize;
 use std::{
@@ -21,7 +21,7 @@ pub struct UpdateStatus {
     pub enabled: Option<bool>,
     /// "unsupported" | "off" | "idle" | "checking" | "downloading" | "ready" | "error"
     pub state: &'static str,
-    /// The new version, while it downloads, once it is ready, or when installing it failed.
+    /// The new version, while it downloads and once it is ready.
     pub version: Option<String>,
     pub message: Option<String>,
 }
@@ -33,6 +33,11 @@ struct Inner {
     ready: Option<(Update, Vec<u8>)>,
     /// Bumped on every toggle, so a check started before it is discarded.
     revision: u64,
+    /// The user clicked **Update and restart**: only then may the update
+    /// screen install (the welcome screen shares its window and rights).
+    armed: bool,
+    /// An install runs: nothing checks, installs or restarts meanwhile.
+    installing: bool,
 }
 
 impl Inner {
@@ -82,6 +87,8 @@ impl UpdateState {
                 },
                 ready: None,
                 revision: 0,
+                armed: false,
+                installing: false,
             }),
             wake: Notify::new(),
         }
@@ -89,6 +96,18 @@ impl UpdateState {
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().expect("updates mutex poisoned")
+    }
+
+    /// The update screen closed: installing needs a new click.
+    pub fn disarm(&self) {
+        self.lock().armed = false;
+    }
+
+    /// A restart now could leave the app half replaced. Asked by the macOS
+    /// island recovery (#115).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn installing(&self) -> bool {
+        self.lock().installing
     }
 }
 
@@ -108,6 +127,7 @@ pub fn updates_set_enabled(
     prefs::update(|p| p.updates = Some(enabled))?;
     inner.revision += 1;
     inner.ready = None;
+    inner.armed = false;
     let status = &mut inner.status;
     status.enabled = Some(enabled);
     if status.state != "unsupported" {
@@ -120,30 +140,85 @@ pub fn updates_set_enabled(
     Ok(())
 }
 
-/// Install the downloaded update and restart. Only on the user's click, and
-/// never over a card: restarting would drop the agent's waiting request.
+/// Never over a card: restarting would drop the agent's waiting request.
+fn no_cards(board: &AppState) -> Result<(), String> {
+    if board.snapshot().approvals.is_empty() {
+        Ok(())
+    } else {
+        Err("Answer the waiting cards first.".into())
+    }
+}
+
+/// The user clicked **Update and restart**: show the update screen, which
+/// then installs (#127). Async: a window made in a sync command deadlocks
+/// on Windows.
 #[tauri::command]
-pub fn updates_install(
+pub async fn updates_start(
     app: AppHandle,
     state: State<'_, UpdateState>,
     board: State<'_, AppState>,
 ) -> Result<(), String> {
-    if !board.snapshot().approvals.is_empty() {
-        return Err("Answer the waiting cards first.".into());
+    no_cards(&board)?;
+    {
+        let mut inner = state.lock();
+        // Its screen is up already.
+        if inner.installing {
+            return Ok(());
+        }
+        if inner.ready.is_none() {
+            return Err("No update is ready.".into());
+        }
+        inner.armed = true;
     }
-    let mut inner = state.lock();
-    let Some((update, bytes)) = inner.ready.take() else {
-        return Err("No update is ready.".into());
+    crate::open_splash(&app, Some("mode=updating"))
+}
+
+/// Install the downloaded update and restart; called by the update screen.
+/// A failed install keeps the package, so the screen can try again and the
+/// island keeps offering it.
+#[tauri::command]
+pub async fn updates_install(
+    app: AppHandle,
+    state: State<'_, UpdateState>,
+    board: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::keep_splash();
+    no_cards(&board)?;
+    let (update, bytes, revision) = {
+        let mut inner = state.lock();
+        if !inner.armed || inner.installing {
+            return Err("No update is ready.".into());
+        }
+        let Some((update, bytes)) = inner.ready.take() else {
+            return Err("No update is ready.".into());
+        };
+        inner.installing = true;
+        (update, bytes, inner.revision)
     };
-    // `install` checks the signature again before it touches the app.
-    if let Err(err) = update.install(&bytes) {
+    // `install` checks the signature again before it touches the app. It
+    // unpacks for a while: off the main thread, so the screen keeps moving.
+    let (update, bytes, result) = tauri::async_runtime::spawn_blocking(move || {
+        let result = update.install(&bytes);
+        (update, bytes, result)
+    })
+    .await
+    .map_err(|e| format!("Update failed: {e}"))?;
+    if let Err(err) = result {
         let message = format!("Update failed: {err}");
-        inner.status.state = "error";
-        inner.status.message = Some(message.clone());
-        inner.emit(&app);
+        eprintln!("cortex: {message}");
+        // The updater hid every window just before starting the installer,
+        // which did not start (a declined admin prompt).
+        #[cfg(windows)]
+        for window in app.webview_windows().values() {
+            let _ = window.show();
+        }
+        let mut inner = state.lock();
+        inner.installing = false;
+        if inner.revision == revision && inner.ready.is_none() {
+            inner.ready = Some((update, bytes));
+        }
         return Err(message);
     }
-    drop(inner);
     crate::server::release_endpoint();
     app.restart()
 }
@@ -156,6 +231,7 @@ pub async fn checker(app: AppHandle) {
         let due = {
             let mut inner = state.lock();
             let due = inner.status.enabled == Some(true)
+                && !inner.installing
                 && matches!(inner.status.state, "idle" | "error");
             if due {
                 inner.status.state = "checking";

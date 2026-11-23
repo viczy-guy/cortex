@@ -161,7 +161,7 @@ export interface UpdateStatus {
   /** `null` until the user answers the first-run question. */
   enabled: boolean | null;
   state: "unsupported" | "off" | "idle" | "checking" | "downloading" | "ready" | "error";
-  /** The new version, while it downloads, once it is ready, or when installing it failed. */
+  /** The new version, while it downloads and once it is ready. */
   version: string | null;
   message: string | null;
 }
@@ -171,6 +171,9 @@ export const UPDATES_EVENT = "cortex://updates";
 export const api = {
   updatesStatus: () => invoke<UpdateStatus>("updates_status"),
   updatesSetEnabled: (enabled: boolean) => invoke<void>("updates_set_enabled", { enabled }),
+  /** Shows the update screen, which then installs. */
+  updatesStart: () => invoke<void>("updates_start"),
+  /** The update screen only: install and restart; rejects with why it failed. */
   updatesInstall: () => invoke<void>("updates_install"),
   githubStatus: () => invoke<GithubStatus>("github_status"),
   githubSetEnabled: (enabled: boolean) => invoke<void>("github_set_enabled", { enabled }),

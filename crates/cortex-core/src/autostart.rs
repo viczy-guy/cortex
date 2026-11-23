@@ -26,6 +26,42 @@ pub fn launch_action(launch_at_login: Option<bool>, entry_exists: bool) -> Launc
     }
 }
 
+/// The screen a launch opens with (#80, #127).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpeningScreen {
+    Welcome,
+    /// "Update complete": shown even at login, since an update restart keeps
+    /// the old arguments (`--autostart`, `--recovered-at`).
+    Updated,
+    Nothing,
+}
+
+/// A launch at login or a recovery restart (#115) shows nothing, unless
+/// this is the first launch of a new version.
+pub fn opening_screen(autostart: bool, recovered: bool, updated: bool) -> OpeningScreen {
+    if updated {
+        OpeningScreen::Updated
+    } else if autostart || recovered {
+        OpeningScreen::Nothing
+    } else {
+        OpeningScreen::Welcome
+    }
+}
+
+/// The first launch of a new version: another one ran last (#127). Before
+/// 0.3.2 no version was saved; the launch-at-login answer, saved by the first
+/// launch of an installed 0.3.0 or later, tells an update from a new install.
+pub fn was_updated(
+    last_version: Option<&str>,
+    launch_at_login: Option<bool>,
+    current: &str,
+) -> bool {
+    match last_version {
+        Some(last) => last != current,
+        None => launch_at_login.is_some(),
+    }
+}
+
 /// A path that cannot be an installed app: a cargo build, or on macOS a
 /// binary outside an app bundle, an app still on its disk image
 /// (`/Volumes/<image>/<App>.app`) or one macOS runs from a translocated copy.
@@ -104,6 +140,31 @@ pub fn run_command(exe: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_update_says_so_even_at_login_or_after_a_recovery() {
+        use OpeningScreen::*;
+        for (autostart, recovered, updated, screen) in [
+            (false, false, false, Welcome),
+            (true, false, false, Nothing),
+            (false, true, false, Nothing),
+            (false, false, true, Updated),
+            (true, false, true, Updated),
+            (false, true, true, Updated),
+        ] {
+            assert_eq!(opening_screen(autostart, recovered, updated), screen);
+        }
+    }
+
+    #[test]
+    fn a_new_version_is_an_update_and_so_is_the_first_launch_after_0_3_1() {
+        assert!(was_updated(Some("0.3.2"), Some(true), "0.3.3"));
+        assert!(!was_updated(Some("0.3.3"), Some(true), "0.3.3"));
+        // 0.3.0 and 0.3.1 saved no version, but did save launch at login.
+        assert!(was_updated(None, Some(false), "0.3.2"));
+        // A new install: nothing saved yet.
+        assert!(!was_updated(None, None, "0.3.2"));
+    }
 
     #[test]
     fn the_launch_agent_runs_the_app_with_the_autostart_argument_and_escapes_the_path() {

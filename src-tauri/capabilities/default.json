@@ -19,6 +19,6 @@
     "allow-hooks-install",
     "allow-updates-status",
     "allow-updates-set-enabled",
-    "allow-updates-install"
+    "allow-updates-start"
   ]
 }

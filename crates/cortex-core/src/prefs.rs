@@ -16,6 +16,8 @@ pub struct Prefs {
     pub launch_at_login: Option<bool>,
     pub island_position: Option<String>,
     pub island_screen: Option<String>,
+    /// The version of the last launch: another one now means an update (#127).
+    pub last_version: Option<String>,
 }
 
 /// The mascot gallery; "none" hides the mascot.
@@ -29,6 +31,14 @@ pub fn is_mascot(name: &str) -> bool {
 }
 pub fn is_screen_name(name: &str) -> bool {
     name.len() <= 128 * 4 && name.chars().count() <= 128 && !name.chars().any(char::is_control)
+}
+
+/// "0.3.1", "1.0.0-beta.2": what an app version looks like, nothing longer.
+pub fn is_version(text: &str) -> bool {
+    (1..=32).contains(&text.len())
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
 }
 
 pub fn prefs_from_json(json: &str) -> Prefs {
@@ -84,11 +94,15 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
             .as_str()
             .filter(|s| is_screen_name(s))
             .map(str::to_owned),
+        last_version: v["last_version"]
+            .as_str()
+            .filter(|s| is_version(s))
+            .map(str::to_owned),
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen,"last_version":prefs.last_version})
         .to_string()
 }
 #[cfg(test)]
@@ -218,6 +232,28 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn the_last_version_round_trips_and_an_invalid_one_keeps_the_rest() {
+        let p = Prefs {
+            github: true,
+            last_version: Some("0.3.1".into()),
+            ..Prefs::default()
+        };
+        assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        for bad in [
+            serde_json::json!(""),
+            serde_json::json!("0.3.1\n"),
+            serde_json::json!("1".repeat(33)),
+            serde_json::json!(31),
+        ] {
+            let json = serde_json::json!({"version": 1, "github": true, "last_version": bad});
+            let prefs = prefs_from_json(&json.to_string());
+            assert!(prefs.github);
+            assert_eq!(prefs.last_version, None);
+        }
+        assert!(is_version("1.0.0-beta.2+build.7"));
     }
 
     #[test]

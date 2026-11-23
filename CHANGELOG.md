@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Updating shows a screen: "Updating…" with the versions, then "Update
+  complete, let's get to work?" when the new version opens. If the install
+  fails, the screen says so and offers **Try again** or **Continue without
+  updating**. Before, the island just vanished and came back. (#127)
+
 ### Changed
 - The island keeps its color when you hover it. Green, red and an agent's
   own "waiting for you" go back to gray when the agent moves on or when you
