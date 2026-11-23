@@ -20,21 +20,21 @@ if (root) {
   let finished = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const timer = window.setTimeout(finish, reducedMotion ? 1200 : 2300);
+  // Only a click: the window never takes the keyboard from the user's app.
   window.addEventListener("click", finish);
-  window.addEventListener("keydown", finish);
 
   function finish(): void {
     if (finished) return;
     finished = true;
     window.clearTimeout(timer);
     window.removeEventListener("click", finish);
-    window.removeEventListener("keydown", finish);
     api.splashDone().catch(() => { /* Rust closes the splash if IPC fails. */ });
   }
 
   api.islandPrefs().then((prefs) => {
-    const svg = mascotSvg(prefs.mascot);
+    const svg = mascotSvg(prefs.mascot, "splash-mascot");
     if (svg) mascot.replaceChildren(svg);
+    else mascot.replaceChildren(); // "No mascot": nothing jumps there.
   }).catch(() => { /* Keep the fallback dot. */ });
 
   getVersion().then((value) => {

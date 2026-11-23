@@ -51,8 +51,8 @@ are doing.
 
 On manual launch, a small centered window shows a growing colored dot,
 "Welcome", then the selected mascot and "Let's get to work?" with the app
-version at the bottom. It closes after about 2 seconds. A click or any key
-while the window has focus skips it. With reduced motion, it shows the final
+version at the bottom. It closes after about 2 seconds. A click skips it
+(it never takes the keyboard). With reduced motion, it shows the final
 frame without animation for 1.2 seconds. Launches at login (`--autostart`)
 skip it. Rust closes the window after 5 seconds if it is still open.
 

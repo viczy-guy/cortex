@@ -63,9 +63,6 @@ body {
   flex: none;
   overflow: visible;
 }
-.mascot .m-fill { fill: currentColor; }
-.mascot .m-stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.mascot .m-hole { fill: var(--mascot-hole); }
 
 /* A jump when the color rises, twice, then still: no animation at rest. */
 .bounce { animation: hop 0.42s ease-in-out 2; }

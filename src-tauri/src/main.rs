@@ -174,8 +174,17 @@ fn spawn_open_settings(app: AppHandle) {
 
 #[tauri::command]
 fn splash_done(app: AppHandle) {
+    close_splash(&app);
+}
+
+/// An always-on-top window in the middle of the screen must go even when
+/// its page is stuck: close, and destroy if closing fails.
+fn close_splash(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("splash") {
-        let _ = window.close();
+        if let Err(err) = window.close() {
+            eprintln!("cortex: opening screen did not close: {err}");
+            let _ = window.destroy();
+        }
     }
 }
 
@@ -194,6 +203,7 @@ fn open_splash(app: &AppHandle) {
     .skip_taskbar(true)
     .center()
     .focused(false)
+    .shadow(false)
     .accept_first_mouse(true)
     .build();
 
@@ -205,7 +215,7 @@ fn open_splash(app: &AppHandle) {
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        splash_done(handle);
+        close_splash(&handle);
     });
 }
 
