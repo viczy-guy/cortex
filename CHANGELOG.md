@@ -10,6 +10,11 @@ follows [Semantic Versioning](https://semver.org).
 - The app icon and the macOS menu-bar icon are the mascot's eyes, the icon
   the maintainer chose; 0.3.0 shipped the dot with rings by mistake. (#116)
 
+### Security
+- `cookie` 0.18.3, for RUSTSEC-2026-0594 (repeated nonces in private cookies
+  after a fork). It comes in through Tauri; Cortex does not use private
+  cookies.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
