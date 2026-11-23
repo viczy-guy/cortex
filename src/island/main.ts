@@ -31,7 +31,8 @@ import { type Mascot, mascotSvg } from "../shared/mascots";
 import { playSound } from "../shared/sounds";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
-import { agentShort, agentTag, byUrgency, prIcon, sessionKey, sessionTone, type Tone, topTone } from "./notch";
+import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone, type Tone, topTone } from "./notch";
+import { agentNotice, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
@@ -42,6 +43,8 @@ const MORPH_MS = 360;
 const MAX_TAGS = 4;
 /** How long the pointer must be gone before an idle island folds. */
 const HIDE_DELAY_MS = 700;
+/** How long a new notice's phrase shows before the island folds back (#131). */
+const SAY_MS = 5000;
 
 const root = document.getElementById("island")!;
 
@@ -74,7 +77,19 @@ const previousTones = new Map<string, Tone>();
 /** Cards already rung for: a new card rings even when its session was amber already. */
 const rungCards = new Set<string>();
 /** Green (finished) or red (failed) sessions nobody clicked yet, kept after the session is gone. */
-const unseen = new Map<string, Tone>();
+const unseen = new Map<string, ViewNotice>();
+/** GitHub notices clicked away; forgotten once the notice goes, so its return is news. */
+const seenNotices = new Set<string>();
+/** Each account's GitHub notices already there; an account's first answer is not news. */
+const knownNotices = new Map<string, Set<string>>();
+/** GitHub's notices of the shown accounts, worked out once per render. */
+let githubNow: ViewNotice[] = [];
+/** Each session's state, to speak on a change that has a phrase. */
+const previousStates = new Map<string, SessionView["state"]>();
+/** The notice whose phrase the folded island shows for a few seconds (#131). */
+let saying: ViewNotice | null = null;
+/** Runs only while the phrase is drawn: started when it is. */
+let sayTimer: number | undefined;
 let tone: Tone = "gray";
 /** The color just rose: the next mascot drawn jumps, once. */
 let bounce = false;
@@ -98,10 +113,68 @@ function isHidden(): boolean {
 const toneOf = (session: SessionView): Tone =>
   sessionTone(session, (seen.get(sessionKey(session)) ?? -1) >= session.last_event_ms);
 
-/** The island's color: the most urgent of the live sessions and the unseen ones. */
+/** Every GitHub notice of the shown accounts, once each, clicked away or not. */
+function allGithubNotices(): ViewNotice[] {
+  if (!github?.enabled) return [];
+  const byKey = new Map<string, ViewNotice>();
+  for (const { summary } of shownAccounts(github.accounts)) {
+    for (const notice of summary.notices) {
+      const view = githubNotice(notice);
+      if (!byKey.has(view.key)) byKey.set(view.key, view);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** Every notice standing, the most urgent first: agents', gone sessions' and GitHub's. */
+function activeNotices(): ViewNotice[] {
+  const live = new Set(snapshot.sessions.map(sessionKey));
+  const notices = [
+    ...snapshot.sessions.map((s) => agentNotice(s, toneOf(s))),
+    ...[...unseen.values()].filter((n) => !live.has(n.key)),
+    ...githubNow.filter((n) => !seenNotices.has(n.key)),
+  ].filter((n): n is ViewNotice => n !== null);
+  return notices.sort((a, b) => rank(b.tone) - rank(a.tone));
+}
+
+function stopSaying(): void {
+  window.clearTimeout(sayTimer);
+  sayTimer = undefined;
+  saying = null;
+}
+
+/**
+ * GitHub's notices that just appeared, the most urgent first. An account's
+ * first answer (after launch, after turning GitHub on, or once it is shown
+ * again) is not news; a notice that went and comes back is.
+ */
+function freshGithubNotices(): ViewNotice[] {
+  githubNow = allGithubNotices();
+  const standing = new Set(githubNow.map((n) => n.key));
+  for (const key of seenNotices) if (!standing.has(key)) seenNotices.delete(key);
+  const fresh: ViewNotice[] = [];
+  const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
+  for (const login of knownNotices.keys()) {
+    if (!accounts.some((a) => a.login === login)) knownNotices.delete(login);
+  }
+  for (const { login, summary } of accounts) {
+    const keys = new Set(summary.notices.map((n) => githubNotice(n).key));
+    const known = knownNotices.get(login);
+    knownNotices.set(login, keys);
+    if (!known) continue;
+    for (const notice of summary.notices) {
+      const view = githubNotice(notice);
+      if (!known.has(view.key) && !seenNotices.has(view.key) && !fresh.some((f) => f.key === view.key)) fresh.push(view);
+    }
+  }
+  return fresh.sort((a, b) => rank(b.tone) - rank(a.tone));
+}
+
+/** The island's color: the most urgent of the live sessions, the unseen ones and GitHub's notices. */
 function updateTone(): void {
   const live = new Set<string>();
   let notice: Tone = "gray";
+  const spoken: ViewNotice[] = [];
   for (const session of snapshot.sessions) {
     const key = sessionKey(session);
     live.add(key);
@@ -109,25 +182,66 @@ function updateTone(): void {
     const state = sessionTone(session, false);
     if (state !== previousTones.get(key)) notice = topTone([notice, state]);
     previousTones.set(key, state);
-    if (t === "green" || t === "red") unseen.set(key, t);
+    const view = agentNotice(session, t);
+    // A phrase on a change of state that has one, even within one color.
+    if (view && session.state !== previousStates.get(key)) spoken.push(view);
+    previousStates.set(key, session.state);
+    if (view && (t === "green" || t === "red")) unseen.set(key, view);
     else unseen.delete(key);
   }
   for (const key of seen.keys()) if (!live.has(key)) seen.delete(key);
   for (const key of previousTones.keys()) if (!live.has(key)) previousTones.delete(key);
+  for (const key of previousStates.keys()) if (!live.has(key)) previousStates.delete(key);
   const cards = new Set(snapshot.approvals.map((a) => a.request_id));
   for (const id of cards) if (!rungCards.has(id)) notice = topTone([notice, "amber"]);
   for (const id of rungCards) if (!cards.has(id)) rungCards.delete(id);
   for (const id of cards) rungCards.add(id);
   if (soundReady && sound && notice !== "gray") playSound(notice);
-  const next = topTone([...snapshot.sessions.map(toneOf), ...unseen.values()]);
+  const fromGithub = freshGithubNotices();
+  const next = topTone([
+    ...snapshot.sessions.map(toneOf),
+    ...[...unseen.values()].map((n) => n.tone),
+    ...githubNow.filter((n) => !seenNotices.has(n.key)).map((n) => n.tone),
+  ]);
   if (topTone([next, tone]) !== tone && next !== tone) bounce = true;
   tone = next;
+  // Only what is as urgent as the island now speaks; GitHub's ring only then.
+  const top = [...spoken, ...fromGithub].sort((a, b) => rank(b.tone) - rank(a.tone))[0];
+  if (soundReady && top && rank(top.tone) >= rank(tone)) {
+    if (sound && fromGithub.includes(top)) playSound(top.tone);
+    if (!saying || rank(top.tone) >= rank(saying.tone)) {
+      stopSaying();
+      saying = top;
+    }
+  }
+  // A phrase whose notice went, or that a more urgent color now covers, stops.
+  if (saying && (rank(saying.tone) < rank(tone) || !activeNotices().some((n) => n.key === saying?.key))) stopSaying();
 }
 
-/** A click on the island: every finished and failed session goes back to gray. */
+/** A click on the island: every notice goes back to gray, GitHub's included. */
 function acknowledge(): void {
   for (const session of snapshot.sessions) seen.set(sessionKey(session), session.last_event_ms);
   unseen.clear();
+  for (const notice of githubNow) seenNotices.add(notice.key);
+  stopSaying();
+}
+
+/** A click on one notice in the list: that one goes, and GitHub's open. */
+function actOn(notice: ViewNotice): void {
+  if (saying?.key === notice.key) stopSaying();
+  if (notice.url) {
+    seenNotices.add(notice.key);
+    void api.openUrl(notice.url).catch(() => { /* The notice is cleared either way. */ });
+    render();
+    return;
+  }
+  const session = snapshot.sessions.find((s) => sessionKey(s) === notice.key);
+  if (session) {
+    acknowledgeSession(session);
+  } else {
+    unseen.delete(notice.key);
+    render();
+  }
 }
 
 /** A click on a session's card: that session goes back to gray. */
@@ -153,10 +267,16 @@ function prTotals(): { reviews: number; failing: number } {
   return { reviews, failing };
 }
 
+/** The "+N" beside the phrase. */
+function othersStanding(): number {
+  return activeNotices().filter((n) => n.key !== saying?.key).length;
+}
+
 /** Everything the folded notch shows: the same key means nothing to repaint. */
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
-  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}`;
+  const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}`;
 }
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
@@ -178,6 +298,14 @@ function render(): void {
   if (isHidden()) {
     expanded = false;
     autoExpanded = false;
+    // The phrase's seconds count from when it is drawn.
+    if (saying && sayTimer === undefined) {
+      sayTimer = window.setTimeout(() => {
+        sayTimer = undefined;
+        saying = null;
+        render();
+      }, SAY_MS);
+    }
     // Same notch: paint nothing. Each paint with the screen locked keeps WebKit
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
     const key = foldedKey();
@@ -185,23 +313,38 @@ function render(): void {
     const before = sizeBefore();
     const fade = folded === null;
     setClass(false);
-    const node = el("div", "notch");
-    node.addEventListener("click", () => {
-      acknowledge();
-      setHovered(true);
-    });
+    const node = el("div", saying ? "notch notch--say" : "notch");
     const left = mascotNode();
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
-    if (cutout) splitAtCamera(node, [left], right);
-    else node.append(left, ...right);
+    // A new notice says what happened for a few seconds; beside the camera,
+    // on a row of its own under it.
+    const say = saying ? sayLine(saying, othersStanding()) : [];
+    let top: HTMLElement = node;
+    if (cutout) {
+      splitAtCamera(node, [left], right);
+      if (saying) {
+        top = el("div");
+        const below = el("div", "say-row");
+        below.append(...say);
+        top.append(node, below);
+      }
+    } else {
+      node.append(left, ...(saying ? say : right));
+    }
+    top.addEventListener("click", () => {
+      acknowledge();
+      setHovered(true);
+    });
     folded = foldedKey();
-    root.replaceChildren(node);
+    root.replaceChildren(top);
     void fitWindowToContent(before, fade);
     return;
   }
   const fade = folded !== null;
   folded = null;
+  // Open, the list shows every notice: no phrase on top of it.
+  stopSaying();
 
   const hasCards = snapshot.approvals.length > 0;
   // A card demands eyes: open the panel, and fold it back once the card is
@@ -360,7 +503,11 @@ function bar(): HTMLElement {
  * beside the buttons opens or closes the session cards.
  */
 function onClick(top: HTMLElement, toggles: boolean): HTMLElement {
-  top.addEventListener("click", acknowledge, { capture: true });
+  top.addEventListener("click", () => {
+    acknowledge();
+    // A button stops the click and may not redraw: the cleared colors still must.
+    queueMicrotask(render);
+  }, { capture: true });
   top.addEventListener("click", () => (toggles ? toggle() : render()));
   return top;
 }
@@ -416,7 +563,11 @@ function panelContent(): HTMLElement[] {
     ];
   }
   const question = askingUpdates(updates) ? [updatesQuestion((enabled) => void answerUpdates(enabled), updatesError)] : [];
-  if (!expanded) return question;
+  if (!expanded) {
+    // Hovering lists what is standing, the most urgent first (#131).
+    const notices = hovered && snapshot.approvals.length === 0 ? activeNotices() : [];
+    return notices.length > 0 ? [...question, noticeRows(notices, actOn)] : question;
+  }
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
   const sessions = snapshot.sessions.map((session) => {

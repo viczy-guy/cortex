@@ -6,6 +6,23 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Notices from GitHub, with GitHub on in Settings: the island turns blue when
+  someone asks for your review, green when a pull request of yours is ready
+  (approved, checks passing), red when one of yours fails its checks, when an
+  action you started fails, or when an Atlantis plan on a pull request
+  destroys something. (#131)
+- Each notice says what happened in a short phrase ("A PR needs your
+  review", "An action failed!", "An agent finished"…) for 5 seconds, with
+  where it happened, then the island folds back in its color. Hovering lists
+  every notice standing; a click on one clears it, and a GitHub one also
+  opens on GitHub.
+  Blue has its own sound, softer than the others. (#131)
+
+### Changed
+- In the session cards, the "working" dot is gray, as on the island: blue now
+  means a review was requested. (#131)
+
 ## [0.3.2] - 2026-11-23
 
 ### Added

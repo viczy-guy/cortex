@@ -7,9 +7,11 @@ import { el } from "../shared/dom";
 import type { SessionView } from "../shared/ipc";
 
 /** One meaning per color, on the mascot and the border at once. */
-export type Tone = "gray" | "green" | "amber" | "red";
+export type Tone = "gray" | "green" | "blue" | "amber" | "red";
 
-const RANK: Record<Tone, number> = { gray: 0, green: 1, amber: 2, red: 3 };
+const RANK: Record<Tone, number> = { gray: 0, green: 1, blue: 2, amber: 3, red: 4 };
+
+export const rank = (tone: Tone): number => RANK[tone];
 
 export const sessionKey = (session: SessionView): string => `${session.key.agent}/${session.key.session_id}`;
 

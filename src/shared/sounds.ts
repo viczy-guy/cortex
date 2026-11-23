@@ -1,4 +1,4 @@
-type SoundKind = "green" | "amber" | "red";
+type SoundKind = "green" | "blue" | "amber" | "red";
 /** Frequency (Hz), start and duration (s), waveform, peak volume (> 0: an exponential ramp cannot reach 0). */
 type Note = [frequency: number, start: number, duration: number, waveform: OscillatorType, volume: number];
 
@@ -16,14 +16,19 @@ const SOUNDS: Record<SoundKind, { rank: number; notes: Note[] }> = {
     rank: 1,
     notes: repeat([[587, 0, 0.16, "triangle", 0.32], [740, 0.16, 0.16, "triangle", 0.32], [988, 0.32, 0.34, "triangle", 0.32]], 2, 0.95),
   },
+  // "Toque", twice: two notes up, softer than the alert; a request, not an emergency (#131).
+  blue: {
+    rank: 2,
+    notes: repeat([[659, 0, 0.22, "sine", 0.28], [988, 0.2, 0.5, "sine", 0.28]], 2, 0.85),
+  },
   // "Batida", twice.
   amber: {
-    rank: 2,
+    rank: 3,
     notes: repeat([[196, 0, 0.12, "triangle", 0.5], [196, 0.16, 0.12, "triangle", 0.5], [196, 0.32, 0.12, "triangle", 0.5], [1319, 0.5, 0.35, "sine", 0.22]], 2, 1.05),
   },
   // "Sirene", once (the pair four times).
   red: {
-    rank: 3,
+    rank: 4,
     notes: repeat([[740, 0, 0.23, "sawtooth", 0.11], [554, 0.25, 0.23, "sawtooth", 0.11]], 4, 0.5),
   },
 };

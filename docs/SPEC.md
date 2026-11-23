@@ -40,14 +40,36 @@ are doing.
   the gear to Settings.
 - One color per meaning, on the mascot and the island's border at once: gray
   while agents work, **amber** while one waits for the user, **green** when
-  one finished, **red** when one failed. Amber from a card lasts until the
-  card is answered or expires. Green, red and an agent's own "waiting for
-  you" notice last until the agent moves on or the user clicks; green and red
-  stay even after the session is gone. A click on the island's bar (its
-  buttons included) clears them all, a click on a session's card clears that
-  session. Hovering opens the island in the color and clears nothing (#126).
-  When the color rises, the
-  mascot jumps twice, then stays still (not at all with reduced motion).
+  one finished, **red** when one failed. With GitHub on (#131), **blue** when
+  someone asks for the user's review, green also when an own pull request is
+  ready, red also when an own pull request or an action the user started
+  failed, or an Atlantis plan destroys something (see [GitHub](#github)). The
+  most urgent shows: red, amber, blue, green. Amber from a card lasts until
+  the card is answered or expires. Every other notice lasts until its cause
+  goes (the agent moves on, the checks pass, the review is given) or the user
+  clicks; green and red stay even after the session is gone. A click on the
+  island's bar (its buttons included) clears them all, a click on a session's
+  card clears that session. Hovering opens the island in the color and clears
+  nothing (#126). When the color rises, the mascot jumps twice, then stays
+  still (not at all with reduced motion).
+- Each notice has a short phrase and where it happened (#131): "A PR has
+  critical changes, review it!", "A PR failed!", "An action failed!", "An
+  agent failed" (red); "An agent needs you" (amber); "A PR needs your review"
+  (blue); "Your PR is ready", "An agent finished" (green); beside it the
+  repository and number, the workflow and branch, or the agent and its
+  folder. When a new one comes (an agent's state change that has a phrase, or
+  a GitHub notice not there before), the folded island widens with its phrase
+  and a "+N" for the others standing for 5 seconds, counted from when it is
+  drawn, then folds back in the color; beside the camera the phrase takes a
+  row under it. Opening the island (its list shows the notice), the notice
+  going, or a more urgent color ends the phrase early. A notice less urgent
+  than the island's color, or than the phrase showing, does not speak.
+  Hovering lists every standing notice, the most urgent first (not over a
+  card); a click on a row clears that one, and a GitHub one also opens on
+  GitHub. Each account's first GitHub answer (after launch, after turning
+  GitHub on, or once the account is shown again) speaks nothing: what was
+  there is not news; a notice that went and comes back is. In the session cards the
+  "working" dot is gray, as on the island: blue is the review's.
 - Cards come one at a time; the ones after it wait in view below, and the
   bar says "1 of N".
 - A click anywhere outside the island folds it, even over a waiting card: the
@@ -69,7 +91,10 @@ are doing.
 Each notice has its own sound, about two seconds long, synthesized note for
 note as on the vision page (each note plucked: up in 15 ms, then an
 exponential fade), played once per change: a session's state turning done
-(green), waiting for the user or a new card (amber), or failed (red). If several come together, the most urgent
+(green), waiting for the user or a new card (amber), or failed (red); and a
+new GitHub notice at least as urgent as the island's color (the rule for its
+phrase), in its color, blue being the "Toque" (two notes up, softer than the
+alert: a request, not an emergency). If several come together, the most urgent
 plays; a lower one arriving while a higher one plays is not played. Sounds
 are on by default and can be muted or sampled in Settings → Island.
 
@@ -238,7 +263,8 @@ storing or logging it.
 
 Each check of an account runs up to three requests, all reads (#131): the
 summary query above; GitHub's unread notices of the last day, of which only
-"… workflow run failed for …" (an action the user started) is kept; and, for
+"… workflow run failed for …" (an action the user started) is kept, one per
+workflow and branch; and, for
 up to 2 pull requests whose `updatedAt` changed since their plan was last read
 (the least recently tried first, per account), their last 5 comments, to read
 the latest Atlantis plan: the comment that starts with "Ran Plan for" (a quote

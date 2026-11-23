@@ -16,21 +16,28 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       agents side by side; mascot and border take the state color (green done,
       amber needs you, red danger) until you act; a mascot of your choice; one
       sound per kind of notice; an opening screen; optional launch at login.
-- [ ] **A3 · v0.4.0 — Updates itself, new name.** A stable version installs
-      with no click when nothing is waiting; updating, done and error screens;
-      a test channel before the stable one; new features ship switched off;
-      the new product name, migrating existing installs.
-- [ ] **A4 · v0.5.0 — Ask from the island.** A prompt box in the island: pick
+- [ ] **A2b · v0.4.0 — Notices.** One color and one short phrase per thing
+      that happened: blue when someone asks for your review; green when an
+      agent is done or a pull request of yours is ready; amber when an agent
+      needs you; red when a pull request of yours or an action you started
+      failed, or an Atlantis plan destroys something. The phrase shows for a
+      few seconds; hovering lists what stands. (The updating, done and error
+      screens planned for A3 shipped in 0.3.2.)
+- [ ] **A3 · v0.5.0 — Updates itself, new name.** A stable version installs
+      with no click when nothing is waiting; a test channel before the stable
+      one; new features ship switched off; the new product name, migrating
+      existing installs.
+- [ ] **A4 · v0.6.0 — Ask from the island.** A prompt box in the island: pick
       the agent, the model and the folder. It runs through the CLIs you already
       have installed and signed in; everything the agent wants to do still goes
       through the same approval cards.
-- [ ] **A5 · v0.6.0 — More agents.** Codex CLI and Gemini CLI; showing when one
+- [ ] **A5 · v0.7.0 — More agents.** Codex CLI and Gemini CLI; showing when one
       agent calls another; Always rules per agent and per folder; a red card
       with no Always for destructive actions.
-- [ ] **A6 · v0.7.0 — Act on pull requests.** A notice when someone requests
+- [ ] **A6 · v0.8.0 — Act on pull requests.** A notice when someone requests
       your review; the agent's analysis in the card; approve or request changes
       from the island, with your own GitHub account.
-- [ ] **A7 · v0.8.0 — Your agents.** A recipe per agent: model, folder,
+- [ ] **A7 · v0.9.0 — Your agents.** A recipe per agent: model, folder,
       instructions, tools and knowledge sources.
 - [ ] **A8 · v1.0 — Connected app.** An optional account; notices and approvals
       for agents that run on a server; Windows and Linux installers tried on
