@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-23
+
 ### Changed
 - When someone approves a pull request of yours (not a draft), the island
   says so in green: "Your PR #128 (Short title) was approved!", at its next
