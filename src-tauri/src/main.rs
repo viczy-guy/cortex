@@ -227,6 +227,11 @@ fn place_island(app: &AppHandle, width: f64, height: Option<f64>) {
 }
 
 fn main() {
+    if server::already_served() {
+        eprintln!("cortex: another copy is already running; this one quits");
+        return;
+    }
+
     let builder = tauri::Builder::default();
 
     #[cfg(target_os = "macos")]
@@ -283,8 +288,13 @@ fn main() {
             // The hook endpoint.
             let server_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(err) = server::serve(server_handle).await {
-                    eprintln!("cortex: hook endpoint failed: {err}");
+                match server::serve(server_handle.clone()).await {
+                    Err(err) if server::is_already_served(&err) => {
+                        eprintln!("cortex: another copy is already running; this one quits");
+                        server_handle.exit(0);
+                    }
+                    Err(err) => eprintln!("cortex: hook endpoint failed: {err}"),
+                    Ok(()) => {}
                 }
             });
 

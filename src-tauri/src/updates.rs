@@ -144,6 +144,7 @@ pub fn updates_install(
         return Err(message);
     }
     drop(inner);
+    crate::server::release_endpoint();
     app.restart()
 }
 

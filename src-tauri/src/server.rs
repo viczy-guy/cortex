@@ -186,10 +186,19 @@ pub async fn serve(app: AppHandle) -> std::io::Result<()> {
         .ok_or_else(|| std::io::Error::other("endpoint has no parent directory"))?;
     std::fs::create_dir_all(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    // Remove a stale socket from a previous run; errors are fine (first run).
-    let _ = std::fs::remove_file(&path);
-
-    let listener = UnixListener::bind(&path)?;
+    // `bind` fails on an existing file: either another copy listens there,
+    // or it is a socket left by a crash, which is removed and claimed.
+    let listener = match UnixListener::bind(&path) {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            if answers(&path) {
+                return Err(already_served_error());
+            }
+            let _ = std::fs::remove_file(&path);
+            UnixListener::bind(&path)?
+        }
+        Err(e) => return Err(e),
+    };
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
 
     loop {
@@ -227,10 +236,24 @@ pub async fn serve(app: AppHandle) -> std::io::Result<()> {
                 .create_with_security_attributes_raw(&path, security.as_ptr())
         }
     };
-    let mut server = create(true)?;
+    // Only one first instance can exist: failing to be it means another copy
+    // serves the pipe.
+    let mut server = create(true).map_err(|e| {
+        if answers(&path) {
+            already_served_error()
+        } else {
+            e
+        }
+    })?;
 
     loop {
-        server.connect().await?;
+        // A client that came and went before this instance was waiting
+        // (ERROR_NO_DATA) must not end the server: a fresh instance takes over.
+        if server.connect().await.is_err() {
+            server = create(false)?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            continue;
+        }
         let connected = server;
         server = create(false)?;
         let Ok(permit) = CONNECTIONS.try_acquire() else {
@@ -309,6 +332,60 @@ mod pipe_security {
     }
 }
 
+/// Another Cortex already serves the hook endpoint. Asked first thing at
+/// launch, so a second copy quits before it shows anything (#73). `serve`
+/// asks again where the endpoint is claimed, which closes the gap between two
+/// launches a moment apart.
+pub fn already_served() -> bool {
+    answers(&endpoint_path())
+}
+
+/// Give the endpoint up before an update restarts the app: the new copy must
+/// not mistake this one, still on its way out, for another copy.
+pub fn release_endpoint() {
+    #[cfg(unix)]
+    let _ = std::fs::remove_file(endpoint_path());
+}
+
+/// Returned by `serve` when another copy holds the endpoint.
+pub fn is_already_served(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::AddrInUse
+}
+
+fn already_served_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::AddrInUse,
+        "another copy of Cortex serves the hook endpoint",
+    )
+}
+
+/// Someone accepts connections at `path`. A socket file left by a crash
+/// refuses them. The probe sends nothing; the server sees an empty connection.
+/// A connect that hangs (a full queue on Linux) counts as someone there.
+#[cfg(unix)]
+fn answers(path: &str) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let path = path.to_owned();
+    std::thread::spawn(move || {
+        let _ = tx.send(std::os::unix::net::UnixStream::connect(path).is_ok());
+    });
+    rx.recv_timeout(Duration::from_secs(1)).unwrap_or(true)
+}
+
+/// Only a pipe that does not exist is free. Busy, or refused (the running
+/// copy may belong to an elevated session), means another copy has it.
+#[cfg(windows)]
+fn answers(path: &str) -> bool {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(_) => true,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
 /// Must stay in sync with `cortex-hook`'s endpoint resolution.
 pub fn endpoint_path() -> String {
     if let Ok(p) = std::env::var("CORTEX_SOCKET") {
@@ -352,6 +429,41 @@ mod tests {
             reader,
             buf: Vec::new(),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_listening_socket_counts_as_another_copy() {
+        let dir = std::env::temp_dir().join(format!("cortex-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("probe.sock");
+        let path_str = path.to_str().unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(!answers(path_str), "no file at all");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        assert!(answers(path_str), "a copy is listening");
+        drop(listener);
+        assert!(path.exists());
+        assert!(!answers(path_str), "a file left behind by a crash");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn only_an_existing_pipe_counts_as_another_copy() {
+        use tokio::net::windows::named_pipe::ServerOptions;
+        let path = format!(r"\\.\pipe\cortex-probe-{}", std::process::id());
+        assert!(!answers(&path), "no pipe at all");
+        block_on(async {
+            let server = ServerOptions::new()
+                .first_pipe_instance(true)
+                .create(&path)
+                .unwrap();
+            assert!(answers(&path), "a copy serves the pipe");
+            drop(server);
+        });
     }
 
     #[test]
