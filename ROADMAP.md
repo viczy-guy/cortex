@@ -9,7 +9,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
 
 - [x] **A0 · v0.2.0 — Consolidation.** Hook endpoint with limits; every release
       installs the Windows and Linux packages on clean CI runners.
-- [ ] **A1 · v0.2.x — Maintenance.** Spec in step with the app, two copies
+- [x] **A1 · v0.2.1 — Maintenance.** Spec in step with the app, two copies
       running at once, an easy way to quit a stuck app, current GitHub Actions.
 - [ ] **A2 · v0.3.0 — New island.** The shape of the MacBook camera cutout,
       reacting to the mouse; choice of screen and five positions; up to four
