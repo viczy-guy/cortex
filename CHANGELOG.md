@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-23
+
 ### Changed
 - "Your PR #128 (Short title) was approved!" is blue, like a review request,
   and rings the blue sound; it was green. (#141)
