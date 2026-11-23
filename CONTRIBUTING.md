@@ -28,6 +28,13 @@ Issues and PRs are welcome. The short version of how this codebase stays clean:
 ```bash
 npm ci
 npm run tauri dev     # run the app
+```
+
+Only one Cortex serves an endpoint: with the installed app running, the dev
+build quits at launch. Give it its own, and the same to `scripts/demo.sh`:
+`CORTEX_SOCKET=/tmp/cortex-dev.sock npm run tauri dev`.
+
+```bash
 cargo test            # core + hook tests
 npm run check         # typecheck and lint the UI
 ```
