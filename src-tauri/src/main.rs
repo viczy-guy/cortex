@@ -173,6 +173,43 @@ fn spawn_open_settings(app: AppHandle) {
 }
 
 #[tauri::command]
+fn splash_done(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("splash") {
+        let _ = window.close();
+    }
+}
+
+fn open_splash(app: &AppHandle) {
+    let result = tauri::WebviewWindowBuilder::new(
+        app,
+        "splash",
+        tauri::WebviewUrl::App("splash.html".into()),
+    )
+    .title("Cortex")
+    .inner_size(420.0, 280.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .center()
+    .focused(false)
+    .accept_first_mouse(true)
+    .build();
+
+    if let Err(err) = result {
+        eprintln!("cortex: opening screen failed: {err}");
+        return;
+    }
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        splash_done(handle);
+    });
+}
+
+#[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
 }
@@ -268,6 +305,7 @@ fn main() {
             island_fit,
             prefs::island_prefs,
             prefs::island_set_mascot,
+            splash_done,
             open_settings,
             quit,
             rules_list,
@@ -294,6 +332,10 @@ fn main() {
             }
 
             place_island(&handle, ISLAND_WIDTH, None);
+
+            if !std::env::args().any(|a| a == "--autostart") {
+                open_splash(&handle);
+            }
 
             // Keep the relay at a stable path so installed hooks survive updates.
             if let Err(err) = hooks::ensure_hook_binary() {

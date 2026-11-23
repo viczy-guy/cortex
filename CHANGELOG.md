@@ -6,6 +6,9 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- A brief, skippable opening screen with your selected mascot on manual launch. (#80)
+
 ## [0.2.1] - 2026-11-23
 
 ### Added
