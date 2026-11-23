@@ -25,9 +25,7 @@ export function updatesQuestion(answer: (enabled: boolean) => void, error: strin
   return card;
 }
 
-/** A ready update (click installs and restarts), or a failed install (click opens Settings). */
-export function updateChip(status: UpdateStatus | null, install: () => void, openSettings: () => void): HTMLElement[] {
-  if (status?.state === "ready") return [button("btn-chip", "Update and restart", install)];
-  if (status?.state === "error" && status.version) return [button("btn-chip", "Update failed", openSettings)];
-  return [];
+/** A ready update: a click shows the update screen, which installs and restarts. */
+export function updateChip(status: UpdateStatus | null, install: () => void): HTMLElement[] {
+  return status?.state === "ready" ? [button("btn-chip", "Update and restart", install)] : [];
 }

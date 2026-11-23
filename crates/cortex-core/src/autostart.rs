@@ -26,6 +26,36 @@ pub fn launch_action(launch_at_login: Option<bool>, entry_exists: bool) -> Launc
     }
 }
 
+/// The screen a launch opens with (#80, #127).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpeningScreen {
+    Welcome,
+    /// "Update complete": the user clicked to update, so even a launch at
+    /// login shows it.
+    Updated,
+    Nothing,
+}
+
+/// `updated_from`: the version that installed an update before restarting;
+/// the same version as now means the install never happened. A recovery
+/// restart (#115) shows nothing.
+pub fn opening_screen(
+    autostart: bool,
+    recovered: bool,
+    updated_from: Option<&str>,
+    current: &str,
+) -> OpeningScreen {
+    if recovered {
+        OpeningScreen::Nothing
+    } else if updated_from.is_some_and(|from| from != current) {
+        OpeningScreen::Updated
+    } else if autostart {
+        OpeningScreen::Nothing
+    } else {
+        OpeningScreen::Welcome
+    }
+}
+
 /// A path that cannot be an installed app: a cargo build, or on macOS a
 /// binary outside an app bundle, an app still on its disk image
 /// (`/Volumes/<image>/<App>.app`) or one macOS runs from a translocated copy.
@@ -104,6 +134,27 @@ pub fn run_command(exe: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_update_says_so_even_at_login_and_a_recovery_shows_nothing() {
+        use OpeningScreen::*;
+        for (autostart, recovered, from, screen) in [
+            (false, false, None, Welcome),
+            (true, false, None, Nothing),
+            (false, false, Some("0.3.1"), Updated),
+            (true, false, Some("0.3.1"), Updated),
+            (false, false, Some("0.3.2"), Welcome),
+            (true, false, Some("0.3.2"), Nothing),
+            (false, true, Some("0.3.1"), Nothing),
+            (false, true, None, Nothing),
+        ] {
+            assert_eq!(
+                opening_screen(autostart, recovered, from, "0.3.2"),
+                screen,
+                "{autostart} {recovered} {from:?}"
+            );
+        }
+    }
 
     #[test]
     fn the_launch_agent_runs_the_app_with_the_autostart_argument_and_escapes_the_path() {

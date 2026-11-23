@@ -18,6 +18,7 @@ mod macos;
 
 use std::sync::Mutex;
 
+use cortex_core::autostart::OpeningScreen;
 use cortex_core::placement::{is_position, island_origin, island_width, Rect};
 use cortex_core::prefs::is_screen_name;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -259,36 +260,54 @@ fn close_splash(app: &AppHandle) {
     }
 }
 
-fn open_splash(app: &AppHandle) {
-    let result = tauri::WebviewWindowBuilder::new(
-        app,
-        "splash",
-        tauri::WebviewUrl::App("splash.html".into()),
-    )
-    .title("Cortex")
-    .inner_size(420.0, 280.0)
-    .resizable(false)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .center()
-    .focused(false)
-    .shadow(false)
-    .accept_first_mouse(true)
-    .build();
+/// Bumped by each screen shown, and by the update screen once its page
+/// answers: the 10 s fallback closes only a screen nobody took over.
+static SPLASH_TURN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-    if let Err(err) = result {
-        eprintln!("cortex: opening screen failed: {err}");
-        return;
+/// The update screen's page is alive and waits on the user: keep it.
+fn keep_splash() {
+    SPLASH_TURN.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+/// The opening screen, or with `query` ("mode=updated", "mode=updating") one
+/// of the update screens (#127) in the same window; an open one is reused.
+fn open_splash(app: &AppHandle, query: Option<&str>) -> Result<(), String> {
+    let turn = SPLASH_TURN.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+    if let Some(window) = app.get_webview_window("splash") {
+        let mut url = window.url().map_err(|e| e.to_string())?;
+        url.set_query(query);
+        window.navigate(url).map_err(|e| e.to_string())?;
+    } else {
+        let page = match query {
+            Some(query) => format!("splash.html?{query}"),
+            None => "splash.html".into(),
+        };
+        tauri::WebviewWindowBuilder::new(app, "splash", tauri::WebviewUrl::App(page.into()))
+            .title("Cortex")
+            .inner_size(420.0, 280.0)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .center()
+            .focused(false)
+            .shadow(false)
+            .accept_first_mouse(true)
+            .build()
+            .map_err(|e| e.to_string())?;
     }
 
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        // Above the page's own timer (src/splash/main.ts): only a fallback.
+        // Above the page's own timer (src/splash/main.ts): only a fallback, so
+        // a page that never draws cannot leave a window that eats clicks.
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        close_splash(&handle);
+        if SPLASH_TURN.load(std::sync::atomic::Ordering::Acquire) == turn {
+            close_splash(&handle);
+        }
     });
+    Ok(())
 }
 
 #[tauri::command]
@@ -512,6 +531,7 @@ fn main() {
 
     let prefs = prefs::load();
     let island = prefs::IslandPrefs::from(&prefs);
+    let updated_from = prefs.updated_from.clone();
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::with_rules(rules::load()))
@@ -527,6 +547,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             updates::updates_status,
             updates::updates_set_enabled,
+            updates::updates_start,
             updates::updates_install,
             github::github_status,
             github::github_set_enabled,
@@ -561,7 +582,7 @@ fn main() {
             hooks_uninstall_preview,
             hooks_uninstall
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
 
             #[cfg(target_os = "macos")]
@@ -587,10 +608,26 @@ fn main() {
             }
 
             autostart::on_launch();
-            if !std::env::args().any(|a| a == cortex_core::autostart::AUTOSTART_ARG)
-                && !recovered_recently()
-            {
-                open_splash(&handle);
+            if updated_from.is_some() {
+                if let Err(err) = prefs::update(|p| p.updated_from = None) {
+                    eprintln!("cortex: {err}");
+                }
+            }
+            let screen = cortex_core::autostart::opening_screen(
+                std::env::args().any(|a| a == cortex_core::autostart::AUTOSTART_ARG),
+                recovered_recently(),
+                updated_from.as_deref(),
+                &handle.package_info().version.to_string(),
+            );
+            let query = match screen {
+                OpeningScreen::Welcome => Some(None),
+                OpeningScreen::Updated => Some(Some("mode=updated")),
+                OpeningScreen::Nothing => None,
+            };
+            if let Some(query) = query {
+                if let Err(err) = open_splash(&handle, query) {
+                    eprintln!("cortex: opening screen failed: {err}");
+                }
             }
             // A GPU process that hangs while the system is busy (just after an
             // update or a login) leaves the island empty for good (#115).

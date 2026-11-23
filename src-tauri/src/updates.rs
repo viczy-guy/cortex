@@ -1,5 +1,5 @@
 //! Opt-in, signed self-update (ADR 0004). All of it runs here in Rust: the
-//! web views get no updater permission, only these three commands.
+//! web views get no updater permission, only these commands.
 use crate::{prefs, state::AppState};
 use serde::Serialize;
 use std::{
@@ -21,7 +21,7 @@ pub struct UpdateStatus {
     pub enabled: Option<bool>,
     /// "unsupported" | "off" | "idle" | "checking" | "downloading" | "ready" | "error"
     pub state: &'static str,
-    /// The new version, while it downloads, once it is ready, or when installing it failed.
+    /// The new version, while it downloads and once it is ready.
     pub version: Option<String>,
     pub message: Option<String>,
 }
@@ -120,30 +120,74 @@ pub fn updates_set_enabled(
     Ok(())
 }
 
-/// Install the downloaded update and restart. Only on the user's click, and
-/// never over a card: restarting would drop the agent's waiting request.
+/// Never over a card: restarting would drop the agent's waiting request.
+fn no_cards(board: &AppState) -> Result<(), String> {
+    if board.snapshot().approvals.is_empty() {
+        Ok(())
+    } else {
+        Err("Answer the waiting cards first.".into())
+    }
+}
+
+/// The user clicked **Update and restart**: show the update screen, which
+/// then installs (#127). Async: a window made in a sync command deadlocks
+/// on Windows.
 #[tauri::command]
-pub fn updates_install(
+pub async fn updates_start(
     app: AppHandle,
     state: State<'_, UpdateState>,
     board: State<'_, AppState>,
 ) -> Result<(), String> {
-    if !board.snapshot().approvals.is_empty() {
-        return Err("Answer the waiting cards first.".into());
-    }
-    let mut inner = state.lock();
-    let Some((update, bytes)) = inner.ready.take() else {
+    no_cards(&board)?;
+    if state.lock().ready.is_none() {
         return Err("No update is ready.".into());
+    }
+    crate::open_splash(&app, Some("mode=updating"))
+}
+
+/// Install the downloaded update and restart; called by the update screen.
+/// A failed install keeps the package, so the screen can try again and the
+/// island keeps offering it.
+#[tauri::command]
+pub async fn updates_install(
+    app: AppHandle,
+    state: State<'_, UpdateState>,
+    board: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::keep_splash();
+    no_cards(&board)?;
+    let (update, bytes, revision) = {
+        let mut inner = state.lock();
+        let Some((update, bytes)) = inner.ready.take() else {
+            return Err("No update is ready.".into());
+        };
+        (update, bytes, inner.revision)
     };
-    // `install` checks the signature again before it touches the app.
-    if let Err(err) = update.install(&bytes) {
+    // Saved first: on Windows the installer ends this process inside `install`.
+    let from = app.package_info().version.to_string();
+    if let Err(err) = prefs::update(|p| p.updated_from = Some(from)) {
+        eprintln!("cortex: {err}");
+    }
+    // `install` checks the signature again before it touches the app. It
+    // unpacks for a while: off the main thread, so the screen keeps moving.
+    let (update, bytes, result) = tauri::async_runtime::spawn_blocking(move || {
+        let result = update.install(&bytes);
+        (update, bytes, result)
+    })
+    .await
+    .map_err(|e| format!("Update failed: {e}"))?;
+    if let Err(err) = result {
         let message = format!("Update failed: {err}");
-        inner.status.state = "error";
-        inner.status.message = Some(message.clone());
-        inner.emit(&app);
+        eprintln!("cortex: {message}");
+        if let Err(err) = prefs::update(|p| p.updated_from = None) {
+            eprintln!("cortex: {err}");
+        }
+        let mut inner = state.lock();
+        if inner.revision == revision && inner.ready.is_none() {
+            inner.ready = Some((update, bytes));
+        }
         return Err(message);
     }
-    drop(inner);
     crate::server::release_endpoint();
     app.restart()
 }

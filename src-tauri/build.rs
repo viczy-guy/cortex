@@ -37,6 +37,7 @@ const COMMANDS: &[&str] = &[
     "hooks_uninstall",
     "updates_status",
     "updates_set_enabled",
+    "updates_start",
     "updates_install",
 ];
 
