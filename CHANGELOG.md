@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- A new app icon: a dot with two rings, the dot that opens the island.
+  (#101)
+
 ## [0.2.1] - 2026-11-23
 
 ### Added
