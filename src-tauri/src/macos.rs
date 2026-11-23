@@ -206,9 +206,17 @@ mod tests {
         assert_eq!(alpha(24, h / 2), 255, "the right eye");
         assert_eq!(alpha(w / 2, h / 2), 0, "between the eyes");
         assert_eq!(alpha(0, 0), 0, "a corner");
-        assert!(
-            (0..w).all(|x| alpha(x, 0) == 0 && alpha(x, h - 1) == 0),
-            "top and bottom are padding"
-        );
+        // Tall capsules, not dots: solid well above and below the middle.
+        assert_eq!(alpha(11, h / 2 - 6), 255);
+        assert_eq!(alpha(11, h / 2 + 5), 255);
+        let drawn: Vec<(usize, usize)> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| alpha(x, y) > 0)
+            .collect();
+        let span = |pick: fn(&(usize, usize)) -> usize| {
+            (drawn.iter().map(pick).min(), drawn.iter().map(pick).max())
+        };
+        assert_eq!(span(|p| p.0), (Some(8), Some(27)), "columns drawn");
+        assert_eq!(span(|p| p.1), (Some(9), Some(26)), "rows drawn");
     }
 }
