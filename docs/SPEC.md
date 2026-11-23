@@ -123,6 +123,10 @@ The gear in the island opens a separate, opaque Settings window:
 - **About** shows the app version, a "What's new" link to the notes of that
   version, its local-only policy, and Quit Cortex.
 
+On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
+Cortex**. It is a native menu, so it still quits an island that does not
+respond; a background app is not listed in Force Quit.
+
 ## GitHub
 
 Opt-in in Settings, off by default. Cortex reads up to 10 github.com accounts

@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app
+  even when the island does not respond. (#76)
+
 ### Security
 - `url` updated to 2.5.9, which fixes a crash on deeply nested `blob:` URLs
   (RUSTSEC-2026-0592). Cortex does not parse URLs it receives from agents,

@@ -101,3 +101,60 @@ pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     Ok(())
 }
+
+/// A menu-bar item with Settings and Quit. Cortex is a background app, so it
+/// is not in the Force Quit window; this menu is native and still works when
+/// the island does not respond (#76).
+pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::MenuBuilder;
+    use tauri::tray::TrayIconBuilder;
+
+    let menu = MenuBuilder::new(app)
+        .text("settings", "Settings…")
+        .separator()
+        .text("quit", "Quit Cortex")
+        .build()?;
+    TrayIconBuilder::with_id("cortex")
+        .icon(menu_bar_icon())
+        .icon_as_template(true)
+        .tooltip("Cortex")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "settings" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(err) = crate::open_settings(app).await {
+                        eprintln!("cortex: settings window failed: {err}");
+                    }
+                });
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
+/// The app icon's dot and two rings, drawn as a template image: AppKit
+/// colors it for a light or dark menu bar. 36 px for an 18 pt item.
+fn menu_bar_icon() -> tauri::image::Image<'static> {
+    const SIZE: u32 = 36;
+    let center = SIZE as f32 / 2.0;
+    // Coverage of a band `half` px either side of `radius`, smoothed over a pixel.
+    let band = |d: f32, radius: f32, half: f32| (half + 0.5 - (d - radius).abs()).clamp(0.0, 1.0);
+    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let dx = x as f32 + 0.5 - center;
+            let dy = y as f32 + 0.5 - center;
+            let d = (dx * dx + dy * dy).sqrt();
+            let dot = (6.0 - d).clamp(0.0, 1.0);
+            let ring = band(d, 11.0, 1.5);
+            let outer = 0.5 * band(d, 16.0, 1.2);
+            let alpha = dot.max(ring).max(outer);
+            rgba.extend_from_slice(&[0, 0, 0, (alpha * 255.0).round() as u8]);
+        }
+    }
+    tauri::image::Image::new_owned(rgba, SIZE, SIZE)
+}

@@ -272,6 +272,10 @@ fn main() {
             if let Err(err) = macos::make_island_panel(&handle) {
                 eprintln!("cortex: panel setup failed, plain window fallback: {err}");
             }
+            #[cfg(target_os = "macos")]
+            if let Err(err) = macos::add_menu_bar_item(&handle) {
+                eprintln!("cortex: menu-bar item failed: {err}");
+            }
 
             place_island(&handle, ISLAND_WIDTH, None);
 
