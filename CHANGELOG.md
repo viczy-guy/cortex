@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-23
+
 ### Added
 - Updating shows a screen: "Updating…" with the versions, then "Update
   complete, let's get to work?" when the new version opens. If the install
