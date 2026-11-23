@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- The island keeps its color when you hover it. Green, red and an agent's
+  own "waiting for you" go back to gray when the agent moves on or when you
+  click: the island clears them all, a session's card clears that session.
+  (#126)
+
 ## [0.3.1] - 2026-11-23
 
 ### Changed

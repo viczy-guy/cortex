@@ -15,7 +15,8 @@ export const sessionKey = (session: SessionView): string => `${session.key.agent
 
 /**
  * Amber while the agent waits for you; green when it finished and red when it
- * failed, until you look (`seen`). A card stays amber until it is answered.
+ * failed, until it moves on or you click (`seen`). Looking is not enough
+ * (#126). A card stays amber until it is answered.
  */
 export function sessionTone(session: SessionView, seen: boolean): Tone {
   switch (session.state) {

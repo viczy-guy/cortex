@@ -41,8 +41,12 @@ are doing.
 - One color per meaning, on the mascot and the island's border at once: gray
   while agents work, **amber** while one waits for the user, **green** when
   one finished, **red** when one failed. Amber from a card lasts until the
-  card is answered or expires; green, red and an agent's own "waiting for you"
-  notice last until the user hovers the island. When the color rises, the
+  card is answered or expires. Green, red and an agent's own "waiting for
+  you" notice last until the agent moves on or the user clicks; green and red
+  stay even after the session is gone. A click on the island's bar (its
+  buttons included) clears them all, a click on a session's card clears that
+  session. Hovering opens the island in the color and clears nothing (#126).
+  When the color rises, the
   mascot jumps twice, then stays still (not at all with reduced motion).
 - Cards come one at a time; the ones after it wait in view below, and the
   bar says "1 of N".
