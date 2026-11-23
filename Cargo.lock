@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-app"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "block2",
  "cortex-core",
@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-hook"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "serde_json",
 ]

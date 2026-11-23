@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-23
+
 ### Changed
 - Cortex checks GitHub about once a minute instead of every 3 minutes, so a
   review request, an approval or a failure reaches the island sooner. The
