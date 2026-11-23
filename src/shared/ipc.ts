@@ -143,6 +143,12 @@ export interface IslandPrefs {
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
 export const ISLAND_SCREENS_EVENT = "cortex://island-screens";
 
+export interface AutostartStatus {
+  enabled: boolean;
+  /** `false` for a dev build or an app still on its disk image. */
+  available: boolean;
+}
+
 export interface UpdateStatus {
   /** `null` until the user answers the first-run question. */
   enabled: boolean | null;
@@ -175,6 +181,8 @@ export const api = {
   islandScreens: () => invoke<IslandScreen[]>("island_screens"),
   islandSetPosition: (position: IslandPosition) => invoke<void>("island_set_position", { position }),
   islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
+  autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
+  autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),

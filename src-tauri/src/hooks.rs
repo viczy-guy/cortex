@@ -270,7 +270,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (year, month, day)
 }
 
-fn home() -> Result<PathBuf, String> {
+pub(crate) fn home() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|h| !h.is_empty())
