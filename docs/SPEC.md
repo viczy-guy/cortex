@@ -247,8 +247,8 @@ each launch rewrites the entry if the app moved.
 
 Opt-in in Settings, off by default. Cortex reads up to 10 github.com accounts
 from the GitHub CLI (`gh`). Accounts are shown by default and can be hidden in
-Settings. Cortex checks shown accounts every minute while on (or when
-Refresh now is clicked). Off means no polling or timers.
+Settings. Cortex checks shown accounts about once a minute while on (a
+minute after the last check ended, or when Refresh now is clicked). Off means no polling or timers.
 
 The island pill totals requested reviews, failing own PRs, and open PRs across
 shown accounts. Its expanded GitHub card groups requested reviews and own pull
@@ -266,7 +266,9 @@ storing or logging it.
 Each check of an account runs up to three requests, all reads (#131): the
 summary query above; GitHub's unread notices of the last day, of which only
 "… workflow run failed for …" (an action the user started) is kept, one per
-workflow and branch; and, for
+workflow and branch, read no sooner than GitHub's `X-Poll-Interval` (60 s
+usually, at most an hour honored) after the last read, Refresh now included;
+and, for
 up to 2 pull requests whose `updatedAt` changed since their plan was last read
 (the least recently tried first, per account), their last 5 comments, to read
 the latest Atlantis plan: the comment that starts with "Ran Plan for" (a quote

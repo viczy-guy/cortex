@@ -7,8 +7,9 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Changed
-- Cortex checks GitHub every minute instead of every 3, so a review request,
-  an approval or a failure reaches the island sooner. (#138)
+- Cortex checks GitHub about once a minute instead of every 3 minutes, so a
+  review request, an approval or a failure reaches the island sooner. The
+  notices of failed actions are read no more often than GitHub asks. (#138)
 
 ## [0.4.1] - 2026-11-23
 

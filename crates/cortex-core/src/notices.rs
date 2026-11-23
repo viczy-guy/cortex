@@ -180,6 +180,34 @@ pub fn is_repo_name(name: &str) -> bool {
     owner_ok && repo_ok
 }
 
+/// Bounds of GitHub's `X-Poll-Interval`: its usual 60 s, and an hour so a
+/// strange value never stops the reads for longer.
+const POLL_FLOOR_SECS: u64 = 60;
+const POLL_CEILING_SECS: u64 = 60 * 60;
+
+/// A `gh api --include` answer: the seconds GitHub asks to wait before the
+/// next read (`X-Poll-Interval`, 60 when absent) and the body. `None` without
+/// the blank line that ends the headers.
+pub fn split_poll_interval(text: &str) -> Option<(u64, &str)> {
+    let mut secs = POLL_FLOOR_SECS;
+    let mut rest = text;
+    loop {
+        let (line, next) = rest.split_once('\n')?;
+        rest = next;
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            return Some((secs, rest));
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("x-poll-interval") {
+                if let Ok(asked) = value.trim().parse::<u64>() {
+                    secs = asked.clamp(POLL_FLOOR_SECS, POLL_CEILING_SECS);
+                }
+            }
+        }
+    }
+}
+
 /// The REST path for the unread notices of the last day.
 pub fn notifications_path(now_ms: u64) -> String {
     format!(
@@ -739,6 +767,35 @@ mod tests {
             notifications_path(1_795_451_881_000),
             "notifications?since=2026-11-22T16:38:01Z&per_page=50"
         );
+    }
+
+    #[test]
+    fn the_wait_github_asks_for_comes_with_the_body() {
+        let answer = "HTTP/2.0 200 OK\nContent-Type: application/json\r\nx-poll-interval: 120\r\n\r\n[{\"id\":\"1\"}]";
+        assert_eq!(split_poll_interval(answer), Some((120, "[{\"id\":\"1\"}]")));
+        // Absent, too short, too long or not a number: within the bounds.
+        assert_eq!(
+            split_poll_interval("HTTP/2.0 200 OK\n\n[]"),
+            Some((60, "[]"))
+        );
+        assert_eq!(
+            split_poll_interval("X-Poll-Interval: 5\n\n[]"),
+            Some((60, "[]"))
+        );
+        assert_eq!(
+            split_poll_interval("X-Poll-Interval: 999999\n\n[]"),
+            Some((3600, "[]"))
+        );
+        assert_eq!(
+            split_poll_interval("X-Poll-Interval: soon\n\n[]"),
+            Some((60, "[]"))
+        );
+        // Headers that never end: not an answer.
+        assert_eq!(
+            split_poll_interval("HTTP/2.0 200 OK\nX-Poll-Interval: 60"),
+            None
+        );
+        assert_eq!(split_poll_interval("[]"), None);
     }
 
     #[test]
