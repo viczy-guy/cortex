@@ -235,6 +235,7 @@ máquinas, não do app.
 
 ## Em aberto
 
-- O nome novo do app e o nome da plataforma.
+- O registro dos nomes escolhidos em 23/11/2026, **Thalon** (o app) e **Thalon Hub**
+  (a plataforma): domínio e consulta de marca. A troca no app é a fase A3 (#85).
 - Como ligar um agente ao outro quando o primeiro chama o segundo pelo terminal.
 - Os termos de uso das assinaturas de IA para agentes que rodam em servidor.
