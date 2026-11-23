@@ -103,7 +103,9 @@ impl UpdateState {
         self.lock().armed = false;
     }
 
-    /// A restart now could leave the app half replaced.
+    /// A restart now could leave the app half replaced. Asked by the macOS
+    /// island recovery (#115).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn installing(&self) -> bool {
         self.lock().installing
     }
