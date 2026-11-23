@@ -10,6 +10,7 @@ pub mod diff;
 pub mod event;
 pub mod github;
 pub mod hooks;
+pub mod notices;
 pub mod placement;
 pub mod prefs;
 pub mod protocol;

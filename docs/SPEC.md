@@ -233,8 +233,26 @@ Settings can run gh's browser sign-in, show its one-time code, and restore the
 previous active gh account after adding an account. If gh is missing, Settings
 offers to install it with Homebrew on macOS or winget on Windows when available,
 or links to the GitHub CLI site. Cortex validates each account token and passes
-it only in the environment of that account's single `gh api graphql` child,
-without storing or logging it.
+it only in the environment of that account's `gh api` children, without
+storing or logging it.
+
+Each check of an account runs up to three requests, all reads (#131): the
+summary query above; GitHub's unread notices of the last day, of which only
+"… workflow run failed for …" (an action the user started) is kept; and, for
+up to 2 pull requests whose `updatedAt` changed since their plan was last read
+(the least recently tried first, per account), their last 5 comments, to read
+the latest Atlantis plan: the comment that starts with "Ran Plan for" (a quote
+does not) and its "Continued…" parts, summing their "Plan: … N to destroy"
+lines. Applies are not read, so a failed or partial apply never hides what is
+left; the notice goes once a new plan destroys nothing or the pull request
+closes. When the comments in sight hold no plan, what was known stands. A
+failed notices request keeps the last failed actions; a failed comments
+request is tried again after the others. From all this the account's summary
+carries its notices: a review requested, an own pull request approved with
+passing checks (not a draft), one with failing checks, one whose plan destroys
+something, a failed action (opening the repository's Actions page, since
+GitHub's notice names no run; one on the branch of an own pull request is left
+to that pull request's notice).
 
 Cortex opens GitHub links from the current summaries, the fixed GitHub device
 login page, and the GitHub CLI site through the OS with the URL as one argument
