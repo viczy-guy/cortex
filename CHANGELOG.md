@@ -9,6 +9,7 @@ follows [Semantic Versioning](https://semver.org).
 ### Added
 - An opening screen when you open Cortex: a growing dot, "Welcome", then
   your mascot. About two seconds; a click skips it. (#80)
+- Distinct sounds for finished sessions, requests for attention, and failures, with mute and previews in Settings → Island. (#79)
 
 ### Changed
 - A new app icon: a dot with two rings, the dot that opens the island.

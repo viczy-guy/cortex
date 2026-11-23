@@ -315,6 +315,7 @@ fn main() {
             island_fit,
             prefs::island_prefs,
             prefs::island_set_mascot,
+            prefs::island_set_sound,
             splash_done,
             open_settings,
             quit,

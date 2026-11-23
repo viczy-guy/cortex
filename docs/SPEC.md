@@ -47,6 +47,11 @@ are doing.
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.
 
+Island sounds play once when a session changes to green (Done), amber (Needs
+you), or red (Failed). If several sessions change together, the most urgent
+sound plays. Sounds are on by default and can be muted or previewed in
+Settings → Island.
+
 ## Opening screen
 
 On manual launch, a small centered window shows a growing colored dot,
@@ -138,7 +143,8 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
-- **Island** chooses the mascot from a gallery of eight, or none.
+- **Island** chooses the mascot from a gallery of eight, or none, and controls
+  and previews notice sounds.
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
 - **Updates** turns the update check on or off and offers **Update and

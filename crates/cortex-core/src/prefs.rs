@@ -1,4 +1,4 @@
-//! Versioned, opt-in application preferences.
+//! Versioned application preferences.
 use crate::github::{is_valid_login, MAX_ACCOUNTS};
 use serde_json::Value;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -9,6 +9,8 @@ pub struct Prefs {
     pub updates: Option<bool>,
     /// The island's mascot, one of [`MASCOTS`]; `None` is the default.
     pub mascot: Option<String>,
+    /// Island notice sounds; `None` means on.
+    pub sound: Option<bool>,
 }
 
 /// The mascot gallery; "none" hides the mascot.
@@ -63,11 +65,12 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
         github_hidden,
         updates,
         mascot,
+        sound: v.get("sound").and_then(Value::as_bool),
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound})
         .to_string()
 }
 #[cfg(test)]
@@ -132,6 +135,30 @@ mod tests {
         assert!(unknown.github);
         assert_eq!(unknown.mascot, None);
         assert!(MASCOTS.contains(&DEFAULT_MASCOT));
+    }
+
+    #[test]
+    fn sound_round_trips_and_invalid_values_keep_the_other_preferences() {
+        for sound in [None, Some(false), Some(true)] {
+            let p = Prefs {
+                github: true,
+                sound,
+                ..Prefs::default()
+            };
+            assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        }
+        for json in [
+            r#"{"version":1,"github":true}"#,
+            r#"{"version":1,"github":true,"sound":"false"}"#,
+        ] {
+            assert_eq!(
+                checked_prefs_from_json(json),
+                Some(Prefs {
+                    github: true,
+                    ..Prefs::default()
+                })
+            );
+        }
     }
 
     #[test]
