@@ -41,9 +41,9 @@ are doing.
 - One color per meaning, on the mascot and the island's border at once: gray
   while agents work, **amber** while one waits for the user, **green** when
   one finished, **red** when one failed. With GitHub on (#131), **blue** when
-  someone asks for the user's review, green also when an own pull request is
-  approved (#135, not a draft; it stands while approved, whatever its
-  checks do), red also when an own pull request or an action the user started
+  someone asks for the user's review, and also when an own pull request is
+  approved (#135, blue since #141; not a draft; it stands while approved,
+  whatever its checks do), red also when an own pull request or an action the user started
   failed, or an Atlantis plan destroys something (see [GitHub](#github)). The
   most urgent shows: red, amber, blue, green. Amber from a card lasts until
   the card is answered or expires. Every other notice lasts until its cause
@@ -56,7 +56,7 @@ are doing.
 - Each notice has a short phrase and where it happened (#131): "A PR has
   critical changes, review it!", "A PR failed!", "An action failed!", "An
   agent failed" (red); "An agent needs you" (amber); "A PR needs your review"
-  (blue); "Your PR #128 (Short title) was approved!", "An agent finished"
+  and "Your PR #128 (Short title) was approved!" (blue); "An agent finished"
   (green); beside it the
   repository and number (the repository alone when the phrase names the pull
   request), the workflow and branch, or the agent and its folder. When a new one comes (an agent's state change that has a phrase, or
