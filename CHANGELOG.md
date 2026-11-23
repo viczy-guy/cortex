@@ -7,17 +7,8 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
-- An opening screen when you open Cortex: a growing dot, "Welcome", then
-  your mascot. About two seconds; a click skips it. (#80)
-- Distinct sounds for finished sessions, requests for attention, and failures, with mute and previews in Settings → Island. (#79)
-
-### Changed
-- A new app icon: a dot with two rings, the dot that opens the island.
-  (#101)
-
-## [0.2.1] - 2026-11-23
-
-### Added
+- Cortex opens when you log in. **It is on from the first launch of this
+  version**; turn it off in Settings → Startup. (#81)
 - A new island: a black notch at the top of the screen, the shape of the
   MacBook camera cutout, with a mascot. The mascot and the border take one
   color per meaning: amber while an agent waits for you, green when one
@@ -27,6 +18,16 @@ follows [Semantic Versioning](https://semver.org).
   (#78)
 - A mascot of your choice, from a gallery of eight in Settings → Island, or
   none. (#27)
+- An opening screen when you open Cortex: a growing dot, "Welcome", then
+  your mascot. About two seconds; a click skips it. (#80)
+- A sound for each kind of notice: an agent done, an agent waiting for you,
+  an agent failed. On by default; mute and samples in Settings → Island. (#79)
+
+### Changed
+- A new app icon: a dot with two rings, the dot that opens the island.
+  (#101)
+
+## [0.2.1] - 2026-11-23
 
 ### Added
 - macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app

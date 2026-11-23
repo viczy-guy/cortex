@@ -60,6 +60,17 @@ pub fn load() -> Prefs {
         }
     }
 }
+/// The saved preferences, the defaults when there is no file yet, and
+/// `None` when the file cannot be read or is not valid.
+pub fn load_valid() -> Option<Prefs> {
+    let path = crate::hooks::data_dir().ok()?.join("prefs.json");
+    match crate::files::read_bounded(&path, 4096) {
+        Ok(Some(text)) => checked_prefs_from_json(&text),
+        Ok(None) => Some(Prefs::default()),
+        Err(_) => None,
+    }
+}
+
 /// Read, change and save under one lock, so the GitHub and update settings
 /// never overwrite each other's fields.
 pub fn update(change: impl FnOnce(&mut Prefs)) -> Result<Prefs, String> {

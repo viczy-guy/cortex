@@ -5,7 +5,7 @@ import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
   api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, releaseNotesUrl,
-  type GithubStatus, UPDATES_EVENT, type UpdateStatus, ISLAND_PREFS_EVENT, type IslandPrefs,
+  type GithubStatus, UPDATES_EVENT, type UpdateStatus, ISLAND_PREFS_EVENT, type IslandPrefs, type AutostartStatus,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
 import { type Mascot, MASCOT_NAMES, MASCOTS, mascotSvg } from "../shared/mascots";
@@ -24,6 +24,7 @@ const hooksBlock = section("Claude Code");
 const rulesBlock = section("Always rules");
 const githubBlock = section("GitHub");
 const islandBlock = section("Island");
+const startupBlock = section("Startup");
 const updatesBlock = section("Updates");
 const aboutBlock = section("About");
 let status: HooksStatus | null = null;
@@ -38,6 +39,9 @@ let updatesBusy = false;
 let updatesError: string | null = null;
 let island: IslandPrefs | null = null;
 let soundBusy = false;
+let startup: AutostartStatus | null = null;
+let startupError: string | null = null;
+let startupBusy = false;
 let islandError: string | null = null;
 let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -379,6 +383,36 @@ async function changeSound(enabled: boolean): Promise<void> {
   }
 }
 
+function renderStartup(): void {
+  startupBlock.replaceChildren(el("div", "note", "Cortex opens when you log in, straight into the island, with no opening screen."));
+  if (startup) {
+    const row = el("div", "status-row");
+    const label = !startup.available ? "Not available for this copy: open Cortex from where it is installed." : startup.enabled ? "On · opens at login" : "Off";
+    row.append(el("span", startup.enabled ? "status-dot connected" : "status-dot"), el("span", undefined, label));
+    startupBlock.append(row);
+    if (startup.available || startup.enabled) {
+      const on = startup.enabled;
+      const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void setStartup(!on));
+      toggle.disabled = startupBusy;
+      startupBlock.append(toggle);
+    }
+  }
+  if (startupError) startupBlock.append(el("div", "note note-error", startupError));
+}
+async function setStartup(enabled: boolean): Promise<void> {
+  if (startupBusy) return;
+  startupBusy = true;
+  renderStartup();
+  try {
+    startup = await api.autostartSet(enabled);
+    startupError = null;
+  } catch (error) {
+    startupError = String(error);
+  }
+  startupBusy = false;
+  renderStartup();
+}
+
 async function start(): Promise<void> {
   // Subscribe before loading; an event received during a load is fresher.
   let githubChanged = false;
@@ -413,6 +447,7 @@ async function start(): Promise<void> {
     renderRules();
   });
   await Promise.all([
+    api.autostartStatus().then((value) => { startup = value; }).catch((error: unknown) => { startupError = String(error); }).finally(renderStartup),
     api.islandPrefs().then((value) => { if (!islandChanged) island = value; }).catch((error: unknown) => { islandError = String(error); }).finally(renderIsland),
     api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch((error: unknown) => { updatesError = String(error); }).finally(renderUpdates),
     api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch((error: unknown) => { githubError = String(error); }).finally(renderGithub),

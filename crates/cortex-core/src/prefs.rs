@@ -1,4 +1,4 @@
-//! Versioned application preferences.
+//! Versioned, opt-in application preferences.
 use crate::github::{is_valid_login, MAX_ACCOUNTS};
 use serde_json::Value;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -11,6 +11,8 @@ pub struct Prefs {
     pub mascot: Option<String>,
     /// Island notice sounds; `None` means on.
     pub sound: Option<bool>,
+    /// Launch at login (#81). `None` until the first launch turns it on.
+    pub launch_at_login: Option<bool>,
 }
 
 /// The mascot gallery; "none" hides the mascot.
@@ -66,11 +68,12 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
         updates,
         mascot,
         sound: v.get("sound").and_then(Value::as_bool),
+        launch_at_login: v.get("launch_at_login").and_then(Value::as_bool),
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login})
         .to_string()
 }
 #[cfg(test)]
@@ -135,6 +138,20 @@ mod tests {
         assert!(unknown.github);
         assert_eq!(unknown.mascot, None);
         assert!(MASCOTS.contains(&DEFAULT_MASCOT));
+    }
+
+    #[test]
+    fn launch_at_login_round_trips_and_absent_means_never_applied() {
+        for launch_at_login in [None, Some(false), Some(true)] {
+            let p = Prefs {
+                launch_at_login,
+                ..Prefs::default()
+            };
+            assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        }
+        let old = prefs_from_json(r#"{"version":1,"github":true}"#);
+        assert!(old.github);
+        assert_eq!(old.launch_at_login, None);
     }
 
     #[test]

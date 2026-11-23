@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod files;
 mod github;
 mod hooks;
@@ -314,6 +315,8 @@ fn main() {
             snapshot,
             island_fit,
             prefs::island_prefs,
+            autostart::autostart_status,
+            autostart::autostart_set,
             prefs::island_set_mascot,
             prefs::island_set_sound,
             splash_done,
@@ -344,7 +347,8 @@ fn main() {
 
             place_island(&handle, ISLAND_WIDTH, None);
 
-            if !std::env::args().any(|a| a == "--autostart") {
+            autostart::on_launch();
+            if !std::env::args().any(|a| a == cortex_core::autostart::AUTOSTART_ARG) {
                 open_splash(&handle);
             }
 
