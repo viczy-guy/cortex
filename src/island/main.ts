@@ -14,6 +14,8 @@ import {
   type GithubStatus,
   HOVER_EVENT,
   type HooksStatus,
+  ISLAND_CUTOUT_EVENT,
+  type IslandCutout,
   ISLAND_PREFS_EVENT,
   type IslandPosition,
   type IslandPrefs,
@@ -48,6 +50,7 @@ let updates: UpdateStatus | null = null;
 let updatesError: string | null = null;
 let mascot: Mascot = "eyes";
 let position: IslandPosition = "top";
+let cutout: IslandCutout | null = null;
 let sound = true;
 let soundReady = false;
 /** True when the panel was opened by an approval, not by the user. */
@@ -143,12 +146,12 @@ function prTotals(): { reviews: number; failing: number } {
 /** Everything the folded notch shows: the same key means nothing to repaint. */
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
-  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}`;
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}`;
 }
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
 function setClass(open: boolean): void {
-  const name = `island tone-${tone}${open ? " island--open" : ""}`;
+  const name = `island tone-${tone}${open ? " island--open" : ""}${cutout ? " island--cutout" : ""}`;
   if (root.className !== name) root.className = name;
   if (root.dataset.position !== position) root.dataset.position = position;
 }
@@ -172,9 +175,11 @@ function render(): void {
     setClass(false);
     const node = el("div", "notch");
     node.addEventListener("click", () => setHovered(true));
-    node.append(mascotNode());
+    const left = mascotNode();
     const totals = prTotals();
-    if (totals.reviews > 0 || totals.failing > 0) node.append(prCount(totals));
+    const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
+    if (cutout) splitAtCamera(node, [left], right);
+    else node.append(left, ...right);
     folded = foldedKey();
     root.replaceChildren(node);
     void fitWindowToContent();
@@ -277,30 +282,52 @@ function toggle(): void {
   render();
 }
 
+function setCutout(value: IslandCutout | null): void {
+  cutout = value;
+  if (value) {
+    root.style.setProperty("--cutout-width", `${value.width}px`);
+    root.style.setProperty("--cutout-height", `${value.height}px`);
+  }
+}
+
+function splitAtCamera(node: HTMLElement, left: Element[], right: Element[]): void {
+  const leftSide = el("div", "cutout-left");
+  const rightSide = el("div", "cutout-right");
+  leftSide.append(...left);
+  rightSide.append(...right);
+  node.classList.add("cutout-row");
+  node.append(leftSide, rightSide);
+}
+
 /** Agent tags around the mascot, the most urgent first; the PR count; chips and the gear. */
 function bar(): HTMLElement {
   const node = el("div", "bar");
   const sessions = byUrgency(snapshot.sessions, toneOf);
   const chips = updateChips();
   // An update chip takes the room of two tags: the bar never outgrows the window.
-  const room = chips.length > 0 ? 2 : MAX_TAGS;
+  // Beside the camera the right side only has room for the counter, the PR
+  // count and the gear: tags stay on the left.
+  const room = cutout ? (chips.length > 0 ? 1 : 2) : chips.length > 0 ? 2 : MAX_TAGS;
   const tags = sessions.slice(0, room).map((session) => agentTag(session, toneOf(session), sessionLabel(session)));
   const center = el("span", "bar-center");
   center.append(mascotNode());
   if (snapshot.approvals.length > 1) center.append(el("span", "queue", `1 of ${snapshot.approvals.length}`));
-  node.append(...tags.slice(0, 2), center, ...tags.slice(2));
-  if (sessions.length > room) node.append(el("span", "more", `+${sessions.length - room}`));
+  const right = tags.slice(2);
+  if (sessions.length > room) right.push(el("span", "more", `+${sessions.length - room}`));
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
   if (accounts.length > 0) {
     const pr = button("btn-pr", "", toggle);
     pr.append(prCount(prTotals()));
-    node.append(pr);
+    right.push(pr);
   }
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
-    node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
+    right.push(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
   }
-  node.append(...chips, settingsButton());
+  right.push(...chips, settingsButton());
+  const firstTags = tags.slice(0, 2);
+  if (cutout) splitAtCamera(node, [center, ...firstTags], right);
+  else node.append(...firstTags, center, ...right);
   if (sessions.length > 0) node.addEventListener("click", toggle);
   return node;
 }
@@ -448,6 +475,12 @@ async function start(): Promise<void> {
     position = payload.position;
     render();
   });
+  let cutoutChanged = false;
+  await listen<IslandCutout | null>(ISLAND_CUTOUT_EVENT, ({ payload }) => {
+    cutoutChanged = true;
+    setCutout(payload);
+    render();
+  });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
   await listen(OUTSIDE_CLICK_EVENT, foldAway);
   // Windows / Linux: the island only learns of an outside click if it had focus.
@@ -460,7 +493,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) ({ mascot, sound, position } = value); }).catch(() => { /* Keep the island defaults. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) ({ mascot, sound, position } = value); }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

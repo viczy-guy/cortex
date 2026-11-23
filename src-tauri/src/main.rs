@@ -18,7 +18,7 @@ mod macos;
 
 use std::sync::Mutex;
 
-use cortex_core::placement::{is_position, island_origin, Rect};
+use cortex_core::placement::{is_position, island_origin, island_width, Rect};
 use cortex_core::prefs::is_screen_name;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -252,11 +252,28 @@ pub const HOVER_EVENT: &str = "cortex://hover";
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const OUTSIDE_CLICK_EVENT: &str = "cortex://outside-click";
 
+const ISLAND_CUTOUT_EVENT: &str = "cortex://island-cutout";
+
+#[derive(Clone, Copy, PartialEq, serde::Serialize)]
+struct IslandCutout {
+    width: f64,
+    height: f64,
+}
+
 struct IslandPlacement {
     position: String,
     screen: Option<String>,
     width: f64,
     height: f64,
+    cutout: Option<IslandCutout>,
+}
+
+#[tauri::command]
+fn island_cutout(app: AppHandle) -> Option<IslandCutout> {
+    app.state::<Mutex<IslandPlacement>>()
+        .lock()
+        .expect("island placement lock")
+        .cutout
 }
 
 /// Size the island to what it draws at the selected edge. The window is
@@ -381,7 +398,21 @@ fn place_island(app: &AppHandle) {
     };
     let screen = rect(*monitor.position(), *monitor.size());
     let work = rect(monitor.work_area().position, monitor.work_area().size);
-    let width = width.min(screen.width);
+    #[cfg(target_os = "macos")]
+    let cutout = if position == "top" {
+        macos::camera_cutout(screen.x, screen.width)
+            .map(|(width, height)| IslandCutout { width, height })
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "macos"))]
+    let cutout = None;
+    let cutout_changed = {
+        let mut placement = state.lock().expect("island placement lock");
+        std::mem::replace(&mut placement.cutout, cutout) != cutout
+    };
+    let width =
+        island_width(width, cutout.map(|cutout| cutout.width), ISLAND_WIDTH).min(screen.width);
     let height = height.min(screen.height);
     let (x, y) = island_origin(&position, screen, work, width, height);
     let size = tauri::LogicalSize::new(width, height);
@@ -395,6 +426,9 @@ fn place_island(app: &AppHandle) {
     );
     let _ = window.set_size(size);
     let _ = window.set_position(origin);
+    if cutout_changed {
+        let _ = app.emit_to("island", ISLAND_CUTOUT_EVENT, cutout);
+    }
 }
 
 fn main() {
@@ -420,6 +454,7 @@ fn main() {
             screen: island.screen,
             width: ISLAND_WIDTH,
             height: ISLAND_START_HEIGHT,
+            cutout: None,
         }))
         .invoke_handler(tauri::generate_handler![
             updates::updates_status,
@@ -435,6 +470,7 @@ fn main() {
             github::open_url,
             snapshot,
             island_fit,
+            island_cutout,
             prefs::island_prefs,
             autostart::autostart_status,
             autostart::autostart_set,

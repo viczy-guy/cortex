@@ -12,7 +12,8 @@ follows [Semantic Versioning](https://semver.org).
 - A new island: a black notch at the top of the screen, the shape of the
   MacBook camera cutout, with a mascot. The mascot and the border take one
   color per meaning: amber while an agent waits for you, green when one
-  finished, red when one failed. (#77)
+  finished, red when one failed. On a MacBook with a camera cutout, the
+  top-center island places its mascot and controls on either side. (#77)
 - Up to four agents side by side, each with its own tag and state dot, the
   one that needs you first; cards come one at a time with the next in view.
   (#78)

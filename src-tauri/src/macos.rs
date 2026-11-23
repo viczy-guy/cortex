@@ -6,8 +6,9 @@ use std::ptr::NonNull;
 
 use block2::RcBlock;
 use tauri::{AppHandle, Emitter, Manager};
-// `NSEvent` comes in with `tauri_panel!`.
-use tauri_nspanel::objc2_app_kit::NSEventMask;
+// `NSEvent`, `MainThreadMarker` and `NSObjectProtocol` come in with `tauri_panel!`.
+use tauri_nspanel::objc2::sel;
+use tauri_nspanel::objc2_app_kit::{NSEventMask, NSScreen};
 use tauri_nspanel::{
     tauri_panel, CollectionBehavior, PanelLevel, StyleMask, TrackingAreaOptions, WebviewWindowExt,
 };
@@ -36,6 +37,26 @@ tauri_panel! {
     })
 
     panel_event!(IslandPanelEvents {})
+}
+
+pub fn camera_cutout(x: f64, width: f64) -> Option<(f64, f64)> {
+    let screens = NSScreen::screens(MainThreadMarker::new()?);
+    let screen = screens.iter().find(|screen| {
+        let frame = screen.frame();
+        (frame.origin.x - x).abs() <= 1.0 && (frame.size.width - width).abs() <= 1.0
+    })?;
+    // The safe-area and auxiliary-area selectors were introduced in macOS 12.
+    if !screen.respondsToSelector(sel!(safeAreaInsets)) {
+        return None;
+    }
+    let height = screen.safeAreaInsets().top;
+    if height <= 0.0 {
+        return None;
+    }
+    let width = screen.frame().size.width
+        - screen.auxiliaryTopLeftArea().size.width
+        - screen.auxiliaryTopRightArea().size.width;
+    (width > 0.0).then_some((width, height))
 }
 
 pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
