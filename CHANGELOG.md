@@ -7,6 +7,11 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Fixed
+- macOS: the island could stay invisible after an update, when the system
+  part that draws it stopped answering. Cortex now notices and restarts
+  itself once. (#115)
+- macOS: opening Cortex while it runs (Finder, Launchpad, Spotlight) opens
+  Settings; before, nothing seemed to happen. (#115)
 - The app icon and the macOS menu-bar icon are the mascot's eyes, the icon
   the maintainer chose; 0.3.0 shipped the dot with rings by mistake. (#116)
 
