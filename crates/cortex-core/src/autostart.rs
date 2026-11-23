@@ -5,6 +5,50 @@
 /// Passed to the app when the system starts it at login.
 pub const AUTOSTART_ARG: &str = "--autostart";
 
+/// What a launch does about the entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchAction {
+    /// First launch of a version with the feature: write it, then remember "on".
+    TurnOn,
+    /// On, and the entry is there: rewrite it if the app moved.
+    Refresh,
+    Nothing,
+}
+
+/// On from the first launch (decided for 0.3.0); afterwards the user's
+/// choice stands. An entry the system's own tool removed is not brought back:
+/// Settings then shows it off.
+pub fn launch_action(launch_at_login: Option<bool>, entry_exists: bool) -> LaunchAction {
+    match launch_at_login {
+        None => LaunchAction::TurnOn,
+        Some(true) if entry_exists => LaunchAction::Refresh,
+        _ => LaunchAction::Nothing,
+    }
+}
+
+/// A path that cannot be an installed app: a cargo build, or on macOS a
+/// binary outside an app bundle, an app still on its disk image
+/// (`/Volumes/<image>/<App>.app`) or one macOS runs from a translocated copy.
+pub fn is_installed_path(exe: &str, macos: bool) -> bool {
+    let unix = exe.replace('\\', "/");
+    if unix.contains("/target/release/") || unix.contains("/target/debug/") {
+        return false;
+    }
+    if !macos {
+        return true;
+    }
+    if !exe.contains(".app/Contents/MacOS/") || exe.contains("/AppTranslocation/") {
+        return false;
+    }
+    match exe.strip_prefix("/Volumes/") {
+        Some(rest) => rest
+            .split('/')
+            .nth(1)
+            .is_some_and(|second| !second.ends_with(".app")),
+        None => true,
+    }
+}
+
 /// A macOS LaunchAgent that runs `exe --autostart` when the user logs in.
 pub fn launch_agent_plist(label: &str, exe: &str) -> String {
     format!(
@@ -90,6 +134,43 @@ mod tests {
         ] {
             assert_eq!(desktop_entry(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_first_launch_turns_it_on_and_then_the_users_choice_stands() {
+        assert_eq!(launch_action(None, false), LaunchAction::TurnOn);
+        assert_eq!(launch_action(None, true), LaunchAction::TurnOn);
+        assert_eq!(launch_action(Some(true), true), LaunchAction::Refresh);
+        assert_eq!(launch_action(Some(true), false), LaunchAction::Nothing);
+        assert_eq!(launch_action(Some(false), true), LaunchAction::Nothing);
+        assert_eq!(launch_action(Some(false), false), LaunchAction::Nothing);
+    }
+
+    #[test]
+    fn only_an_installed_app_gets_an_entry() {
+        let mac = |p| is_installed_path(p, true);
+        assert!(mac("/Applications/Cortex.app/Contents/MacOS/cortex-app"));
+        assert!(mac(
+            "/Users/ana/Applications/Cortex.app/Contents/MacOS/cortex-app"
+        ));
+        assert!(mac(
+            "/Volumes/Data/Applications/Cortex.app/Contents/MacOS/cortex-app"
+        ));
+        assert!(
+            !mac("/Volumes/Cortex/Cortex.app/Contents/MacOS/cortex-app"),
+            "the disk image"
+        );
+        assert!(!mac(
+            "/private/var/folders/x/AppTranslocation/y/d/Cortex.app/Contents/MacOS/cortex-app"
+        ));
+        assert!(!mac("/Users/ana/cortex/target/release/cortex-app"));
+        assert!(!mac("/usr/local/bin/cortex-app"), "not a bundle");
+        let other = |p| is_installed_path(p, false);
+        assert!(other("/usr/bin/cortex-app"));
+        assert!(other("/home/ana/Apps/Cortex.AppImage"));
+        assert!(other(r"C:\Users\Ana\AppData\Local\Cortex\Cortex.exe"));
+        assert!(!other(r"C:\src\cortex\target\release\cortex-app.exe"));
+        assert!(!other("/home/ana/cortex/target/release/cortex-app"));
     }
 
     #[test]

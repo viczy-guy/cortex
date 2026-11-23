@@ -2,6 +2,8 @@
 //! `Run` key on Windows, an XDG autostart entry on Linux. The entries come
 //! from `cortex_core::autostart`; this file only writes and removes them.
 
+use cortex_core::autostart::{is_installed_path, launch_action, LaunchAction};
+
 #[derive(serde::Serialize, Clone)]
 pub struct AutostartStatus {
     pub enabled: bool,
@@ -10,59 +12,65 @@ pub struct AutostartStatus {
     pub available: bool,
 }
 
-/// The executable the entry points at.
+/// The executable the entry points at, when this copy is an installed app.
 fn exe() -> Option<String> {
     if cfg!(debug_assertions) {
         return None;
     }
-    // An AppImage runs from a temporary mount; the file itself is the app.
-    #[cfg(all(unix, not(target_os = "macos")))]
-    if let Some(image) = std::env::var_os("APPIMAGE") {
-        return image.into_string().ok();
-    }
     let path = std::env::current_exe().ok()?.to_str()?.to_owned();
-    #[cfg(target_os = "macos")]
-    if path.starts_with("/Volumes/") || path.contains("/AppTranslocation/") {
-        return None;
+    // An AppImage runs from a temporary mount; the image file is the app.
+    // `APPIMAGE` counts only from inside that mount: a variable inherited
+    // from another AppImage would point the entry at another program.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if let (Some(image), Some(dir)) = (std::env::var_os("APPIMAGE"), std::env::var_os("APPDIR")) {
+        if !dir.is_empty() && std::path::Path::new(&path).starts_with(&dir) {
+            return image.into_string().ok();
+        }
     }
-    Some(path)
+    is_installed_path(&path, cfg!(target_os = "macos")).then_some(path)
+}
+
+/// The entry for this copy, if it can have one.
+fn entry_for_this_app() -> Option<String> {
+    exe().and_then(|exe| platform::entry(&exe))
 }
 
 pub fn status() -> AutostartStatus {
     AutostartStatus {
         enabled: platform::is_enabled(),
-        available: exe().is_some(),
+        available: entry_for_this_app().is_some(),
     }
 }
 
-/// Write or remove the entry. Writing again is how the entry follows an app
-/// that moved; nothing is written when it is already right.
+/// Write or remove the entry.
 pub fn apply(enabled: bool) -> Result<(), String> {
     if !enabled {
         return platform::remove();
     }
-    let exe = exe().ok_or("This copy of Cortex cannot open at login.")?;
-    platform::write(&exe)
+    let entry = entry_for_this_app().ok_or("This copy of Cortex cannot open at login.")?;
+    platform::write(&entry)
 }
 
-/// On from the first launch (decided for 0.3.0); afterwards the user's
-/// choice in Settings stands.
 pub fn on_launch() {
-    let prefs = crate::prefs::load();
-    match prefs.launch_at_login {
-        Some(false) => {}
-        Some(true) => {
-            if let Err(err) = apply(true) {
-                eprintln!("cortex: launch at login not refreshed: {err}");
-            }
-        }
-        None => {
+    // Unreadable or invalid preferences are not a first launch: never turn
+    // the entry on, nor save over the file, on their account.
+    let Some(prefs) = crate::prefs::load_valid() else {
+        return;
+    };
+    match launch_action(prefs.launch_at_login, platform::is_enabled()) {
+        LaunchAction::TurnOn => {
             if apply(true).is_ok() {
                 if let Err(err) = crate::prefs::update(|p| p.launch_at_login = Some(true)) {
                     eprintln!("cortex: {err}");
                 }
             }
         }
+        LaunchAction::Refresh => {
+            if let Err(err) = apply(true) {
+                eprintln!("cortex: launch at login not refreshed: {err}");
+            }
+        }
+        LaunchAction::Nothing => {}
     }
 }
 
@@ -95,7 +103,7 @@ mod platform {
     }
 
     #[cfg(target_os = "macos")]
-    fn entry(exe: &str) -> Option<String> {
+    pub fn entry(exe: &str) -> Option<String> {
         Some(cortex_core::autostart::launch_agent_plist(LABEL, exe))
     }
 
@@ -109,7 +117,7 @@ mod platform {
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn entry(exe: &str) -> Option<String> {
+    pub fn entry(exe: &str) -> Option<String> {
         cortex_core::autostart::desktop_entry(exe)
     }
 
@@ -117,25 +125,58 @@ mod platform {
         entry_path().is_ok_and(|p| p.exists())
     }
 
-    pub fn write(exe: &str) -> Result<(), String> {
-        let content = entry(exe).ok_or("The app's path cannot be used to open it at login.")?;
-        let path = entry_path()?;
-        if crate::files::read_bounded(&path, 64 * 1024)
-            .ok()
-            .flatten()
-            .as_deref()
-            == Some(content.as_str())
-        {
-            return Ok(());
-        }
-        crate::files::write_private(&path, content.as_bytes())
-            .map_err(|e| format!("cannot write {}: {e}", path.display()))
+    pub fn write(content: &str) -> Result<(), String> {
+        write_at(&entry_path()?, content)
     }
 
     pub fn remove() -> Result<(), String> {
-        match std::fs::remove_file(entry_path()?) {
+        remove_at(&entry_path()?)
+    }
+
+    /// Nothing is written when the entry is already right.
+    fn write_at(path: &std::path::Path, content: &str) -> Result<(), String> {
+        if crate::files::read_bounded(path, 64 * 1024)
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some(content)
+        {
+            return Ok(());
+        }
+        crate::files::write_private(path, content.as_bytes())
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+
+    fn remove_at(path: &std::path::Path) -> Result<(), String> {
+        match std::fs::remove_file(path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
             _ => Ok(()),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_entry_is_written_once_and_removed_once() {
+            let dir = std::env::temp_dir().join(format!("cortex-autostart-{}", std::process::id()));
+            let path = dir.join("LaunchAgents").join("entry");
+            write_at(&path, "one").unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "one");
+            let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+            write_at(&path, "one").unwrap();
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().modified().unwrap(),
+                written,
+                "unchanged"
+            );
+            write_at(&path, "two").unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
+            remove_at(&path).unwrap();
+            assert!(!path.exists());
+            remove_at(&path).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 }
@@ -151,10 +192,12 @@ mod platform {
         registry::exists(RUN_KEY, VALUE)
     }
 
-    pub fn write(exe: &str) -> Result<(), String> {
-        let command = cortex_core::autostart::run_command(exe)
-            .ok_or("The app's path cannot be used to open it at login.")?;
-        registry::set(RUN_KEY, VALUE, &command)
+    pub fn entry(exe: &str) -> Option<String> {
+        cortex_core::autostart::run_command(exe)
+    }
+
+    pub fn write(command: &str) -> Result<(), String> {
+        registry::set(RUN_KEY, VALUE, command)
     }
 
     pub fn remove() -> Result<(), String> {
@@ -185,6 +228,8 @@ mod platform {
                 size: u32,
             ) -> i32;
             fn RegDeleteKeyValueW(key: *mut c_void, subkey: *const u16, value: *const u16) -> i32;
+            #[cfg(test)]
+            fn RegDeleteKeyW(key: *mut c_void, subkey: *const u16) -> i32;
             fn RegGetValueW(
                 key: *mut c_void,
                 subkey: *const u16,
@@ -229,6 +274,12 @@ mod platform {
             }
         }
 
+        #[cfg(test)]
+        pub fn delete_key(subkey: &str) {
+            // SAFETY: a NUL-terminated buffer alive for the call.
+            unsafe { RegDeleteKeyW(hkcu(), wide(subkey).as_ptr()) };
+        }
+
         pub fn exists(subkey: &str, value: &str) -> bool {
             let mut size = 0u32;
             // SAFETY: NUL-terminated buffers alive for the call; a null data
@@ -261,5 +312,6 @@ mod tests {
         registry::remove(&key, "Cortex").unwrap();
         assert!(!registry::exists(&key, "Cortex"));
         registry::remove(&key, "Cortex").unwrap();
+        registry::delete_key(&key);
     }
 }

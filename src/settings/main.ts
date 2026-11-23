@@ -39,6 +39,7 @@ let updatesError: string | null = null;
 let island: IslandPrefs | null = null;
 let startup: AutostartStatus | null = null;
 let startupError: string | null = null;
+let startupBusy = false;
 let islandError: string | null = null;
 let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -363,18 +364,24 @@ function renderStartup(): void {
     startupBlock.append(row);
     if (startup.available || startup.enabled) {
       const on = startup.enabled;
-      startupBlock.append(button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void setStartup(!on)));
+      const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void setStartup(!on));
+      toggle.disabled = startupBusy;
+      startupBlock.append(toggle);
     }
   }
   if (startupError) startupBlock.append(el("div", "note note-error", startupError));
 }
 async function setStartup(enabled: boolean): Promise<void> {
+  if (startupBusy) return;
+  startupBusy = true;
+  renderStartup();
   try {
     startup = await api.autostartSet(enabled);
     startupError = null;
   } catch (error) {
     startupError = String(error);
   }
+  startupBusy = false;
   renderStartup();
 }
 
