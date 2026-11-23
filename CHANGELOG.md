@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-23
+
 ### Added
 - macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app
   even when the island stops responding. (#76)
