@@ -7,24 +7,6 @@ export function shownAccounts(accounts: AccountStatus[]): SummarizedAccount[] {
   return accounts.filter((account): account is SummarizedAccount => account.shown && account.summary !== null);
 }
 
-export function githubPill(accounts: SummarizedAccount[], toggle?: () => void): HTMLElement {
-  let failing = 0;
-  let reviews = 0;
-  let open = 0;
-  for (const { summary } of accounts) {
-    failing += summary.mine.filter((pr) => pr.checks === "failing").length;
-    reviews += summary.review_requests_total;
-    open += summary.mine_total;
-  }
-  const labels: string[] = [];
-  if (reviews > 0) labels.push(`${reviews} reviews`);
-  if (failing > 0) labels.push(`${failing} failing`);
-  if (labels.length === 0) labels.push(open > 0 ? `${open} open PRs` : "no open PRs");
-  const node = toggle ? button("pill github-pill", "", toggle) : el("div", "pill github-pill");
-  node.append(el("span", `state-dot github-dot-${failing > 0 ? "failing" : reviews > 0 ? "attention" : "none"}`), el("span", "ticker", labels.join(" · ")));
-  return node;
-}
-
 export function githubCard(accounts: SummarizedAccount[]): HTMLElement {
   const card = el("div", "card github-card");
   const head = el("div", "card-head");

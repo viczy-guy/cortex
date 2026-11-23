@@ -11,98 +11,179 @@ body {
   cursor: default;
 }
 
+/* The island is the camera notch's shape: black, flush with the top edge,
+   round only at the bottom. The window is exactly its size. */
 .island {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  margin: 3px 6px;
+  width: max-content;
+  min-width: var(--notch-min-width);
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 0 10px;
+  background: var(--notch);
+  border: 1.5px solid transparent;
+  border-top: none;
+  border-radius: 0 0 var(--radius-notch) var(--radius-notch);
+  --tone: var(--mascot);
+  --mascot-hole: var(--notch);
 }
 
-/* ---- Folded: only the handle ------------------------------------------- */
-
-.island--hidden {
-  margin: 0;
+/* With cards: the full width. Must match `ISLAND_WIDTH` in src-tauri/src/main.rs. */
+.island--open {
+  width: 460px;
+  padding-bottom: 10px;
 }
 
-.handle {
-  width: 44px;
-  height: 4px;
-  margin: 3px auto 0;
-  border-radius: 2px;
-  background: var(--handle);
+/* The color stays on the mascot and the border until the user acts. */
+.island.tone-green { --tone: var(--tone-green); }
+.island.tone-amber { --tone: var(--tone-amber); }
+.island.tone-red { --tone: var(--tone-red); }
+.island:not(.tone-gray) {
+  border-color: var(--tone);
+  box-shadow: inset 0 -6px 14px -8px var(--tone);
 }
 
-/* Folded over a card nobody answered yet. No animation: folded means 0% CPU. */
-.handle--waiting {
-  background: var(--state-waiting);
-}
+/* ---- Folded: the notch and the mascot ---------------------------------- */
 
-/* ---- Compact bar ---------------------------------------------------- */
-
-.bar {
+.notch {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  height: 38px;
+  height: var(--notch-height);
   padding: 0 14px;
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-bar);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.mascot {
+  color: var(--tone);
+  width: 30px;
+  height: 18px;
+  flex: none;
+  overflow: visible;
+}
+.mascot .m-fill { fill: currentColor; }
+.mascot .m-stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.mascot .m-hole { fill: var(--mascot-hole); }
+
+/* A jump when the color rises, twice, then still: no animation at rest. */
+.bounce { animation: hop 0.42s ease-in-out 2; }
+@keyframes hop {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bounce { animation: none; }
 }
 
 .brand-dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--brand);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--brand) 65%, transparent);
+  background: var(--tone);
   flex: none;
 }
 
-.bar-idle {
-  color: var(--text-faint);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-
-.pill {
+.pr-count {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: var(--surface-raised);
-  border: 1px solid var(--surface-border);
-}
-
-.pill .state-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.pill .agent {
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  flex: none;
-}
-
-.pill .ticker {
+  gap: 4px;
   color: var(--text);
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 230px;
+  font-weight: 600;
 }
 
+.pr-failing {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tone-red);
+}
+
+.pr-icon {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- Unfolded: agent tags around the mascot ---------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--notch-height);
+  overflow: hidden;
+}
+
+.bar-center {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.queue,
+.more {
+  color: var(--text);
+  background: var(--btn-neutral-bg);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  flex: none;
+}
+
+.tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px 2px 6px;
+  border-radius: 6px;
+  color: var(--tag-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+
+.tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--tag-text);
+}
+.tag-dot.tone-gray { background: var(--state-idle); }
+.tag-dot.tone-green { background: var(--tone-green); }
+.tag-dot.tone-amber { background: var(--tone-amber); }
+.tag-dot.tone-red { background: var(--tone-red); }
+
+.agent-claude-code { background: var(--agent-claude-code); }
+.agent-codex { background: var(--agent-codex); }
+.agent-gemini { background: var(--agent-gemini); }
+.agent-c0 { background: var(--agent-1); }
+.agent-c1 { background: var(--agent-2); }
+.agent-c2 { background: var(--agent-3); }
+.agent-c3 { background: var(--agent-4); }
+.agent-c4 { background: var(--agent-5); }
+.agent-c5 { background: var(--agent-6); }
+
+.btn-pr {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-pr:hover { background: var(--btn-neutral-bg); }
+
+/* Session states, in the cards below. */
 .state-idle { background: var(--state-idle); }
 .state-thinking { background: var(--state-thinking); }
 .state-working { background: var(--state-working); }
@@ -122,23 +203,43 @@ body {
   50% { opacity: 0.35; }
 }
 
-/* ---- Expanded panel -------------------------------------------------- */
+/* ---- Expanded panel: cards hang below the notch ------------------------ */
 
 .panel {
-  margin-top: 6px;
-  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   max-height: 330px;
   overflow-y: auto;
 }
+
+/* The next card waits in view below the current one. */
+.next-up {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--surface-border);
+}
+.next-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  min-width: 0;
+}
+.next-row .tag-short {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+}
+.next-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.next-more { color: var(--text-faint); }
 
 .card {
   display: flex;
@@ -315,7 +416,6 @@ body {
 .btn-icon:hover { color: var(--text-dim); }
 
 /* GitHub data shares session colors without session animations. */
-.github-pill { flex-shrink: 1; }
 .github-dot-passing { background: var(--state-finished); }
 .github-dot-failing { background: var(--state-error); }
 .github-dot-pending { background: var(--state-working); }

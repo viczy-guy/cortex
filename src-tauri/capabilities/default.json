@@ -5,6 +5,7 @@
   "windows": ["island"],
   "permissions": [
     "core:default",
+    "allow-island-prefs",
     "allow-snapshot",
     "allow-island-fit",
     "allow-respond",

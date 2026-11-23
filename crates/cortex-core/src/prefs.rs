@@ -7,6 +7,18 @@ pub struct Prefs {
     pub github_hidden: Vec<String>,
     /// Signed update checks (ADR 0004); `None` until the user answers the first-run question.
     pub updates: Option<bool>,
+    /// The island's mascot, one of [`MASCOTS`]; `None` is the default.
+    pub mascot: Option<String>,
+}
+
+/// The mascot gallery; "none" hides the mascot.
+pub const MASCOTS: [&str; 9] = [
+    "eyes", "lens", "owl", "cat", "ghost", "robot", "mustache", "penguin", "none",
+];
+pub const DEFAULT_MASCOT: &str = "eyes";
+
+pub fn is_mascot(name: &str) -> bool {
+    MASCOTS.contains(&name)
 }
 pub fn prefs_from_json(json: &str) -> Prefs {
     checked_prefs_from_json(json).unwrap_or_default()
@@ -39,15 +51,23 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
         None | Some(Value::Null) => None,
         Some(on) => Some(on.as_bool()?),
     };
+    // A look, not a permission: an unknown mascot falls back to the default
+    // instead of costing the user every other setting.
+    let mascot = v
+        .get("mascot")
+        .and_then(Value::as_str)
+        .filter(|m| is_mascot(m))
+        .map(str::to_owned);
     Some(Prefs {
         github: v["github"].as_bool()?,
         github_hidden,
         updates,
+        mascot,
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot})
         .to_string()
 }
 #[cfg(test)]
@@ -98,6 +118,20 @@ mod tests {
             prefs_from_json(r#"{"version":1,"github":false}"#).updates,
             None
         );
+    }
+
+    #[test]
+    fn the_mascot_round_trips_and_an_unknown_one_keeps_the_rest() {
+        let p = Prefs {
+            github: true,
+            mascot: Some("owl".into()),
+            ..Prefs::default()
+        };
+        assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        let unknown = prefs_from_json(r#"{"version":1,"github":true,"mascot":"dragon"}"#);
+        assert!(unknown.github);
+        assert_eq!(unknown.mascot, None);
+        assert!(MASCOTS.contains(&DEFAULT_MASCOT));
     }
 
     #[test]

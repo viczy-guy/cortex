@@ -1,6 +1,38 @@
 //! Private preferences storage.
 pub use cortex_core::prefs::Prefs;
-use cortex_core::prefs::{checked_prefs_from_json, prefs_to_json};
+use cortex_core::prefs::{checked_prefs_from_json, is_mascot, prefs_to_json, DEFAULT_MASCOT};
+use tauri::{AppHandle, Emitter};
+
+/// How the island looks, for both windows.
+pub const ISLAND_PREFS_EVENT: &str = "cortex://island-prefs";
+
+#[derive(serde::Serialize, Clone)]
+pub struct IslandPrefs {
+    pub mascot: String,
+}
+
+impl From<&Prefs> for IslandPrefs {
+    fn from(prefs: &Prefs) -> Self {
+        Self {
+            mascot: prefs.mascot.as_deref().unwrap_or(DEFAULT_MASCOT).to_owned(),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn island_prefs() -> IslandPrefs {
+    IslandPrefs::from(&load())
+}
+
+#[tauri::command]
+pub fn island_set_mascot(app: AppHandle, mascot: String) -> Result<(), String> {
+    if !is_mascot(&mascot) {
+        return Err("Unknown mascot.".into());
+    }
+    let prefs = update(|p| p.mascot = Some(mascot))?;
+    let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
+    Ok(())
+}
 pub fn load() -> Prefs {
     let read = || -> Result<Option<String>, String> {
         let path = crate::hooks::data_dir()?.join("prefs.json");

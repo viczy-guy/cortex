@@ -7,6 +7,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import type { Mascot } from "./mascots";
+
 export type SessionState =
   | "idle"
   | "thinking"
@@ -123,6 +125,12 @@ export const OUTSIDE_CLICK_EVENT = "cortex://outside-click";
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
+/** How the island looks; sent to both windows when Settings changes it. */
+export interface IslandPrefs {
+  mascot: Mascot;
+}
+export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
+
 export interface UpdateStatus {
   /** `null` until the user answers the first-run question. */
   enabled: boolean | null;
@@ -150,6 +158,8 @@ export const api = {
   ruleRemove: (rule: AlwaysRule) => invoke<void>("rule_remove", { rule }),
   rulesClear: () => invoke<void>("rules_clear"),
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
+  islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
+  islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),
   snapshot: () => invoke<Snapshot>("snapshot"),
