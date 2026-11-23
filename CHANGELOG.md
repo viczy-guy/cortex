@@ -6,6 +6,11 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Security
+- `cookie` 0.18.3, for RUSTSEC-2026-0594 (repeated nonces in private cookies
+  after a fork). It comes in through Tauri; Cortex does not use private
+  cookies.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
