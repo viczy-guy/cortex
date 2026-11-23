@@ -9,6 +9,8 @@ pub const ISLAND_PREFS_EVENT: &str = "cortex://island-prefs";
 #[derive(serde::Serialize, Clone)]
 pub struct IslandPrefs {
     pub mascot: String,
+    pub position: String,
+    pub screen: Option<String>,
     pub sound: bool,
 }
 
@@ -16,6 +18,8 @@ impl From<&Prefs> for IslandPrefs {
     fn from(prefs: &Prefs) -> Self {
         Self {
             mascot: prefs.mascot.as_deref().unwrap_or(DEFAULT_MASCOT).to_owned(),
+            position: prefs.island_position.as_deref().unwrap_or("top").to_owned(),
+            screen: prefs.island_screen.clone(),
             sound: prefs.sound.unwrap_or(true),
         }
     }

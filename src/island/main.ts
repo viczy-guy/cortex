@@ -15,6 +15,7 @@ import {
   HOVER_EVENT,
   type HooksStatus,
   ISLAND_PREFS_EVENT,
+  type IslandPosition,
   type IslandPrefs,
   OUTSIDE_CLICK_EVENT,
   type PendingApproval,
@@ -46,6 +47,7 @@ let github: GithubStatus | null = null;
 let updates: UpdateStatus | null = null;
 let updatesError: string | null = null;
 let mascot: Mascot = "eyes";
+let position: IslandPosition = "top";
 let sound = true;
 let soundReady = false;
 /** True when the panel was opened by an approval, not by the user. */
@@ -141,13 +143,14 @@ function prTotals(): { reviews: number; failing: number } {
 /** Everything the folded notch shows: the same key means nothing to repaint. */
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
-  return `${tone}|${mascot}|${reviews}|${failing}|${bounce}`;
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}`;
 }
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
 function setClass(open: boolean): void {
   const name = `island tone-${tone}${open ? " island--open" : ""}`;
   if (root.className !== name) root.className = name;
+  if (root.dataset.position !== position) root.dataset.position = position;
 }
 
 // ---------------------------------------------------------------------------
@@ -437,9 +440,12 @@ async function start(): Promise<void> {
     render();
   });
   let islandChanged = false;
-  await listen<IslandPrefs>(ISLAND_PREFS_EVENT, (event) => {
+  await listen<IslandPrefs>(ISLAND_PREFS_EVENT, ({ payload }) => {
     islandChanged = true;
-    ({ mascot, sound } = event.payload);
+    sound = payload.sound;
+    if (mascot === payload.mascot && position === payload.position) return;
+    mascot = payload.mascot;
+    position = payload.position;
     render();
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
@@ -454,7 +460,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) ({ mascot, sound } = value); }).catch(() => { /* Keep the island defaults. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) ({ mascot, sound, position } = value); }).catch(() => { /* Keep the island defaults. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

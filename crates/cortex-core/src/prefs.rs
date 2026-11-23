@@ -1,5 +1,6 @@
 //! Versioned, opt-in application preferences.
 use crate::github::{is_valid_login, MAX_ACCOUNTS};
+use crate::placement::is_position;
 use serde_json::Value;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Prefs {
@@ -13,6 +14,8 @@ pub struct Prefs {
     pub sound: Option<bool>,
     /// Launch at login (#81). `None` until the first launch turns it on.
     pub launch_at_login: Option<bool>,
+    pub island_position: Option<String>,
+    pub island_screen: Option<String>,
 }
 
 /// The mascot gallery; "none" hides the mascot.
@@ -24,6 +27,10 @@ pub const DEFAULT_MASCOT: &str = "eyes";
 pub fn is_mascot(name: &str) -> bool {
     MASCOTS.contains(&name)
 }
+pub fn is_screen_name(name: &str) -> bool {
+    name.len() <= 128 * 4 && name.chars().count() <= 128 && !name.chars().any(char::is_control)
+}
+
 pub fn prefs_from_json(json: &str) -> Prefs {
     checked_prefs_from_json(json).unwrap_or_default()
 }
@@ -69,11 +76,19 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
         mascot,
         sound: v.get("sound").and_then(Value::as_bool),
         launch_at_login: v.get("launch_at_login").and_then(Value::as_bool),
+        island_position: v["island_position"]
+            .as_str()
+            .filter(|s| is_position(s))
+            .map(str::to_owned),
+        island_screen: v["island_screen"]
+            .as_str()
+            .filter(|s| is_screen_name(s))
+            .map(str::to_owned),
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen})
         .to_string()
 }
 #[cfg(test)]
@@ -174,6 +189,33 @@ mod tests {
                     github: true,
                     ..Prefs::default()
                 })
+            );
+        }
+    }
+
+    #[test]
+    fn island_placement_round_trips_and_invalid_fields_keep_other_preferences() {
+        let prefs = Prefs {
+            github: true,
+            island_position: Some("bottom-right".into()),
+            island_screen: Some("é".repeat(128)),
+            ..Prefs::default()
+        };
+        assert_eq!(prefs_from_json(&prefs_to_json(&prefs)), prefs);
+        for (position, screen) in [
+            (serde_json::json!("center"), serde_json::json!("Display\n")),
+            (serde_json::json!(false), serde_json::json!("é".repeat(129))),
+            (serde_json::json!([]), serde_json::json!(42)),
+        ] {
+            let json = serde_json::json!({
+                "version": 1, "github": true, "island_position": position, "island_screen": screen,
+            });
+            assert_eq!(
+                prefs_from_json(&json.to_string()),
+                Prefs {
+                    github: true,
+                    ..Prefs::default()
+                }
             );
         }
     }

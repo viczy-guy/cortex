@@ -125,12 +125,24 @@ export const OUTSIDE_CLICK_EVENT = "cortex://outside-click";
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
-/** Island preferences sent when Settings changes them. */
+export type IslandPosition = "top" | "left" | "right" | "bottom-left" | "bottom-right";
+
+export interface IslandScreen {
+  name: string;
+  primary: boolean;
+  width: number;
+  height: number;
+}
+
+/** How the island looks and where it sits; sent when Settings changes it. */
 export interface IslandPrefs {
   mascot: Mascot;
+  position: IslandPosition;
+  screen: string | null;
   sound: boolean;
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
+export const ISLAND_SCREENS_EVENT = "cortex://island-screens";
 
 export interface AutostartStatus {
   enabled: boolean;
@@ -167,6 +179,9 @@ export const api = {
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
+  islandScreens: () => invoke<IslandScreen[]>("island_screens"),
+  islandSetPosition: (position: IslandPosition) => invoke<void>("island_set_position", { position }),
+  islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
   islandSetSound: (enabled: boolean) => invoke<void>("island_set_sound", { enabled }),
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
