@@ -169,7 +169,8 @@ pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
 /// light or dark menu bar. 36 px for an 18 pt item.
 fn menu_bar_icon() -> tauri::image::Image<'static> {
     const SIZE: u32 = 36;
-    // Each eye: a 7 × 18 px capsule, as in the mascot (`src/shared/mascots.ts`).
+    // Two 7 × 18 px capsules: close to the mascot's eyes (`src/shared/mascots.ts`)
+    // but whole pixels wide, so the edges stay sharp at 18 pt.
     const RADIUS: f32 = 3.5;
     const HALF_STRAIGHT: f32 = 5.5;
     const EYES_X: [f32; 2] = [11.5, 24.5];
@@ -178,7 +179,6 @@ fn menu_bar_icon() -> tauri::image::Image<'static> {
     for y in 0..SIZE {
         for x in 0..SIZE {
             let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-            // Distance to the nearer eye's edge, smoothed over a pixel.
             let dy = ((py - center_y).abs() - HALF_STRAIGHT).max(0.0);
             let edge = EYES_X
                 .iter()
