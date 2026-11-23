@@ -7,6 +7,17 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- A new island: a black notch at the top of the screen, the shape of the
+  MacBook camera cutout, with a mascot. The mascot and the border take one
+  color per meaning: amber while an agent waits for you, green when one
+  finished, red when one failed. (#77)
+- Up to four agents side by side, each with its own tag and state dot, the
+  one that needs you first; cards come one at a time with the next in view.
+  (#78)
+- A mascot of your choice, from a gallery of eight in Settings → Island, or
+  none. (#27)
+
+### Added
 - macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app
   even when the island stops responding. (#76)
 

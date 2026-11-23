@@ -12,17 +12,30 @@ are doing.
 - A transparent, always-on-top, undecorated window hugging the top-center of the
   screen. It never steals focus: clicking a button must not deactivate the app
   the user is typing in (macOS: non-activating panel).
-- States: `hidden` (no card waiting — **0% CPU**, no timers, no animation
-  frames) → `compact` (a slim bar with one pill per active session, on hover)
-  → `expanded` (session detail, approval/question cards) on click, or by
-  itself when a card needs the user.
-- Hidden means folded into a small handle at the top-center, even while
-  sessions run. Hovering the handle (or clicking it) brings the bar back, with
-  the gear to Settings; it folds again shortly after the pointer leaves, and
-  once the last card is answered. The island never hides while
-  the hooks are missing — that is when "Connect Claude Code" must be seen.
+- States: `folded` (no card waiting — **0% CPU**, no timers, no animation
+  frames) → `bar` (on hover) → `expanded` (session detail, approval/question
+  cards) on click, or by itself when a card needs the user.
+- Folded, the island is a black notch flush with the top edge, the shape of
+  the MacBook camera cutout, with the mascot in the middle and, when pull
+  requests wait for the user's review, the pull request sign and their count.
+  It stays folded while sessions run. Hovering the notch (or clicking it)
+  brings the bar back; it folds again shortly after the pointer leaves, and
+  once the last card is answered. The island never folds while the hooks are
+  missing — that is when "Connect Claude Code" must be seen.
+- The bar shows one tag per session (the agent's initials on its own color,
+  and a dot in the session's color), at most four, the most urgent first; the
+  rest is a counter ("+2"). Then the pull request count, the update chip and
+  the gear to Settings.
+- One color per meaning, on the mascot and the island's border at once: gray
+  while agents work, **amber** while one waits for the user, **green** when
+  one finished, **red** when one failed. Amber from a card lasts until the
+  card is answered or expires; green, red and an agent's own "waiting for you"
+  notice last until the user hovers the island. When the color rises, the
+  mascot jumps twice, then stays still (not at all with reduced motion).
+- Cards come one at a time; the ones after it wait in view below, and the
+  bar says "1 of N".
 - A click anywhere outside the island folds it, even over a waiting card: the
-  handle turns amber until every folded card is answered or expires, and
+  notch stays amber until every folded card is answered or expires, and
   hovering brings the cards back. A new card opens the island again. (macOS: a
   global mouse-down monitor, which needs no permission and only wakes the UI
   while a card waits; Windows / Linux: the window's blur, so only after the
@@ -116,6 +129,7 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
+- **Island** chooses the mascot from a gallery of eight, or none.
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
 - **Updates** turns the update check on or off and offers **Update and

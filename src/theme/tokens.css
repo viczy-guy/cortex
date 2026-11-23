@@ -12,8 +12,28 @@
   --surface-raised: rgba(28, 31, 38, 0.92);
   --surface-border: rgba(255, 255, 255, 0.09);
 
-  /* The folded island's handle: must read on light and dark desktops alike. */
-  --handle: rgba(140, 146, 160, 0.7);
+  /* The island: the camera notch's black, and the mascot at rest. */
+  --notch: #000;
+  --notch-height: 30px;
+  --notch-min-width: 64px;
+  --mascot: rgba(245, 246, 250, 0.95);
+
+  /* One meaning per color, on the mascot and the border (#78). */
+  --tone-green: #34d399;
+  --tone-amber: #fbbf24;
+  --tone-red: #f87171;
+
+  /* Agent tags: dark text on a light color per agent. */
+  --tag-text: #111318;
+  --agent-claude-code: #f0a679;
+  --agent-codex: #d4d4d8;
+  --agent-gemini: #93c5fd;
+  --agent-1: #a5b4fc;
+  --agent-2: #c4b5fd;
+  --agent-3: #86efac;
+  --agent-4: #fcd34d;
+  --agent-5: #f9a8d4;
+  --agent-6: #67e8f9;
 
   /* Text */
   --text: rgba(235, 238, 245, 0.95);
@@ -45,6 +65,7 @@
 
   /* Geometry */
   --radius-bar: 19px;
+  --radius-notch: 16px;
   --radius-card: 12px;
   --radius-btn: 8px;
 

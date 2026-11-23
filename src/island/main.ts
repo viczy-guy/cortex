@@ -14,24 +14,26 @@ import {
   type GithubStatus,
   HOVER_EVENT,
   type HooksStatus,
+  ISLAND_PREFS_EVENT,
+  type IslandPrefs,
   OUTSIDE_CLICK_EVENT,
+  type PendingApproval,
   type SessionView,
   type Snapshot,
   STATE_EVENT,
   UPDATES_EVENT,
   type UpdateStatus,
 } from "../shared/ipc";
+import { type Mascot, mascotSvg } from "../shared/mascots";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
-import { githubCard, githubPill, shownAccounts } from "./github";
+import { githubCard, shownAccounts } from "./github";
+import { agentShort, agentTag, byUrgency, prIcon, sessionKey, sessionTone, type Tone, topTone } from "./notch";
 import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
-/** Must match `ISLAND_WIDTH` in Rust and the window width in tauri.conf.json. */
-const WINDOW_WIDTH = 460;
 const MAX_HEIGHT = 440;
-/** The folded island: just a handle to hover. */
-const HANDLE_WIDTH = 72;
-const HANDLE_HEIGHT = 10;
+/** Agent tags shown side by side; the rest becomes a counter. */
+const MAX_TAGS = 4;
 /** How long the pointer must be gone before an idle island folds. */
 const HIDE_DELAY_MS = 700;
 
@@ -42,6 +44,7 @@ let expanded = false;
 let github: GithubStatus | null = null;
 let updates: UpdateStatus | null = null;
 let updatesError: string | null = null;
+let mascot: Mascot = "eyes";
 /** True when the panel was opened by an approval, not by the user. */
 let autoExpanded = false;
 /** `null` until Rust answers; the "Connect" chip shows only on a definite `false`. */
@@ -52,13 +55,21 @@ let hovered = false;
 let hideTimer: number | undefined;
 /** Cards folded away by a click outside the island; a new card opens it again. */
 let dismissed = new Set<string>();
-/** The handle on screen (`true` = a card waits), or `null` while unfolded. */
-let folded: boolean | null = null;
+/** What the folded island shows, or `null` while unfolded. */
+let folded: string | null = null;
+/** Each session's last event when the user last looked at the island. */
+const seen = new Map<string, number>();
+/** Green (finished) or red (failed) sessions nobody looked at yet, kept after the session is gone. */
+const unseen = new Map<string, Tone>();
+let tone: Tone = "gray";
+/** The mascot jumps once when the color rises; it never moves on its own. */
+let bounce = false;
 
 /**
- * No card demanding eyes and nobody looking: the island folds into its handle,
- * even with live sessions (hover shows them) or with cards the user folded
- * away. It stays up while the hooks are missing, so "Connect Claude Code" is seen.
+ * No card demanding eyes and nobody looking: the island folds into the
+ * notch, even with live sessions (hover shows them) or with cards the user
+ * folded away. It stays up while the hooks are missing, so "Connect Claude
+ * Code" is seen.
  */
 function isHidden(): boolean {
   return (
@@ -70,6 +81,36 @@ function isHidden(): boolean {
   );
 }
 
+const toneOf = (session: SessionView): Tone =>
+  sessionTone(session, (seen.get(sessionKey(session)) ?? -1) >= session.last_event_ms);
+
+/** The island's color: the most urgent of the live sessions and the unseen ones. */
+function updateTone(): void {
+  const live = new Set<string>();
+  for (const session of snapshot.sessions) {
+    const key = sessionKey(session);
+    live.add(key);
+    const t = toneOf(session);
+    if (t === "green" || t === "red") unseen.set(key, t);
+    else unseen.delete(key);
+  }
+  for (const key of seen.keys()) if (!live.has(key)) seen.delete(key);
+  const next = topTone([...snapshot.sessions.map(toneOf), ...unseen.values()]);
+  if (topTone([next, tone]) !== tone && next !== tone) bounce = true;
+  tone = next;
+}
+
+/** The user looked: finished and failed sessions go back to gray. */
+function acknowledge(): void {
+  for (const session of snapshot.sessions) seen.set(sessionKey(session), session.last_event_ms);
+  unseen.clear();
+}
+
+function reviewCount(): number {
+  if (!github?.enabled) return 0;
+  return shownAccounts(github.accounts).reduce((sum, { summary }) => sum + summary.review_requests_total, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 
@@ -77,19 +118,25 @@ function render(): void {
   const pending = new Set(snapshot.approvals.map((a) => a.request_id));
   dismissed = new Set([...dismissed].filter((id) => pending.has(id)));
   pruneSelections(pending);
+  updateTone();
+  root.className = `island tone-${tone}`;
 
-  const hidden = isHidden();
-  root.classList.toggle("island--hidden", hidden);
-  if (hidden) {
+  if (isHidden()) {
     expanded = false;
     autoExpanded = false;
-    const waiting = pending.size > 0;
-    // Same handle: paint nothing. Each paint with the screen locked keeps WebKit
+    const reviews = reviewCount();
+    // Same notch: paint nothing. Each paint with the screen locked keeps WebKit
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
-    if (folded === waiting) return;
-    folded = waiting;
-    root.replaceChildren(handle(waiting));
-    void api.islandFit(HANDLE_WIDTH, HANDLE_HEIGHT);
+    const key = `${tone}|${mascot}|${reviews}|${bounce}`;
+    if (folded === key) return;
+    folded = key;
+    root.classList.add("island--folded");
+    const node = el("div", "notch");
+    node.addEventListener("click", () => setHovered(true));
+    node.append(mascotNode());
+    if (reviews > 0) node.append(prCount(reviews));
+    root.replaceChildren(node);
+    void fitWindowToContent();
     return;
   }
   folded = null;
@@ -112,6 +159,7 @@ function render(): void {
   root.replaceChildren(bar());
   const panel = panelContent();
   if (panel.length > 0) {
+    root.classList.add("island--open");
     const node = el("div", "panel");
     node.dataset.scroll = "panel";
     node.append(...panel);
@@ -124,14 +172,29 @@ function render(): void {
   void fitWindowToContent();
 }
 
-/** Hovering reveals the island; a click does too, where hover is not reported. */
-function handle(waiting: boolean): HTMLElement {
-  const node = el("div", waiting ? "handle handle--waiting" : "handle");
-  node.addEventListener("click", () => setHovered(true));
+/** The mascot in the island's color, or a dot when the user hid it. */
+function mascotNode(): Element {
+  const svg = mascotSvg(mascot);
+  const node: Element = svg ?? el("span", "brand-dot");
+  if (bounce) {
+    node.classList.add("bounce");
+    node.addEventListener("animationend", () => {
+      bounce = false;
+      node.classList.remove("bounce");
+      if (folded !== null) folded = `${tone}|${mascot}|${reviewCount()}|false`;
+    });
+  }
   return node;
 }
 
-/** A click outside folds the island, cards included; the handle shows they still wait. */
+function prCount(reviews: number): HTMLElement {
+  const node = el("span", "pr-count");
+  node.title = `${reviews} pull request${reviews === 1 ? "" : "s"} waiting for your review`;
+  node.append(prIcon(), el("span", undefined, String(reviews)));
+  return node;
+}
+
+/** A click outside folds the island, cards included; the notch stays amber while they wait. */
 function foldAway(): void {
   if (snapshot.approvals.length === 0) return;
   for (const approval of snapshot.approvals) dismissed.add(approval.request_id);
@@ -147,6 +210,7 @@ function setHovered(inside: boolean): void {
   if (inside) {
     if (!hovered) {
       hovered = true;
+      acknowledge();
       render();
     }
     return;
@@ -161,36 +225,40 @@ function setHovered(inside: boolean): void {
   }, HIDE_DELAY_MS);
 }
 
+function toggle(): void {
+  expanded = !expanded;
+  autoExpanded = false;
+  render();
+}
+
+/** Agent tags around the mascot, the most urgent first; the PR count; chips and the gear. */
 function bar(): HTMLElement {
   const node = el("div", "bar");
-  node.append(el("span", "brand-dot"));
+  const sessions = byUrgency(snapshot.sessions, toneOf);
+  const tags = sessions.slice(0, MAX_TAGS).map((session) => agentTag(session, toneOf(session), sessionLabel(session)));
+  const center = el("span", "bar-center");
+  center.append(mascotNode());
+  if (snapshot.approvals.length > 1) center.append(el("span", "queue", `1 of ${snapshot.approvals.length}`));
+  node.append(...tags.slice(0, 2), center, ...tags.slice(2));
+  if (sessions.length > MAX_TAGS) node.append(el("span", "more", `+${sessions.length - MAX_TAGS}`));
+
+  const reviews = reviewCount();
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
-
-  if (snapshot.sessions.length === 0 && snapshot.approvals.length === 0) {
-    node.append(el("span", "bar-idle", "cortex"));
-    if (accounts.length > 0) node.append(githubPill(accounts, () => {
-      expanded = !expanded;
-      autoExpanded = false;
-      render();
-    }));
-    if (hooksInstalled === false && onboarding.phase === "closed") {
-      node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
-    }
-    node.append(...updateChips(), settingsButton());
-    return node;
+  if (accounts.length > 0) {
+    const pr = button("btn-pr", "", toggle);
+    pr.append(prCount(reviews));
+    node.append(pr);
   }
-
-  for (const session of snapshot.sessions.slice(0, 3)) {
-    node.append(pill(session));
+  if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
+    node.append(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
   }
-  if (accounts.length > 0) node.append(githubPill(accounts));
   node.append(...updateChips(), settingsButton());
-  node.addEventListener("click", () => {
-    expanded = !expanded;
-    autoExpanded = false;
-    render();
-  });
+  if (sessions.length > 0) node.addEventListener("click", toggle);
   return node;
+}
+
+function sessionLabel(session: SessionView): string {
+  return session.current ?? session.ticker.at(-1)?.label ?? stateLabel(session.state);
 }
 
 /** Never offered over a card: restarting would drop the agent's waiting request. */
@@ -205,12 +273,25 @@ function settingsButton(): HTMLButtonElement {
   return node;
 }
 
-function pill(session: SessionView): HTMLElement {
-  const node = el("div", "pill");
-  node.append(el("span", `state-dot state-${session.state}`));
-  node.append(el("span", "agent", session.key.agent));
-  const label = session.current ?? session.ticker.at(-1)?.label ?? stateLabel(session.state);
-  node.append(el("span", "ticker", label));
+/** One card at a time; the ones after it wait in view below. */
+function cardsInView(): HTMLElement[] {
+  const [first, ...rest] = snapshot.approvals;
+  if (!first) return [];
+  const card = first.questions.length > 0 ? questionCard(first, render) : approvalCard(first);
+  return rest.length === 0 ? [card] : [card, nextUp(rest)];
+}
+
+function nextUp(rest: PendingApproval[]): HTMLElement {
+  const node = el("div", "next-up");
+  for (const approval of rest.slice(0, 3)) {
+    const row = el("div", "next-row");
+    row.append(
+      el("span", "tag-short", agentShort(approval.session.agent)),
+      el("span", "next-text", approval.questions.length > 0 ? "has a question" : `wants ${approval.tool_name} ${approval.detail}`),
+    );
+    node.append(row);
+  }
+  if (rest.length > 3) node.append(el("div", "next-row next-more", `+${rest.length - 3} more`));
   return node;
 }
 
@@ -229,17 +310,14 @@ function panelContent(): HTMLElement[] {
   const question = askingUpdates(updates) ? [updatesQuestion((enabled) => void answerUpdates(enabled), updatesError)] : [];
   if (!expanded) return question;
 
-  const cards = snapshot.approvals.map((approval) =>
-    approval.questions.length > 0 ? questionCard(approval, render) : approvalCard(approval),
-  );
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
-  return [...question, ...cards, ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
+  return [...question, ...cardsInView(), ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
 }
 
 /** Size the window to what is drawn, so no invisible area eats clicks. */
 async function fitWindowToContent(): Promise<void> {
-  const height = Math.min(MAX_HEIGHT, Math.ceil(root.getBoundingClientRect().height) + 8);
-  await api.islandFit(WINDOW_WIDTH, height);
+  const rect = root.getBoundingClientRect();
+  await api.islandFit(Math.ceil(rect.width), Math.min(MAX_HEIGHT, Math.ceil(rect.height)));
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +391,10 @@ async function start(): Promise<void> {
     hooksInstalled = event.payload.installed;
     render();
   });
+  await listen<IslandPrefs>(ISLAND_PREFS_EVENT, (event) => {
+    mascot = event.payload.mascot;
+    render();
+  });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
   await listen(OUTSIDE_CLICK_EVENT, foldAway);
   // Windows / Linux: the island only learns of an outside click if it had focus.
@@ -323,7 +405,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ })]);
+  [snapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { mascot = value.mascot; }).catch(() => { /* The default mascot stays. */ })]);
   render();
 }
 

@@ -5,9 +5,10 @@ import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
   api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, releaseNotesUrl,
-  type GithubStatus, UPDATES_EVENT, type UpdateStatus,
+  type GithubStatus, UPDATES_EVENT, type UpdateStatus, ISLAND_PREFS_EVENT, type IslandPrefs,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
+import { type Mascot, MASCOT_NAMES, MASCOTS, mascotSvg } from "../shared/mascots";
 import { alwaysScope } from "../shared/rules";
 
 const root = document.getElementById("settings")!;
@@ -21,6 +22,7 @@ function section(title: string): HTMLElement {
 const hooksBlock = section("Claude Code");
 const rulesBlock = section("Always rules");
 const githubBlock = section("GitHub");
+const islandBlock = section("Island");
 const updatesBlock = section("Updates");
 const aboutBlock = section("About");
 let status: HooksStatus | null = null;
@@ -33,6 +35,8 @@ let githubError: string | null = null;
 let updates: UpdateStatus | null = null;
 let updatesBusy = false;
 let updatesError: string | null = null;
+let island: IslandPrefs | null = null;
+let islandError: string | null = null;
 let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
 type HookFlow =
@@ -320,6 +324,32 @@ async function changeUpdates(change: () => Promise<void>): Promise<void> {
   }
 }
 
+/** The mascot gallery: the island shows the chosen one in the state color. */
+function renderIsland(): void {
+  islandBlock.replaceChildren(el("div", "note", "The mascot sits in the island and takes the color of what needs you: green when an agent is done, amber when it waits for you, red when something failed."));
+  if (island) {
+    const gallery = el("div", "mascot-gallery");
+    for (const mascot of MASCOTS) {
+      const choice = button(mascot === island.mascot ? "mascot-choice selected" : "mascot-choice", "", () => void chooseMascot(mascot));
+      choice.title = MASCOT_NAMES[mascot];
+      choice.setAttribute("aria-pressed", String(mascot === island.mascot));
+      choice.append(mascotSvg(mascot) ?? el("span", "mascot-none"), el("span", "mascot-name", MASCOT_NAMES[mascot]));
+      gallery.append(choice);
+    }
+    islandBlock.append(gallery);
+  }
+  if (islandError) islandBlock.append(el("div", "note note-error", islandError));
+}
+async function chooseMascot(mascot: Mascot): Promise<void> {
+  try {
+    await api.islandSetMascot(mascot);
+    islandError = null;
+  } catch (error) {
+    islandError = String(error);
+    renderIsland();
+  }
+}
+
 async function start(): Promise<void> {
   // Subscribe before loading; an event received during a load is fresher.
   let githubChanged = false;
@@ -335,6 +365,12 @@ async function start(): Promise<void> {
     updates = event.payload;
     renderUpdates();
   });
+  let islandChanged = false;
+  await listen<IslandPrefs>(ISLAND_PREFS_EVENT, (event) => {
+    islandChanged = true;
+    island = event.payload;
+    renderIsland();
+  });
   let hooksChanged = false;
   let rulesChanged = false;
   await listen<HooksStatus>(HOOKS_EVENT, (event) => {
@@ -348,6 +384,7 @@ async function start(): Promise<void> {
     renderRules();
   });
   await Promise.all([
+    api.islandPrefs().then((value) => { if (!islandChanged) island = value; }).catch((error: unknown) => { islandError = String(error); }).finally(renderIsland),
     api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch((error: unknown) => { updatesError = String(error); }).finally(renderUpdates),
     api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch((error: unknown) => { githubError = String(error); }).finally(renderGithub),
     api.hooksStatus().then((value) => { if (!hooksChanged) status = value; }).catch((error: unknown) => {

@@ -34,3 +34,21 @@ h2 {
 .github-status-error, .github-status-signed_out { background: var(--state-error); }
 .github-task { flex-wrap: wrap; }
 .github-device-code { font: 600 1.3em var(--font-mono); user-select: text; }
+.mascot-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.mascot-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  background: var(--surface-solid);
+  color: var(--text);
+  --mascot-hole: var(--surface-solid);
+}
+.mascot-choice.selected { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.mascot-choice .mascot { width: 40px; height: 24px; overflow: visible; }
+.mascot-choice .m-fill { fill: currentColor; }
+.mascot-choice .m-stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.mascot-choice .m-hole { fill: var(--mascot-hole); }
+.mascot-none { width: 9px; height: 9px; margin: 7.5px 0; border-radius: 50%; background: currentColor; }
+.mascot-name { color: var(--text-dim); font-size: 11px; font-weight: 500; text-align: center; }

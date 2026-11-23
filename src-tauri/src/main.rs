@@ -177,8 +177,8 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
-/// Island width in logical points. Must match `WINDOW_WIDTH` in the UI and
-/// the window width in `tauri.conf.json`.
+/// Island width in logical points. Must match `.island--open` in
+/// `src/island/island.css` and the window width in `tauri.conf.json`.
 const ISLAND_WIDTH: f64 = 460.0;
 /// Bounds for what the UI may ask in `island_fit`.
 const ISLAND_MIN_WIDTH: f64 = 40.0;
@@ -266,6 +266,8 @@ fn main() {
             github::open_url,
             snapshot,
             island_fit,
+            prefs::island_prefs,
+            prefs::island_set_mascot,
             open_settings,
             quit,
             rules_list,
