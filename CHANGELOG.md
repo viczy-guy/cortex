@@ -18,6 +18,8 @@ follows [Semantic Versioning](https://semver.org).
   (#78)
 - A mascot of your choice, from a gallery of eight in Settings → Island, or
   none. (#27)
+- An opening screen when you open Cortex: a growing dot, "Welcome", then
+  your mascot. About two seconds; a click skips it. (#80)
 
 ### Changed
 - A new app icon: a dot with two rings, the dot that opens the island.

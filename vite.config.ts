@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         island: fileURLToPath(new URL("./index.html", import.meta.url)),
         settings: fileURLToPath(new URL("./settings.html", import.meta.url)),
+        splash: fileURLToPath(new URL("./splash.html", import.meta.url)),
       },
     },
     target: "es2022",

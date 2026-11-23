@@ -17,6 +17,7 @@ const COMMANDS: &[&str] = &[
     "autostart_status",
     "autostart_set",
     "island_set_mascot",
+    "splash_done",
     "open_settings",
     "quit",
     "rules_list",
