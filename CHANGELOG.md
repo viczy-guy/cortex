@@ -6,6 +6,11 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Security
+- `url` updated to 2.5.9, which fixes a crash on deeply nested `blob:` URLs
+  (RUSTSEC-2026-0592). Cortex does not parse URLs it receives from agents,
+  so this was not reachable through a hook.
+
 ## [0.2.0] - 2026-11-21
 
 ### Fixed
