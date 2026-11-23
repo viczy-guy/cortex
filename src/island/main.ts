@@ -36,6 +36,8 @@ import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
 const MAX_HEIGHT = 440;
+/** How long the island takes to open or fold. */
+const MORPH_MS = 360;
 /** Agent tags shown side by side; the rest becomes a counter. */
 const MAX_TAGS = 4;
 /** How long the pointer must be gone before an idle island folds. */
@@ -172,6 +174,7 @@ function render(): void {
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
     const key = foldedKey();
     if (folded === key) return;
+    const before = root.getBoundingClientRect();
     setClass(false);
     const node = el("div", "notch");
     node.addEventListener("click", () => setHovered(true));
@@ -182,7 +185,7 @@ function render(): void {
     else node.append(left, ...right);
     folded = foldedKey();
     root.replaceChildren(node);
-    void fitWindowToContent();
+    void fitWindowToContent(before);
     return;
   }
   folded = null;
@@ -203,6 +206,7 @@ function render(): void {
   root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => scrolled.set(n.dataset.scroll ?? "", n.scrollTop));
 
   const panel = panelContent();
+  const before = root.getBoundingClientRect();
   setClass(panel.length > 0);
   root.replaceChildren(bar());
   if (panel.length > 0) {
@@ -215,7 +219,7 @@ function render(): void {
     const top = scrolled.get(n.dataset.scroll ?? "");
     if (top) n.scrollTop = top;
   });
-  void fitWindowToContent();
+  void fitWindowToContent(before);
 }
 
 /**
@@ -396,10 +400,62 @@ function panelContent(): HTMLElement[] {
   return [...question, ...cardsInView(), ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
 }
 
-/** Size the window to what is drawn, so no invisible area eats clicks. */
-async function fitWindowToContent(): Promise<void> {
-  const rect = root.getBoundingClientRect();
-  await api.islandFit(Math.ceil(rect.width), Math.min(MAX_HEIGHT, Math.ceil(rect.height)));
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+/** The island's size easing from what it was to what it now draws. */
+let morph: Animation | undefined;
+/** Bumped by every fit: a newer one takes over a morph mid-way. */
+let fitTurn = 0;
+
+const fitSize = (rect: DOMRect): { width: number; height: number } => ({
+  width: Math.ceil(rect.width),
+  height: Math.min(MAX_HEIGHT, Math.ceil(rect.height)),
+});
+
+/**
+ * Size the window to what is drawn, so no invisible area eats clicks. A
+ * change of size eases (#118): the window first grows to hold both sizes,
+ * the island eases from `before` to its new size (its content already laid
+ * out at the final width, so nothing rewraps), and the window then shrinks
+ * to fit. Runs only on a change: nothing animates at rest.
+ */
+async function fitWindowToContent(before: DOMRect): Promise<void> {
+  const turn = ++fitTurn;
+  morph?.cancel();
+  morph = undefined;
+  root.classList.remove("island--morphing");
+  const from = fitSize(before);
+  const to = fitSize(root.getBoundingClientRect());
+  if (reducedMotion.matches || from.width === 0 || (from.width === to.width && from.height === to.height)) {
+    await api.islandFit(to.width, to.height);
+    return;
+  }
+  const inner = root.firstElementChild?.getBoundingClientRect().width ?? to.width;
+  root.style.setProperty("--morph-inner", `${inner}px`);
+  root.classList.add("island--morphing");
+  const animation = root.animate(
+    [{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }],
+    { duration: MORPH_MS, easing: "cubic-bezier(0.32, 0.72, 0, 1)", fill: "both" },
+  );
+  // Held at the old size until the window can show the new one.
+  animation.pause();
+  morph = animation;
+  // The new content comes in softly; it goes with its nodes on the next render.
+  for (const child of root.children) {
+    child.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS * 0.7, delay: MORPH_MS * 0.15, easing: "ease-out", fill: "backwards" });
+  }
+  await api.islandFit(Math.max(from.width, to.width), Math.max(from.height, to.height));
+  if (turn !== fitTurn) return;
+  animation.play();
+  try {
+    await animation.finished;
+  } catch {
+    return; // A newer change took over.
+  }
+  if (turn !== fitTurn) return;
+  animation.cancel();
+  morph = undefined;
+  root.classList.remove("island--morphing");
+  await api.islandFit(to.width, to.height);
 }
 
 // ---------------------------------------------------------------------------

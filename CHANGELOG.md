@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- The island opens and folds smoothly, growing from the edge it hangs on,
+  instead of jumping to its new size. (#118)
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
