@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod files;
 mod github;
 mod hooks;
@@ -267,6 +268,8 @@ fn main() {
             snapshot,
             island_fit,
             prefs::island_prefs,
+            autostart::autostart_status,
+            autostart::autostart_set,
             prefs::island_set_mascot,
             open_settings,
             quit,
@@ -294,6 +297,8 @@ fn main() {
             }
 
             place_island(&handle, ISLAND_WIDTH, None);
+
+            autostart::on_launch();
 
             // Keep the relay at a stable path so installed hooks survive updates.
             if let Err(err) = hooks::ensure_hook_binary() {

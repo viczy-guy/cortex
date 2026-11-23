@@ -130,6 +130,7 @@ The gear in the island opens a separate, opaque Settings window:
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
 - **Island** chooses the mascot from a gallery of eight, or none.
+- **Startup** turns launch at login on or off (see below).
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
 - **Updates** turns the update check on or off and offers **Update and
@@ -140,6 +141,15 @@ The gear in the island opens a separate, opaque Settings window:
 On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
 Cortex**. It is a native menu, so it still quits when the island's web view
 does not respond; a background app is not listed in Force Quit.
+
+## Launch at login
+
+On from the first launch, and from then on the user's choice in Settings
+stands. The entry runs the app with `--autostart`: a LaunchAgent in
+`~/Library/LaunchAgents` on macOS, the current user's `Run` key on Windows, an
+XDG autostart entry in `~/.config/autostart` on Linux. No dependency writes
+it. A dev build, or an app still on its disk image, never adds one. While on,
+each launch rewrites the entry if the app moved.
 
 ## GitHub
 

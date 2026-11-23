@@ -14,6 +14,8 @@ const COMMANDS: &[&str] = &[
     "snapshot",
     "island_fit",
     "island_prefs",
+    "autostart_status",
+    "autostart_set",
     "island_set_mascot",
     "open_settings",
     "quit",
