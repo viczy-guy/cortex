@@ -14,15 +14,15 @@ const RANK: Record<Tone, number> = { gray: 0, green: 1, amber: 2, red: 3 };
 export const sessionKey = (session: SessionView): string => `${session.key.agent}/${session.key.session_id}`;
 
 /**
- * Amber while the agent waits for you; green when it finished and red when it
- * failed, until you look (`seen`). A card stays amber until it is answered.
+ * Amber while the agent waits for you, until it moves on; green when it
+ * finished and red when it failed, until you click (`seen`). Looking is not
+ * enough (#126).
  */
 export function sessionTone(session: SessionView, seen: boolean): Tone {
   switch (session.state) {
     case "waiting_approval":
-      return "amber";
     case "waiting_input":
-      return seen ? "gray" : "amber";
+      return "amber";
     case "finished":
       return seen ? "gray" : "green";
     case "error":

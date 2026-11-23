@@ -67,13 +67,13 @@ let hideTimer: number | undefined;
 let dismissed = new Set<string>();
 /** What the folded island shows, or `null` while unfolded. */
 let folded: string | null = null;
-/** Each session's last event when the user last looked at the island. */
+/** Each session's last event when the user last clicked it, or the island. */
 const seen = new Map<string, number>();
 /** Each session's color from its state alone (not what was seen), to ring on a real change. */
 const previousTones = new Map<string, Tone>();
 /** Cards already rung for: a new card rings even when its session was amber already. */
 const rungCards = new Set<string>();
-/** Green (finished) or red (failed) sessions nobody looked at yet, kept after the session is gone. */
+/** Green (finished) or red (failed) sessions nobody clicked yet, kept after the session is gone. */
 const unseen = new Map<string, Tone>();
 let tone: Tone = "gray";
 /** The color just rose: the next mascot drawn jumps, once. */
@@ -100,8 +100,6 @@ const toneOf = (session: SessionView): Tone =>
 
 /** The island's color: the most urgent of the live sessions and the unseen ones. */
 function updateTone(): void {
-  // What changes while the user is looking has been seen.
-  if (hovered) acknowledge();
   const live = new Set<string>();
   let notice: Tone = "gray";
   for (const session of snapshot.sessions) {
@@ -126,10 +124,18 @@ function updateTone(): void {
   tone = next;
 }
 
-/** The user looked: finished and failed sessions go back to gray. */
+/** A click on the island: every finished and failed session goes back to gray. */
 function acknowledge(): void {
   for (const session of snapshot.sessions) seen.set(sessionKey(session), session.last_event_ms);
   unseen.clear();
+}
+
+/** A click on a session's card: that session goes back to gray. */
+function acknowledgeSession(session: SessionView): void {
+  const key = sessionKey(session);
+  seen.set(key, session.last_event_ms);
+  unseen.delete(key);
+  render();
 }
 
 /** Pull requests waiting for your review, and your own with failing checks. */
@@ -178,7 +184,11 @@ function render(): void {
     const fade = folded === null;
     setClass(false);
     const node = el("div", "notch");
-    node.addEventListener("click", () => setHovered(true));
+    node.addEventListener("click", () => {
+      acknowledge();
+      if (hovered) render();
+      else setHovered(true);
+    });
     const left = mascotNode();
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
@@ -267,7 +277,6 @@ function setHovered(inside: boolean): void {
   if (inside) {
     if (!hovered) {
       hovered = true;
-      acknowledge();
       render();
     }
     return;
@@ -336,7 +345,11 @@ function bar(): HTMLElement {
   const firstTags = tags.slice(0, 2);
   if (cutout) splitAtCamera(node, [center, ...firstTags], right);
   else node.append(...firstTags, center, ...right);
-  if (sessions.length > 0) node.addEventListener("click", toggle);
+  node.addEventListener("click", () => {
+    acknowledge();
+    if (sessions.length > 0) toggle();
+    else render();
+  });
   if (!cutout || chips.length === 0) return node;
   const wrap = el("div");
   const below = el("div", "chip-row");
@@ -399,7 +412,12 @@ function panelContent(): HTMLElement[] {
   if (!expanded) return question;
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
-  return [...question, ...cardsInView(), ...snapshot.sessions.map(sessionCard), ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
+  const sessions = snapshot.sessions.map((session) => {
+    const card = sessionCard(session);
+    card.addEventListener("click", () => acknowledgeSession(session));
+    return card;
+  });
+  return [...question, ...cardsInView(), ...sessions, ...(accounts.length > 0 ? [githubCard(accounts)] : [])];
 }
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
