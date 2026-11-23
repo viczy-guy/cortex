@@ -309,6 +309,48 @@ mod pipe_security {
     }
 }
 
+/// Another Cortex already serves the hook endpoint. Asked before anything
+/// starts: on Unix a second copy would take the socket over and leave the
+/// first one deaf, and on Windows it would itself be deaf (#73). Asked a few
+/// times over two seconds, because an update's restart launches the new copy
+/// while the old one is still on its way out.
+pub fn already_served() -> bool {
+    served(&endpoint_path(), 10, Duration::from_millis(200))
+}
+
+fn served(path: &str, tries: u32, pause: Duration) -> bool {
+    for attempt in 0..tries {
+        if attempt > 0 {
+            std::thread::sleep(pause);
+        }
+        if !answers(path) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Someone accepts connections at `path`. A socket file left by a crash
+/// refuses them. The probe sends nothing; the server sees an empty connection.
+#[cfg(unix)]
+fn answers(path: &str) -> bool {
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
+/// The pipe exists only while a Cortex serves it; busy means served too.
+#[cfg(windows)]
+fn answers(path: &str) -> bool {
+    const ERROR_PIPE_BUSY: i32 = 231;
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(_) => true,
+        Err(e) => e.raw_os_error() == Some(ERROR_PIPE_BUSY),
+    }
+}
+
 /// Must stay in sync with `cortex-hook`'s endpoint resolution.
 pub fn endpoint_path() -> String {
     if let Ok(p) = std::env::var("CORTEX_SOCKET") {
@@ -352,6 +394,26 @@ mod tests {
             reader,
             buf: Vec::new(),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_listening_socket_counts_as_another_copy() {
+        let dir = std::env::temp_dir().join(format!("cortex-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("probe.sock");
+        let path_str = path.to_str().unwrap();
+        let _ = std::fs::remove_file(&path);
+        let pause = Duration::from_millis(1);
+
+        assert!(!served(path_str, 3, pause), "no file at all");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        assert!(served(path_str, 3, pause), "a copy is listening");
+        drop(listener);
+        assert!(path.exists());
+        assert!(!served(path_str, 3, pause), "a file left behind by a crash");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

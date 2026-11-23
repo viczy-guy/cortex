@@ -227,6 +227,11 @@ fn place_island(app: &AppHandle, width: f64, height: Option<f64>) {
 }
 
 fn main() {
+    if server::already_served() {
+        eprintln!("cortex: another copy is already running; this one quits");
+        return;
+    }
+
     let builder = tauri::Builder::default();
 
     #[cfg(target_os = "macos")]
