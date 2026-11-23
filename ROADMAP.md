@@ -16,7 +16,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       agents side by side; mascot and border take the state color (green done,
       amber needs you, red danger) until you act; a mascot of your choice; one
       sound per kind of notice; an opening screen; optional launch at login.
-- [ ] **A2b · v0.4.0 — Notices.** One color and one short phrase per thing
+- [x] **A2b · v0.4.0 — Notices.** One color and one short phrase per thing
       that happened: blue when someone asks for your review; green when an
       agent is done or a pull request of yours is ready; amber when an agent
       needs you; red when a pull request of yours or an action you started
