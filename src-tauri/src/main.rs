@@ -169,6 +169,44 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|e| e.to_string())
 }
 
+/// Given to the copy a recovery starts: no opening screen, and no second
+/// recovery, so a WebKit that cannot draw at all never loops.
+const RECOVERED_ARG: &str = "--recovered";
+
+/// Start over when WebKit no longer draws the island (#115). Two refused
+/// snapshots, two seconds apart, so a single slow one does not count.
+#[cfg(target_os = "macos")]
+fn check_island(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        for attempt in 0..2 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            let answer =
+                tokio::time::timeout(std::time::Duration::from_secs(5), macos::island_draws(&app))
+                    .await;
+            match answer {
+                // Drawn, or the question could not be asked: leave it.
+                Ok(Ok(true)) | Ok(Err(_)) => return,
+                Ok(Ok(false)) | Err(_) => {}
+            }
+        }
+        if std::env::args().any(|a| a == RECOVERED_ARG) {
+            eprintln!("cortex: the island is still not drawn after a restart");
+            return;
+        }
+        eprintln!("cortex: WebKit stopped drawing the island; restarting");
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let mut env = handle.env();
+            env.args_os.push(RECOVERED_ARG.into());
+            server::release_endpoint();
+            handle.cleanup_before_exit();
+            tauri::process::restart(&env);
+        });
+    });
+}
+
 /// Open Settings from Rust, outside a command.
 fn spawn_open_settings(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
@@ -521,8 +559,20 @@ fn main() {
             }
 
             autostart::on_launch();
-            if !std::env::args().any(|a| a == cortex_core::autostart::AUTOSTART_ARG) {
+            if !std::env::args()
+                .any(|a| a == cortex_core::autostart::AUTOSTART_ARG || a == RECOVERED_ARG)
+            {
                 open_splash(&handle);
+            }
+            // A GPU process that hangs while the system is busy (just after an
+            // update or a login) leaves the island empty for good (#115).
+            #[cfg(target_os = "macos")]
+            {
+                let check = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    check_island(check);
+                });
             }
 
             // Keep the relay at a stable path so installed hooks survive updates.
@@ -557,6 +607,15 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Cortex");
+        .build(tauri::generate_context!())
+        .expect("error while building Cortex")
+        .run(|_app, _event| {
+            // Opening Cortex while it runs: show Settings, and make sure the
+            // island is really drawn (#115).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                spawn_open_settings(_app.clone());
+                check_island(_app.clone());
+            }
+        });
 }

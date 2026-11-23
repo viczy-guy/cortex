@@ -170,6 +170,14 @@ The gear in the island opens a separate, opaque Settings window:
 On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
 Cortex**. It is a native menu, so it still quits when the island's web view
 does not respond; a background app is not listed in Force Quit.
+Opening Cortex while it runs (the Finder, Launchpad, Spotlight) opens
+Settings.
+
+WebKit can give up on the process that draws the island and leave the window
+empty while the page runs on. So on macOS, 30 seconds after launch and each
+time Cortex is opened while it runs, the app asks WebKit for a picture of the
+island; when that is refused twice, Cortex restarts itself once (`--recovered`:
+no opening screen, no second restart).
 
 ## Launch at login
 

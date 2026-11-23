@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- macOS: the island could stay invisible after an update, when the system
+  part that draws it stopped answering. Cortex now notices and restarts
+  itself once. (#115)
+- macOS: opening Cortex while it runs (Finder, Launchpad, Spotlight) opens
+  Settings; before, nothing seemed to happen. (#115)
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
