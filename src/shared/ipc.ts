@@ -131,6 +131,12 @@ export interface IslandPrefs {
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
 
+export interface AutostartStatus {
+  enabled: boolean;
+  /** `false` for a dev build or an app still on its disk image. */
+  available: boolean;
+}
+
 export interface UpdateStatus {
   /** `null` until the user answers the first-run question. */
   enabled: boolean | null;
@@ -160,6 +166,8 @@ export const api = {
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
+  autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
+  autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),

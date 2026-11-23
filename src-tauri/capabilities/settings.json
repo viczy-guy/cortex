@@ -5,6 +5,8 @@
   "windows": ["settings"],
   "permissions": [
     "core:default",
+    "allow-autostart-status",
+    "allow-autostart-set",
     "allow-island-prefs",
     "allow-island-set-mascot",
     "allow-github-status",

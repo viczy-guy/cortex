@@ -5,6 +5,7 @@
 //! unit-testable.
 
 pub mod approval;
+pub mod autostart;
 pub mod diff;
 pub mod event;
 pub mod github;
