@@ -9,15 +9,22 @@ are doing.
 
 ## The island
 
-- A transparent, always-on-top, undecorated window hugging the top-center of the
-  screen. It never steals focus: clicking a button must not deactivate the app
-  the user is typing in (macOS: non-activating panel).
+- A transparent, always-on-top, undecorated window. It never steals focus:
+  clicking a button must not deactivate the app the user is typing in (macOS:
+  non-activating panel).
+- The island defaults to the top center of the main screen, flush with the top
+  edge. Settings remembers the selected screen and one of five positions: top
+  center, left side, right side, bottom-left corner or bottom-right corner.
+  Away from the top it is a tab on the edge of the work area and grows inward.
+  If the chosen screen disconnects, the island moves to the main screen and
+  returns when the chosen screen reconnects.
 - States: `folded` (no card waiting — **0% CPU**, no timers, no animation
   frames) → `bar` (on hover) → `expanded` (session detail, approval/question
   cards) on click, or by itself when a card needs the user.
-- Folded, the island is a black notch flush with the top edge, the shape of
-  the MacBook camera cutout, with the mascot in the middle and, when pull
-  requests wait for the user's review, the pull request sign and their count.
+- Folded, the island is a black notch at the top (the shape of the MacBook
+  camera cutout) or a tab at the selected edge. It shows the mascot in the
+  middle and, when pull requests wait for the user's review, the pull request
+  sign and their count.
   It stays folded while sessions run. Hovering the notch (or clicking it)
   brings the bar back; it folds again shortly after the pointer leaves, and
   once the last card is answered. The island never folds while the hooks are
@@ -42,7 +49,8 @@ are doing.
   island had focus.)
 - The window is always exactly as large as what it draws, so no invisible area
   eats clicks. The UI cannot move or resize windows itself: it asks Rust for a
-  size, which is clamped and kept top-centered.
+  size. Rust fits the window to the content within the screen bounds and
+  positions it at the selected edge.
 - Theming: all colors/spacing come from CSS tokens under a `data-theme`
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.
@@ -138,7 +146,8 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
-- **Island** chooses the mascot from a gallery of eight, or none.
+- **Island** chooses the mascot from a gallery of eight, or none, and sets
+  the island’s screen and position.
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
 - **Updates** turns the update check on or off and offers **Update and

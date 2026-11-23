@@ -7,6 +7,7 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- Choose the island’s screen and one of five positions in Settings → Island. (#43)
 - An opening screen when you open Cortex: a growing dot, "Welcome", then
   your mascot. About two seconds; a click skips it. (#80)
 

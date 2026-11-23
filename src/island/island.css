@@ -11,8 +11,7 @@ body {
   cursor: default;
 }
 
-/* The island is the camera notch's shape: black, flush with the top edge,
-   round only at the bottom. The window is exactly its size. */
+/* The window is exactly the size of the island. */
 .island {
   display: flex;
   flex-direction: column;
@@ -24,10 +23,33 @@ body {
   padding: 0 10px;
   background: var(--notch);
   border: 1.5px solid transparent;
-  border-top: none;
+  --edge-glow: 0 -6px;
+  border-top-width: 0;
   border-radius: 0 0 var(--radius-notch) var(--radius-notch);
   --tone: var(--mascot);
   --mascot-hole: var(--notch);
+}
+
+.island[data-position="left"] {
+  --edge-glow: -6px 0;
+  border-top-width: 1.5px;
+  border-left-width: 0;
+  border-radius: 0 var(--radius-notch) var(--radius-notch) 0;
+}
+
+.island[data-position="right"] {
+  --edge-glow: 6px 0;
+  border-top-width: 1.5px;
+  border-right-width: 0;
+  border-radius: var(--radius-notch) 0 0 var(--radius-notch);
+}
+
+.island[data-position="bottom-left"],
+.island[data-position="bottom-right"] {
+  --edge-glow: 0 6px;
+  border-top-width: 1.5px;
+  border-bottom-width: 0;
+  border-radius: var(--radius-notch) var(--radius-notch) 0 0;
 }
 
 /* With cards: the full width. Must match `ISLAND_WIDTH` in src-tauri/src/main.rs. */
@@ -42,7 +64,7 @@ body {
 .island.tone-red { --tone: var(--tone-red); }
 .island:not(.tone-gray) {
   border-color: var(--tone);
-  box-shadow: inset 0 -6px 14px -8px var(--tone);
+  box-shadow: inset var(--edge-glow) 14px -8px var(--tone);
 }
 
 /* ---- Folded: the notch and the mascot ---------------------------------- */

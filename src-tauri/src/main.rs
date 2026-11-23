@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod displays;
 mod files;
 mod github;
 mod hooks;
@@ -14,6 +15,10 @@ mod updates;
 #[cfg(target_os = "macos")]
 mod macos;
 
+use std::sync::Mutex;
+
+use cortex_core::placement::{is_position, island_origin, Rect};
+use cortex_core::prefs::is_screen_name;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use state::{AppState, Snapshot};
@@ -244,42 +249,149 @@ pub const HOVER_EVENT: &str = "cortex://hover";
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const OUTSIDE_CLICK_EVENT: &str = "cortex://outside-click";
 
-/// Size the island to what it draws, keeping it top-centered. The window is
+struct IslandPlacement {
+    position: String,
+    screen: Option<String>,
+    width: f64,
+    height: f64,
+}
+
+/// Size the island to what it draws at the selected edge. The window is
 /// never larger than its content, so no invisible area eats clicks.
 #[tauri::command]
 fn island_fit(app: AppHandle, width: f64, height: f64) {
     if width.is_finite() && height.is_finite() {
-        place_island(
-            &app,
-            width.clamp(ISLAND_MIN_WIDTH, ISLAND_WIDTH),
-            Some(height.clamp(ISLAND_MIN_HEIGHT, ISLAND_MAX_HEIGHT)),
-        );
+        let state = app.state::<Mutex<IslandPlacement>>();
+        {
+            let mut placement = state.lock().expect("island placement lock");
+            placement.width = width.clamp(ISLAND_MIN_WIDTH, ISLAND_WIDTH);
+            placement.height = height.clamp(ISLAND_MIN_HEIGHT, ISLAND_MAX_HEIGHT);
+        }
+        place_island(&app);
     }
 }
 
-/// Resize the island and pin it to the top-center of the primary monitor.
-/// `height: None` keeps the current height.
-fn place_island(app: &AppHandle, width: f64, height: Option<f64>) {
+#[derive(serde::Serialize)]
+struct IslandScreen {
+    name: String,
+    primary: bool,
+    width: u32,
+    height: u32,
+}
+
+#[tauri::command]
+fn island_screens(app: AppHandle) -> Result<Vec<IslandScreen>, String> {
+    let primary = app.primary_monitor().map_err(|e| e.to_string())?;
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    Ok(monitors
+        .into_iter()
+        .filter_map(|monitor| {
+            let name = monitor.name().filter(|name| is_screen_name(name))?.clone();
+            let primary = primary.as_ref().is_some_and(|primary| {
+                primary.position() == monitor.position() && primary.name() == Some(&name)
+            });
+            let size = monitor.size().to_logical::<u32>(monitor.scale_factor());
+            Some(IslandScreen {
+                name,
+                primary,
+                width: size.width,
+                height: size.height,
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn island_set_position(app: AppHandle, position: String) -> Result<(), String> {
+    if !is_position(&position) {
+        return Err("Unknown island position.".into());
+    }
+    set_island_placement(&app, |p| p.island_position = Some(position))
+}
+
+#[tauri::command]
+fn island_set_screen(app: AppHandle, screen: Option<String>) -> Result<(), String> {
+    if let Some(name) = &screen {
+        if !is_screen_name(name)
+            || !app
+                .available_monitors()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .any(|monitor| monitor.name() == Some(name))
+        {
+            return Err("Unknown screen.".into());
+        }
+    }
+    set_island_placement(&app, |p| p.island_screen = screen)
+}
+
+fn set_island_placement(
+    app: &AppHandle,
+    change: impl FnOnce(&mut prefs::Prefs),
+) -> Result<(), String> {
+    let state = app.state::<Mutex<IslandPlacement>>();
+    let island = {
+        let mut placement = state.lock().expect("island placement lock");
+        let island = prefs::IslandPrefs::from(&prefs::update(change)?);
+        placement.position.clone_from(&island.position);
+        placement.screen.clone_from(&island.screen);
+        island
+    };
+    let _ = app.emit(prefs::ISLAND_PREFS_EVENT, island);
+    place_island(app);
+    Ok(())
+}
+
+/// Fit the island at its chosen edge, falling back to the primary monitor.
+fn place_island(app: &AppHandle) {
     let Some(window) = app.get_webview_window("island") else {
         return;
     };
-    let Ok(Some(monitor)) = window.primary_monitor() else {
+    let state = app.state::<Mutex<IslandPlacement>>();
+    let (position, name, width, height) = {
+        let placement = state.lock().expect("island placement lock");
+        (
+            placement.position.clone(),
+            placement.screen.clone(),
+            placement.width,
+            placement.height,
+        )
+    };
+    let monitor = name
+        .and_then(|name| {
+            app.available_monitors()
+                .ok()?
+                .into_iter()
+                .find(|m| m.name() == Some(&name))
+        })
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
         return;
     };
-    if let Some(height) = height {
-        let _ = window.set_size(tauri::LogicalSize { width, height });
-    }
-    // Work in logical points of the *target* monitor. The window may have been
-    // created on another display with a different scale factor, so its own
-    // physical size must not enter the math.
+
     let scale = monitor.scale_factor();
-    let origin_x = monitor.position().x as f64 / scale;
-    let origin_y = monitor.position().y as f64 / scale;
-    let screen_width = monitor.size().width as f64 / scale;
-    let _ = window.set_position(tauri::LogicalPosition {
-        x: origin_x + (screen_width - width) / 2.0,
-        y: origin_y,
-    });
+    let rect = |origin: tauri::PhysicalPosition<i32>, size: tauri::PhysicalSize<u32>| Rect {
+        x: origin.x as f64 / scale,
+        y: origin.y as f64 / scale,
+        width: size.width as f64 / scale,
+        height: size.height as f64 / scale,
+    };
+    let screen = rect(*monitor.position(), *monitor.size());
+    let work = rect(monitor.work_area().position, monitor.work_area().size);
+    let width = width.min(screen.width);
+    let height = height.min(screen.height);
+    let (x, y) = island_origin(&position, screen, work, width, height);
+    let size = tauri::LogicalSize::new(width, height);
+    let origin = tauri::LogicalPosition::new(x, y);
+    // Windows uses physical desktop coordinates and the old monitor's DPI
+    // when converting a logical size immediately before a move.
+    #[cfg(target_os = "windows")]
+    let (origin, size) = (
+        origin.to_physical::<i32>(scale),
+        size.to_physical::<u32>(scale),
+    );
+    let _ = window.set_size(size);
+    let _ = window.set_position(origin);
 }
 
 fn main() {
@@ -294,11 +406,18 @@ fn main() {
     let builder = builder.plugin(tauri_nspanel::init());
 
     let prefs = prefs::load();
+    let island = prefs::IslandPrefs::from(&prefs);
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::with_rules(rules::load()))
         .manage(updates::UpdateState::new(prefs.updates))
         .manage(github::GithubState::new(prefs))
+        .manage(Mutex::new(IslandPlacement {
+            position: island.position,
+            screen: island.screen,
+            width: ISLAND_WIDTH,
+            height: 50.0,
+        }))
         .invoke_handler(tauri::generate_handler![
             updates::updates_status,
             updates::updates_set_enabled,
@@ -315,6 +434,9 @@ fn main() {
             island_fit,
             prefs::island_prefs,
             prefs::island_set_mascot,
+            island_screens,
+            island_set_position,
+            island_set_screen,
             splash_done,
             open_settings,
             quit,
@@ -341,7 +463,8 @@ fn main() {
                 eprintln!("cortex: menu-bar item failed: {err}");
             }
 
-            place_island(&handle, ISLAND_WIDTH, None);
+            displays::watch(&handle);
+            place_island(&handle);
 
             if !std::env::args().any(|a| a == "--autostart") {
                 open_splash(&handle);

@@ -6,9 +6,10 @@ import { diffView } from "../shared/diff-view";
 import {
   api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, releaseNotesUrl,
   type GithubStatus, UPDATES_EVENT, type UpdateStatus, ISLAND_PREFS_EVENT, type IslandPrefs,
+  ISLAND_SCREENS_EVENT, type IslandPosition, type IslandScreen,
   type AlwaysRule, type HooksPreview, type HooksStatus,
 } from "../shared/ipc";
-import { type Mascot, MASCOT_NAMES, MASCOTS, mascotSvg } from "../shared/mascots";
+import { MASCOT_NAMES, MASCOTS, mascotSvg } from "../shared/mascots";
 import { alwaysScope } from "../shared/rules";
 
 const root = document.getElementById("settings")!;
@@ -23,6 +24,13 @@ const hooksBlock = section("Claude Code");
 const rulesBlock = section("Always rules");
 const githubBlock = section("GitHub");
 const islandBlock = section("Island");
+const POSITIONS: Record<IslandPosition, string> = {
+  top: "Top center",
+  left: "Left side",
+  right: "Right side",
+  "bottom-left": "Bottom left",
+  "bottom-right": "Bottom right",
+};
 const updatesBlock = section("Updates");
 const aboutBlock = section("About");
 let status: HooksStatus | null = null;
@@ -37,6 +45,10 @@ let updatesBusy = false;
 let updatesError: string | null = null;
 let island: IslandPrefs | null = null;
 let islandError: string | null = null;
+let islandBusy = false;
+let screens: IslandScreen[] | null = null;
+let screensRevision = 0;
+let screensError: string | null = null;
 let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
 type HookFlow =
@@ -324,31 +336,77 @@ async function changeUpdates(change: () => Promise<void>): Promise<void> {
   }
 }
 
-/** The mascot gallery: the island shows the chosen one in the state color. */
+function islandChoice(label: string, selected: boolean, change?: () => Promise<void>): HTMLButtonElement {
+  const choice = button(selected ? "mascot-choice selected" : "mascot-choice", label, () => {
+    if (change) void changeIsland(change);
+  });
+  choice.setAttribute("aria-pressed", String(selected));
+  choice.disabled = islandBusy || !change;
+  return choice;
+}
+
 function renderIsland(): void {
   islandBlock.replaceChildren(el("div", "note", "The mascot sits in the island and takes the color of what needs you: green when an agent is done, amber when it waits for you, red when something failed."));
-  if (island) {
+  const prefs = island;
+  if (prefs) {
     const gallery = el("div", "mascot-gallery");
     for (const mascot of MASCOTS) {
-      const choice = button(mascot === island.mascot ? "mascot-choice selected" : "mascot-choice", "", () => void chooseMascot(mascot));
+      const choice = islandChoice("", mascot === prefs.mascot, () => api.islandSetMascot(mascot));
       choice.title = MASCOT_NAMES[mascot];
-      choice.setAttribute("aria-pressed", String(mascot === island.mascot));
       choice.append(mascotSvg(mascot) ?? el("span", "mascot-none"), el("span", "mascot-name", MASCOT_NAMES[mascot]));
       gallery.append(choice);
     }
-    islandBlock.append(gallery);
+
+    const positions = el("div", "mascot-gallery");
+    for (const position of Object.keys(POSITIONS) as IslandPosition[]) {
+      positions.append(islandChoice(POSITIONS[position], position === prefs.position, () => api.islandSetPosition(position)));
+    }
+
+    const displays = el("div", "mascot-gallery screen-gallery");
+    displays.append(islandChoice("Main screen", prefs.screen === null, () => api.islandSetScreen(null)));
+    for (const screen of screens ?? []) {
+      displays.append(islandChoice(
+        `${screen.name} · ${screen.width} × ${screen.height}`,
+        screen.name === prefs.screen,
+        () => api.islandSetScreen(screen.name),
+      ));
+    }
+    if (screens && prefs.screen !== null && !screens.some(({ name }) => name === prefs.screen)) {
+      displays.append(islandChoice(`${prefs.screen} (not connected)`, true));
+    }
+    islandBlock.append(gallery, el("h3", undefined, "Position"), positions, el("h3", undefined, "Screen"), displays);
   }
   if (islandError) islandBlock.append(el("div", "note note-error", islandError));
+  if (screensError) islandBlock.append(el("div", "note note-error", screensError));
 }
-async function chooseMascot(mascot: Mascot): Promise<void> {
-  // Cleared first: the change event redraws before the command returns.
+
+async function changeIsland(change: () => Promise<void>): Promise<void> {
+  if (islandBusy) return;
+  islandBusy = true;
   islandError = null;
+  renderIsland();
   try {
-    await api.islandSetMascot(mascot);
+    await change();
   } catch (error) {
     islandError = String(error);
+  } finally {
+    islandBusy = false;
     renderIsland();
   }
+}
+
+async function refreshScreens(): Promise<void> {
+  const revision = ++screensRevision;
+  try {
+    const connected = await api.islandScreens();
+    if (revision !== screensRevision) return;
+    screens = connected;
+    screensError = null;
+  } catch (error) {
+    if (revision !== screensRevision) return;
+    screensError = String(error);
+  }
+  renderIsland();
 }
 
 async function start(): Promise<void> {
@@ -372,6 +430,7 @@ async function start(): Promise<void> {
     island = event.payload;
     renderIsland();
   });
+  await listen(ISLAND_SCREENS_EVENT, () => void refreshScreens());
   let hooksChanged = false;
   let rulesChanged = false;
   await listen<HooksStatus>(HOOKS_EVENT, (event) => {
@@ -385,6 +444,7 @@ async function start(): Promise<void> {
     renderRules();
   });
   await Promise.all([
+    refreshScreens(),
     api.islandPrefs().then((value) => { if (!islandChanged) island = value; }).catch((error: unknown) => { islandError = String(error); }).finally(renderIsland),
     api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch((error: unknown) => { updatesError = String(error); }).finally(renderUpdates),
     api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch((error: unknown) => { githubError = String(error); }).finally(renderGithub),

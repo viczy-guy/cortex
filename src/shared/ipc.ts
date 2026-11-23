@@ -125,11 +125,23 @@ export const OUTSIDE_CLICK_EVENT = "cortex://outside-click";
 /** Name of the state event emitted by the Rust side. */
 export const STATE_EVENT = "cortex://state";
 
-/** How the island looks; sent to both windows when Settings changes it. */
+export type IslandPosition = "top" | "left" | "right" | "bottom-left" | "bottom-right";
+
+export interface IslandScreen {
+  name: string;
+  primary: boolean;
+  width: number;
+  height: number;
+}
+
+/** How the island looks and where it sits; sent when Settings changes it. */
 export interface IslandPrefs {
   mascot: Mascot;
+  position: IslandPosition;
+  screen: string | null;
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
+export const ISLAND_SCREENS_EVENT = "cortex://island-screens";
 
 export interface UpdateStatus {
   /** `null` until the user answers the first-run question. */
@@ -160,6 +172,9 @@ export const api = {
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
+  islandScreens: () => invoke<IslandScreen[]>("island_screens"),
+  islandSetPosition: (position: IslandPosition) => invoke<void>("island_set_position", { position }),
+  islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
   splashDone: () => invoke<void>("splash_done"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),
