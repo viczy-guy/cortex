@@ -77,8 +77,17 @@ export function playSound(kind: SoundKind, force = false): void {
     // One context per sound, closed after its last note: an open one keeps
     // an audio thread running, and Cortex must use no CPU at rest.
     if (last) last.onended = done;
-    // A suspended context may never dispatch an oscillator's ended event.
-    active.timer = window.setTimeout(done, (end + 0.05) * 1000 + 100);
+    // A suspended context may never dispatch an oscillator's ended event. The
+    // page clock is not the audio clock: a context that started late is
+    // still playing, so wait for what is left of it.
+    const endsAt = context.currentTime + end + 0.05;
+    const fallback = (): void => {
+      if (active?.context !== context) return;
+      const left = endsAt - context.currentTime;
+      if (context.state === "running" && left > 0) active.timer = window.setTimeout(fallback, left * 1000 + 100);
+      else stop();
+    };
+    active.timer = window.setTimeout(fallback, (end + 0.05) * 1000 + 100);
   } catch {
     stop();
   }
