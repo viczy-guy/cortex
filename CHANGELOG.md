@@ -10,6 +10,11 @@ follows [Semantic Versioning](https://semver.org).
 - macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app
   even when the island stops responding. (#76)
 
+### Fixed
+- Opening a second copy of Cortex (say, from a mounted `.dmg` while the
+  installed one runs) no longer leaves the first one deaf to its agents. The
+  new copy sees the running one and quits. (#73)
+
 ### Security
 - `url` updated to 2.5.9, which fixes a crash on deeply nested `blob:` URLs
   (RUSTSEC-2026-0592). Cortex does not parse URLs it receives from agents,
