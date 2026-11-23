@@ -127,6 +127,13 @@ export const STATE_EVENT = "cortex://state";
 
 export type IslandPosition = "top" | "left" | "right" | "bottom-left" | "bottom-right";
 
+export interface IslandCutout {
+  width: number;
+  height: number;
+}
+
+export const ISLAND_CUTOUT_EVENT = "cortex://island-cutout";
+
 export interface IslandScreen {
   name: string;
   primary: boolean;
@@ -177,6 +184,7 @@ export const api = {
   ruleRemove: (rule: AlwaysRule) => invoke<void>("rule_remove", { rule }),
   rulesClear: () => invoke<void>("rules_clear"),
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
+  islandCutout: () => invoke<IslandCutout | null>("island_cutout"),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
   islandScreens: () => invoke<IslandScreen[]>("island_screens"),

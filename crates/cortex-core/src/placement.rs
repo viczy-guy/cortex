@@ -14,6 +14,13 @@ pub struct Rect {
     pub height: f64,
 }
 
+pub fn island_width(width: f64, cutout_width: Option<f64>, max_width: f64) -> f64 {
+    const CUTOUT_SIDE_WIDTH: f64 = 64.0;
+    cutout_width.map_or(width, |cutout| {
+        width.max(cutout + 2.0 * CUTOUT_SIDE_WIDTH).min(max_width)
+    })
+}
+
 pub fn island_origin(
     position: &str,
     screen: Rect,
@@ -53,6 +60,14 @@ mod tests {
         width: 1150.0,
         height: 730.0,
     };
+
+    #[test]
+    fn a_cutout_leaves_room_on_both_sides_within_the_maximum_width() {
+        assert_eq!(island_width(90.0, Some(180.0), 460.0), 308.0);
+        assert_eq!(island_width(400.0, Some(180.0), 460.0), 400.0);
+        assert_eq!(island_width(90.0, Some(350.0), 460.0), 460.0);
+        assert_eq!(island_width(90.0, None, 460.0), 90.0);
+    }
 
     #[test]
     fn top_centers_on_the_full_screen() {

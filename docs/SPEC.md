@@ -18,6 +18,11 @@ are doing.
   Away from the top it is a tab on the edge of the work area and grows inward.
   If the chosen screen disconnects, the island moves to the main screen and
   returns when the chosen screen reconnects.
+- At top center on a MacBook display with a camera cutout, the top row matches
+  the cutout height and leaves its center, the camera's width, empty: the
+  mascot and at most two agent tags on the left; the counter of the others,
+  the pull request count and the gear on the right; the "Connect" and update
+  chips on a row under the camera; cards below.
 - States: `folded` (no card waiting — **0% CPU**, no timers, no animation
   frames) → `bar` (on hover) → `expanded` (session detail, approval/question
   cards) on click, or by itself when a card needs the user.

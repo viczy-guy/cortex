@@ -141,6 +141,37 @@ body {
   overflow: hidden;
 }
 
+.island--cutout {
+  min-width: min(460px, calc(var(--cutout-width) + 128px));
+}
+
+.cutout-row {
+  display: grid;
+  grid-template-columns: 1fr var(--cutout-width) 1fr;
+  gap: 0;
+  height: var(--cutout-height);
+}
+
+.cutout-left,
+.cutout-right {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cutout-left { grid-column: 1; }
+.cutout-right { grid-column: 3; }
+
+.notch.cutout-row {
+  padding: 0;
+}
+
+.notch .cutout-left,
+.notch .cutout-right {
+  justify-content: center;
+}
+
 .bar-center {
   display: flex;
   align-items: center;
@@ -459,3 +490,43 @@ body {
 .github-account { font-weight: 600; }
 .github-section { color: var(--text-dim); font-size: 11px; font-weight: 600; }
 .github-more { color: var(--text-faint); font-size: 11px; }
+
+.cutout-row .bar-center {
+  flex: none;
+  gap: 3px;
+  padding: 0;
+}
+
+.cutout-row .tag {
+  gap: 3px;
+  padding-inline: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.cutout-row .tag-short {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cutout-row .tag-dot { flex: none; }
+.cutout-row .more { padding-inline: 3px; }
+.cutout-row .btn-pr { padding-inline: 1px; }
+.cutout-row .btn-icon { padding-inline: 2px; }
+
+.cutout-row .btn-chip {
+  padding-inline: 4px;
+  line-height: 1;
+}
+
+.cutout-row .btn-chip + .btn-icon {
+  margin-left: 0;
+}
+
+/* Beside the camera: chips sit on a row of their own under it. */
+.chip-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
