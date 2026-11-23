@@ -8,7 +8,7 @@ follows [Semantic Versioning](https://semver.org).
 
 ### Added
 - macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app
-  even when the island does not respond. (#76)
+  even when the island stops responding. (#76)
 
 ### Security
 - `url` updated to 2.5.9, which fixes a crash on deeply nested `blob:` URLs

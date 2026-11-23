@@ -124,8 +124,8 @@ The gear in the island opens a separate, opaque Settings window:
   version, its local-only policy, and Quit Cortex.
 
 On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
-Cortex**. It is a native menu, so it still quits an island that does not
-respond; a background app is not listed in Force Quit.
+Cortex**. It is a native menu, so it still quits when the island's web view
+does not respond; a background app is not listed in Force Quit.
 
 ## GitHub
 
