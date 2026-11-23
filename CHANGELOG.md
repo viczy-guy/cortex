@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
 ### Added
 - Notices from GitHub, with GitHub on in Settings: the island turns blue when
   someone asks for your review, green when a pull request of yours is ready
