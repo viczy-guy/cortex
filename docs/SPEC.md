@@ -57,14 +57,18 @@ are doing.
   agent failed" (red); "An agent needs you" (amber); "A PR needs your review"
   (blue); "Your PR is ready", "An agent finished" (green); beside it the
   repository and number, the workflow and branch, or the agent and its
-  folder. When a new one comes, the folded island widens with its phrase for
-  5 seconds and a "+N" for the others standing, then folds back in the color;
-  beside the camera the phrase takes a row under it. A notice lower than the
-  island's color, or than the phrase showing, does not speak. Hovering lists
-  every standing notice, the most urgent first (not over a card); a click on
-  a row clears that one and opens GitHub's on GitHub. The first GitHub answer
-  after launch, or after turning GitHub on, speaks nothing: what was there is
-  not news; a notice that went and comes back is. In the session cards the
+  folder. When a new one comes (an agent's state change that has a phrase, or
+  a GitHub notice not there before), the folded island widens with its phrase
+  and a "+N" for the others standing for 5 seconds, counted from when it is
+  drawn, then folds back in the color; beside the camera the phrase takes a
+  row under it. Opening the island (its list shows the notice), the notice
+  going, or a more urgent color ends the phrase early. A notice less urgent
+  than the island's color, or than the phrase showing, does not speak.
+  Hovering lists every standing notice, the most urgent first (not over a
+  card); a click on a row clears that one, and a GitHub one also opens on
+  GitHub. Each account's first GitHub answer (after launch, after turning
+  GitHub on, or once the account is shown again) speaks nothing: what was
+  there is not news; a notice that went and comes back is. In the session cards the
   "working" dot is gray, as on the island: blue is the review's.
 - Cards come one at a time; the ones after it wait in view below, and the
   bar says "1 of N".
@@ -88,8 +92,9 @@ Each notice has its own sound, about two seconds long, synthesized note for
 note as on the vision page (each note plucked: up in 15 ms, then an
 exponential fade), played once per change: a session's state turning done
 (green), waiting for the user or a new card (amber), or failed (red); and a
-new GitHub notice that speaks, in its color, blue being the "Toque" (two notes
-up, softer than the alert: a request, not an emergency). If several come together, the most urgent
+new GitHub notice at least as urgent as the island's color (the rule for its
+phrase), in its color, blue being the "Toque" (two notes up, softer than the
+alert: a request, not an emergency). If several come together, the most urgent
 plays; a lower one arriving while a higher one plays is not played. Sounds
 are on by default and can be muted or sampled in Settings → Island.
 

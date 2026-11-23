@@ -15,7 +15,8 @@ follows [Semantic Versioning](https://semver.org).
 - Each notice says what happened in a short phrase ("A PR needs your
   review", "An action failed!", "An agent finished"…) for 5 seconds, with
   where it happened, then the island folds back in its color. Hovering lists
-  every notice standing; a click on one clears it and opens it on GitHub.
+  every notice standing; a click on one clears it, and a GitHub one also
+  opens on GitHub.
   Blue has its own sound, softer than the others. (#131)
 
 ### Changed
