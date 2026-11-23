@@ -22,7 +22,7 @@ Thumbs.db
 .env
 .env.*
 
-# Logs of delegated Codex runs
+# Codex reviews: prompt, log and result
 .codex-runs/
 
 # Relay copied here for bundling (scripts/prepare-sidecar.mjs)

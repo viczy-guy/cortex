@@ -18,15 +18,21 @@ to every AI agent working here, Claude included.
 ## How we work
 
 - Claude implements; the Codex CLI reviews. Every pull request gets
-  `/code-review` and a read-only Codex review before it merges:
-  `codex exec -s read-only -C <repo> -o .codex-runs/review-<PR>.md - < prompt`,
-  where the prompt names the diff (`git diff origin/main...HEAD`), what to
-  check and the context. Real findings are fixed in the pull request; the
-  ones left out are named there with the reason. (Until 0.3.0 Codex
-  implemented from written specs; the maintainer found that it drifted from
-  the design, so since 0.3.1 it only reviews.)
-- Codex runs log to `.codex-runs/` (git-ignored). Codex never edits or
-  commits.
+  `/code-review` and a read-only Codex review before it merges. From the
+  repository root, after `git fetch origin`, with the prompt (the diff to
+  read, `git diff origin/main...HEAD`; what to check; the context) in
+  `.codex-runs/review-N.prompt.md` for pull request N:
+
+  ```bash
+  codex exec -s read-only -C "$PWD" -o .codex-runs/review-N.md - \
+    < .codex-runs/review-N.prompt.md > .codex-runs/review-N.log 2>&1
+  ```
+
+  `.codex-runs/` is git-ignored: the log can be followed with `tail -f`, the
+  result is the `.md`. Real findings are fixed in the pull request; the ones
+  left out are named there with the reason. A session without the Codex CLI
+  says so in the pull request. Codex reviews only: its implementations
+  drifted from the design (the 0.3.0 sounds).
 
 ## Working by milestone
 
