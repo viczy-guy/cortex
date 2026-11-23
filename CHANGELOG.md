@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- macOS: a menu-bar item with Settings… and Quit Cortex. It quits the app
+  even when the island stops responding. (#76)
+
 ### Fixed
 - Opening a second copy of Cortex (say, from a mounted `.dmg` while the
   installed one runs) no longer leaves the first one deaf to its agents. The

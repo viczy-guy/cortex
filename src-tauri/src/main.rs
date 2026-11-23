@@ -163,6 +163,15 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|e| e.to_string())
 }
 
+/// Open Settings from Rust, outside a command.
+fn spawn_open_settings(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = open_settings(app).await {
+            eprintln!("cortex: settings window failed: {err}");
+        }
+    });
+}
+
 #[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
@@ -277,6 +286,10 @@ fn main() {
             if let Err(err) = macos::make_island_panel(&handle) {
                 eprintln!("cortex: panel setup failed, plain window fallback: {err}");
             }
+            #[cfg(target_os = "macos")]
+            if let Err(err) = macos::add_menu_bar_item(&handle) {
+                eprintln!("cortex: menu-bar item failed: {err}");
+            }
 
             place_island(&handle, ISLAND_WIDTH, None);
 
@@ -301,12 +314,7 @@ fn main() {
             // Dev aid: open Settings at launch, for visual checks without a click.
             #[cfg(debug_assertions)]
             if std::env::var_os("CORTEX_DEV_OPEN_SETTINGS").is_some() {
-                let settings_handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(err) = open_settings(settings_handle).await {
-                        eprintln!("cortex: settings window failed: {err}");
-                    }
-                });
+                spawn_open_settings(handle.clone());
             }
 
             tauri::async_runtime::spawn(github::poller(handle.clone()));

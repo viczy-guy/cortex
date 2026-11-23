@@ -20,6 +20,9 @@ tauri-plugin-updater = { version = "=2.14.1", default-features = false, features
 tokio = { version = "1", features = ["net", "io-util", "time", "sync", "macros"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The menu-bar item (#76). Only on macOS: on Linux a tray needs
+# libappindicator at run time.
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-nspanel = "2"
 # Already in the tree through tauri-nspanel's objc2-app-kit; needed directly to
 # hand AppKit a closure (the outside-click monitor).

@@ -101,3 +101,78 @@ pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     Ok(())
 }
+
+/// A menu-bar item with Settings and Quit. Cortex is a background app, so it
+/// is not in the Force Quit window; this menu is native and still works when
+/// the island's web view does not respond (#76).
+pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::MenuBuilder;
+    use tauri::tray::TrayIconBuilder;
+
+    let menu = MenuBuilder::new(app)
+        .text("menu-bar-settings", "Settings…")
+        .separator()
+        .text("menu-bar-quit", "Quit Cortex")
+        .build()?;
+    TrayIconBuilder::with_id("cortex")
+        .icon(menu_bar_icon())
+        .icon_as_template(true)
+        .tooltip("Cortex")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        // Menu events are app-wide: the ids say which menu they came from.
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "menu-bar-settings" => crate::spawn_open_settings(app.clone()),
+            "menu-bar-quit" => {
+                // The way out must not hang on a stuck teardown.
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    std::process::exit(0);
+                });
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
+/// The app icon's dot and two rings, drawn as a template image: AppKit
+/// colors it for a light or dark menu bar. 36 px for an 18 pt item.
+fn menu_bar_icon() -> tauri::image::Image<'static> {
+    const SIZE: u32 = 36;
+    let center = SIZE as f32 / 2.0;
+    // Coverage of a band `half` px either side of `radius`, smoothed over a pixel.
+    let band = |d: f32, radius: f32, half: f32| (half + 0.5 - (d - radius).abs()).clamp(0.0, 1.0);
+    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let dx = x as f32 + 0.5 - center;
+            let dy = y as f32 + 0.5 - center;
+            let d = (dx * dx + dy * dy).sqrt();
+            let dot = (5.5 - d).clamp(0.0, 1.0);
+            let ring = band(d, 10.5, 1.4);
+            let outer = 0.5 * band(d, 15.0, 1.1);
+            let alpha = dot.max(ring).max(outer);
+            rgba.extend_from_slice(&[0, 0, 0, (alpha * 255.0).round() as u8]);
+        }
+    }
+    tauri::image::Image::new_owned(rgba, SIZE, SIZE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_menu_bar_icon_is_a_dot_and_rings_with_clear_corners() {
+        let icon = menu_bar_icon();
+        let (w, h) = (icon.width() as usize, icon.height() as usize);
+        let rgba = icon.rgba();
+        assert_eq!(rgba.len(), w * h * 4);
+        let alpha = |x: usize, y: usize| rgba[(y * w + x) * 4 + 3];
+        assert_eq!(alpha(w / 2, h / 2), 255, "the dot");
+        assert_eq!(alpha(0, 0), 0, "a corner");
+        assert!((0..w).all(|x| alpha(x, 0) == 0), "the top edge is padding");
+    }
+}
