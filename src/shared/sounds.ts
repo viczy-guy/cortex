@@ -1,10 +1,10 @@
 type SoundKind = "green" | "amber" | "red";
-/** Frequency (Hz), start and duration (s), waveform, peak volume. */
+/** Frequency (Hz), start and duration (s), waveform, peak volume (> 0: an exponential ramp cannot reach 0). */
 type Note = [frequency: number, start: number, duration: number, waveform: OscillatorType, volume: number];
 
 /**
- * The sounds the maintainer chose on the vision page (`Cortex-plano`), note
- * for note: change one only with him. `repeat` plays the figure `times`
+ * The maintainer picked these by ear: notes, volumes and envelope are a
+ * product decision, changed only with him. `repeat` plays the figure `times`
  * times, `every` seconds apart.
  */
 const repeat = (notes: Note[], times: number, every: number): Note[] =>
@@ -56,9 +56,11 @@ export function playSound(kind: SoundKind, force = false): void {
     const done = (): void => { if (active?.context === context) stop(); };
     let last: OscillatorNode | undefined;
     let end = 0;
+    // One clock reading for the whole figure, a little ahead: a ramp that
+    // starts in the past loses the first note's attack.
+    const start = context.currentTime + 0.01;
     for (const [frequency, at, duration, waveform, volume] of notes) {
-      // A plucked note: up in 15 ms, then down exponentially to its end.
-      const t = context.currentTime + at;
+      const t = start + at;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.type = waveform;
@@ -80,7 +82,7 @@ export function playSound(kind: SoundKind, force = false): void {
     // A suspended context may never dispatch an oscillator's ended event. The
     // page clock is not the audio clock: a context that started late is
     // still playing, so wait for what is left of it.
-    const endsAt = context.currentTime + end + 0.05;
+    const endsAt = start + end + 0.05;
     const fallback = (): void => {
       if (active?.context !== context) return;
       const left = endsAt - context.currentTime;

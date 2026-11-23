@@ -62,8 +62,8 @@ are doing.
 
 Each notice has its own sound, about two seconds long, synthesized note for
 note as on the vision page (each note plucked: up in 15 ms, then an
-exponential fade), played once per change: a session's state turning done (green), waiting for the user or a new
-card (amber), or failed (red). If several come together, the most urgent
+exponential fade), played once per change: a session's state turning done
+(green), waiting for the user or a new card (amber), or failed (red). If several come together, the most urgent
 plays; a lower one arriving while a higher one plays is not played. Sounds
 are on by default and can be muted or sampled in Settings → Island.
 

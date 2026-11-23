@@ -19,8 +19,8 @@ if (root) {
 
   let finished = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // About six seconds (the maintainer found two too quick); the CSS delays
-  // follow this timeline.
+  // The CSS delays (splash.css) and docs/SPEC.md follow this timeline; Rust
+  // closes the window at 10 s if the page never does, so stay below that.
   const timer = window.setTimeout(finish, reducedMotion ? 3000 : 6300);
   // Only a click: the window never takes the keyboard from the user's app.
   window.addEventListener("click", finish);
