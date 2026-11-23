@@ -224,6 +224,15 @@ export interface PullRequest {
   checks: Checks;
   review: Review;
 }
+/** Something on GitHub worth a notice (#131), most urgent first. */
+export interface GithubNotice {
+  /** The same while the notice stands; a new failure or plan gets a new one. */
+  key: string;
+  kind: "review" | "ready" | "failed" | "critical" | "action";
+  /** Where it happened: "cortex #128 · checks". */
+  detail: string;
+  url: string;
+}
 export interface GithubSummary {
   login: string;
   mine: PullRequest[];
@@ -231,6 +240,7 @@ export interface GithubSummary {
   review_requests: PullRequest[];
   review_requests_total: number;
   fetched_at_ms: number;
+  notices: GithubNotice[];
 }
 export interface AccountStatus {
   login: string;

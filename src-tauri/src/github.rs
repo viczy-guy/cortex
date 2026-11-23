@@ -6,10 +6,14 @@ use cortex_core::{
         overall_state, parse_accounts, parse_summary, release_notes_url, GhAccount, CLI_URL,
         DEVICE_URL, MAX_ACCOUNTS, QUERY,
     },
+    notices::{
+        notices, notifications_path, parse_failed_runs, parse_plans, plan_query, MAX_PLAN_FETCH,
+    },
     GithubSummary,
 };
 use serde::Serialize;
 use std::{
+    collections::BTreeMap,
     io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -287,33 +291,95 @@ fn fetch_summary(gh: &Path, login: &str) -> Result<GithubSummary, GhError> {
     if !is_valid_login(login) {
         return Err(GhError("invalid GitHub login".into()));
     }
-    let response = {
-        let token = run_gh(
-            gh,
-            &["auth", "token", "--hostname", "github.com", "--user", login],
-            None,
-        )
-        .map_err(|_| GhError("gh returned no usable token".into()))?;
-        let token = token.trim();
-        if !is_valid_token(token) {
-            return Err(GhError("gh returned no usable token".into()));
-        }
-        run_gh(
-            gh,
-            &[
-                "api",
-                "graphql",
-                "--hostname",
-                "github.com",
-                "-f",
-                &format!("query={QUERY}"),
-            ],
-            Some(token),
-        )?
-    };
-    parse_summary(&response, crate::state::now_ms())
+    let token = run_gh(
+        gh,
+        &["auth", "token", "--hostname", "github.com", "--user", login],
+        None,
+    )
+    .map_err(|_| GhError("gh returned no usable token".into()))?;
+    let token = token.trim();
+    if !is_valid_token(token) {
+        return Err(GhError("gh returned no usable token".into()));
+    }
+    let response = run_gh(
+        gh,
+        &[
+            "api",
+            "graphql",
+            "--hostname",
+            "github.com",
+            "-f",
+            &format!("query={QUERY}"),
+        ],
+        Some(token),
+    )?;
+    let mut summary = parse_summary(&response, crate::state::now_ms())
         .filter(|s| s.login.eq_ignore_ascii_case(login))
-        .ok_or_else(|| GhError("unexpected response from gh".into()))
+        .ok_or_else(|| GhError("unexpected response from gh".into()))?;
+    add_notices(gh, token, &mut summary);
+    Ok(summary)
+}
+
+/// Each pull request's last Atlantis plan (`updatedAt` when read, resources
+/// destroyed), read again only once the pull request changed.
+// shortcut: one map for every account, emptied past 256 entries; key it by
+// account if people with many accounts see plans read twice.
+static PLANS: Mutex<BTreeMap<String, (String, u32)>> = Mutex::new(BTreeMap::new());
+
+/// The failed actions and plans behind the island's notices (#131). A request
+/// that fails costs only its own notices, never the summary.
+fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
+    let path = notifications_path(crate::state::now_ms());
+    match run_gh(gh, &["api", "--hostname", "github.com", &path], Some(token)) {
+        Ok(text) => summary.failed_runs = parse_failed_runs(&text),
+        Err(GhError(err)) => eprintln!("cortex: failed actions not read: {err}"),
+    }
+    let mut plans = PLANS.lock().unwrap_or_else(|e| e.into_inner());
+    if plans.len() > 256 {
+        plans.clear();
+    }
+    let changed: Vec<(String, String)> = summary
+        .mine
+        .iter()
+        .chain(&summary.review_requests)
+        .filter(|p| !matches!(plans.get(&p.url), Some((at, _)) if *at == p.updated_at))
+        .map(|p| (p.url.clone(), p.updated_at.clone()))
+        .take(MAX_PLAN_FETCH)
+        .collect();
+    if !changed.is_empty() {
+        let mut args = vec![
+            "api".to_owned(),
+            "graphql".into(),
+            "--hostname".into(),
+            "github.com".into(),
+            "-f".into(),
+            format!("query={}", plan_query(changed.len())),
+        ];
+        for (i, (url, _)) in changed.iter().enumerate() {
+            args.extend(["-f".to_owned(), format!("u{i}={url}")]);
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        match run_gh(gh, &args, Some(token))
+            .ok()
+            .and_then(|text| parse_plans(&text, changed.len()))
+        {
+            Some(counts) => {
+                for ((url, at), destroy) in changed.into_iter().zip(counts) {
+                    plans.insert(url, (at, destroy));
+                }
+            }
+            None => eprintln!("cortex: pull request plans not read"),
+        }
+    }
+    for pull in summary
+        .mine
+        .iter_mut()
+        .chain(summary.review_requests.iter_mut())
+    {
+        pull.destroy = plans.get(&pull.url).map_or(0, |(_, destroy)| *destroy);
+    }
+    drop(plans);
+    summary.notices = notices(summary);
 }
 
 fn fetch_account(gh: &Path, account: GhAccount, hidden: &[String]) -> AccountStatus {

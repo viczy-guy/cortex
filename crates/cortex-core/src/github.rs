@@ -140,12 +140,12 @@ pub const QUERY: &str = r#"query {
   viewer { login }
   mine: search(query: "is:open is:pr author:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
-    nodes { ... on PullRequest { number title url isDraft reviewDecision repository { nameWithOwner } author { login }
+    nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } }
   }
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
-    nodes { ... on PullRequest { number title url isDraft reviewDecision repository { nameWithOwner } author { login }
+    nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } }
   }
 }"#;
@@ -176,6 +176,12 @@ pub struct PullRequest {
     pub author: Option<String>,
     pub checks: Checks,
     pub review: Review,
+    /// Changes with every push and comment: when unchanged, its plan is too.
+    #[serde(skip)]
+    pub updated_at: String,
+    /// What its latest Atlantis plan destroys; filled in by the shell (#131).
+    #[serde(skip)]
+    pub destroy: u32,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GithubSummary {
@@ -185,6 +191,11 @@ pub struct GithubSummary {
     pub review_requests: Vec<PullRequest>,
     pub review_requests_total: u32,
     pub fetched_at_ms: u64,
+    /// Failed actions the user started; filled in by the shell (#131).
+    #[serde(skip)]
+    pub failed_runs: Vec<crate::notices::FailedRun>,
+    /// What the island tells about this account, from all of the above.
+    pub notices: Vec<crate::notices::Notice>,
 }
 impl GithubSummary {
     /// Own pull requests whose checks are failing.
@@ -200,6 +211,7 @@ impl GithubSummary {
             .iter()
             .chain(&self.review_requests)
             .any(|p| p.url == url)
+            || self.notices.iter().any(|n| n.url == url)
     }
 }
 fn count(v: &Value) -> u32 {
@@ -248,6 +260,10 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
                 Some("REVIEW_REQUIRED") => Review::Required,
                 _ => Review::None,
             };
+            let updated_at = n["updatedAt"]
+                .as_str()
+                .filter(|t| t.len() <= 25)
+                .unwrap_or_default();
             Some(PullRequest {
                 repo: repo.into(),
                 number,
@@ -260,6 +276,8 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
                     .map(str::to_owned),
                 checks,
                 review,
+                updated_at: updated_at.into(),
+                destroy: 0,
             })
         })
         .take(MAX_PULLS)
@@ -283,6 +301,8 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
         review_requests: pulls(reviews),
         review_requests_total: count(reviews),
         fetched_at_ms: now_ms,
+        failed_runs: Vec::new(),
+        notices: Vec::new(),
     })
 }
 #[cfg(test)]
