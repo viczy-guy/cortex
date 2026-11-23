@@ -28,7 +28,7 @@ body {
   height: 12px;
   border-radius: 50%;
   background: var(--brand);
-  animation: opening-dot 700ms ease both;
+  animation: opening-dot 1400ms ease both;
 }
 
 @keyframes opening-dot {
@@ -39,7 +39,7 @@ body {
 }
 
 .welcome {
-  animation: welcome 650ms ease 700ms both;
+  animation: welcome 1800ms ease 1400ms both;
 }
 
 @keyframes welcome {
@@ -52,7 +52,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  animation: ready 250ms ease 1350ms both;
+  animation: ready 500ms ease 3200ms both;
 }
 
 @keyframes ready {
@@ -66,7 +66,7 @@ body {
   width: 56px;
   height: 34px;
   color: var(--mascot);
-  animation: jump 400ms ease 1350ms both;
+  animation: jump 600ms ease 3300ms both;
 }
 
 @keyframes jump {

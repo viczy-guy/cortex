@@ -285,7 +285,8 @@ fn open_splash(app: &AppHandle) {
 
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        // Above the page's own timer (src/splash/main.ts): only a fallback.
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         close_splash(&handle);
     });
 }
