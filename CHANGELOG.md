@@ -12,6 +12,8 @@ follows [Semantic Versioning](https://semver.org).
   itself once. (#115)
 - macOS: opening Cortex while it runs (Finder, Launchpad, Spotlight) opens
   Settings; before, nothing seemed to happen. (#115)
+- The app icon and the macOS menu-bar icon are the mascot's eyes, the icon
+  the maintainer chose; 0.3.0 shipped the dot with rings by mistake. (#116)
 - The three sounds are again the ones chosen on the vision page: plucked
   notes at their own volumes, instead of flat, organ-like tones. (#117)
 
