@@ -19,8 +19,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
 - [ ] **A3 · v0.4.0 — Updates itself, new name.** A stable version installs
       with no click when nothing is waiting; updating, done and error screens;
       a test channel before the stable one; new features ship switched off;
-      the new product name, Thalon (the platform: Thalon Hub), migrating
-      existing installs.
+      the new product name, migrating existing installs.
 - [ ] **A4 · v0.5.0 — Ask from the island.** A prompt box in the island: pick
       the agent, the model and the folder. It runs through the CLIs you already
       have installed and signed in; everything the agent wants to do still goes

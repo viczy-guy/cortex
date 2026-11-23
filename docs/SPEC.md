@@ -42,15 +42,18 @@ One pill per (`cortex_agent`, `session_id`). State machine:
 |---|---|
 | `SessionStart` | `idle` |
 | `UserPromptSubmit` | `thinking` (prompt in ticker) |
-| `PreToolUse` | `working` (tool label in ticker); `waiting_approval` when the tool is an `AskUserQuestion` |
-| `PermissionRequest` | `waiting_approval` |
+| `PreToolUse` | `working` (tool label in ticker); `waiting_approval` while an `AskUserQuestion` card waits |
+| `PermissionRequest` | `waiting_approval` while its card waits; `working` when an Always rule allows it |
 | `PostToolUse`, `PostToolUseFailure` | `working`; file edits record name and +N/−M |
 | `Notification` | `waiting_input` (message in ticker) |
-| `Stop` | `finished`, and the pill is removed 5 s later |
+| `Stop` | `finished`; the pill is removed 5 s later unless another event comes |
 | `StopFailure` | `error` |
 | `SubagentStart`, `SubagentStop` | a step in the ticker; state unchanged |
 | `SessionEnd` | pill removed |
 | any other event | keeps the session alive; state unchanged |
+
+The first event from an unknown session creates its pill. A request left to
+the terminal (no card shown) does not change the pill.
 
 Sessions stale for 30 min with no events are garbage-collected.
 
@@ -64,7 +67,8 @@ Sessions stale for 30 min with no events are garbage-collected.
 - The decision is bound to the exact request id; anything else (timeout, stale
   id, duplicate) resolves to "no decision" and the terminal takes over.
 - The card disappears the moment its connection closes (hook timeout, or the
-  user answered in the terminal). The wait is 110 s (hook timeout 120 s), long enough to read a
+  user answered in the terminal). The relay waits 110 s (hook timeout 120 s;
+  the app's own limits, 115 s and 118 s, only back it up), long enough to read a
   multi-question card; "Answer in terminal" hands it back sooner.
 - "Always" stores a rule applied by Cortex, never written into the agent's own
   settings. The card states what the rule covers before the click.
@@ -112,10 +116,10 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
-- **Updates** turns the update check on or off and offers **Update and
-  restart** once a verified update is ready.
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
+- **Updates** turns the update check on or off and offers **Update and
+  restart** once a verified update is ready.
 - **About** shows the app version, a "What's new" link to the notes of that
   version, its local-only policy, and Quit Cortex.
 
@@ -164,8 +168,8 @@ unavailable and update through the package manager.
 
 ## Resource budget (enforced, not aspirational)
 
-- Hidden island: 0% CPU. Cortex wakes on events, and otherwise only when a
-  card or a session is due to expire.
+- Hidden island: 0% CPU. Cortex wakes on events, when a card or a session is
+  due to expire, and for the GitHub and update checks the user turned on.
 - Working set under ~120 MB on all three platforms (about 45 MB measured on
   macOS). A downloaded update waiting for its restart is held in memory, which
   on Linux adds the size of the AppImage until the restart (#72).
@@ -179,6 +183,6 @@ on as if Cortex were not running: nothing blocks and nothing piles up.
 | What | Limit | Beyond it |
 |---|---|---|
 | Connections served at once | 64 | the new one is closed unread |
-| One event line | 1 MB | the connection is closed |
-| Sessions on the board | 64 | a new session is not shown; known ones still update |
+| One event | 1 MB | it is dropped; a line far beyond it closes the connection |
+| Sessions on the board | 64 | a new session gets no pill (its cards still show); known ones still update |
 | Cards waiting | 32 | the agent asks in its own terminal |
