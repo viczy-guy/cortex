@@ -60,9 +60,10 @@ are doing.
   attribute. Personas (e.g. a future mascot) are additive themes, never forks of
   the UI.
 
-Each notice has its own sound, about two seconds long, played once per
-change: a session's state turning done (green), waiting for the user or a new
-card (amber), or failed (red). If several come together, the most urgent
+Each notice has its own sound, about two seconds long, synthesized note for
+note as on the vision page (each note plucked: up in 15 ms, then an
+exponential fade), played once per change: a session's state turning done
+(green), waiting for the user or a new card (amber), or failed (red). If several come together, the most urgent
 plays; a lower one arriving while a higher one plays is not played. Sounds
 are on by default and can be muted or sampled in Settings → Island.
 
@@ -70,10 +71,10 @@ are on by default and can be muted or sampled in Settings → Island.
 
 On manual launch, a small centered window shows a growing colored dot,
 "Welcome", then the selected mascot and "Let's get to work?" with the app
-version at the bottom. It closes after about 2 seconds. A click skips it
+version at the bottom. It closes after about 6 seconds. A click skips it
 (it never takes the keyboard). With reduced motion, it shows the final
-frame without animation for 1.2 seconds. Launches at login (`--autostart`)
-skip it. Rust closes the window after 5 seconds if it is still open.
+frame without animation for 3 seconds. Launches at login (`--autostart`)
+skip it. Rust closes the window after 10 seconds if it is still open.
 
 ## Sessions
 

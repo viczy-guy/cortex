@@ -12,6 +12,11 @@ follows [Semantic Versioning](https://semver.org).
   itself once. (#115)
 - macOS: opening Cortex while it runs (Finder, Launchpad, Spotlight) opens
   Settings; before, nothing seemed to happen. (#115)
+- The three sounds are again the ones chosen on the vision page: plucked
+  notes at their own volumes, instead of flat, organ-like tones. (#117)
+
+### Changed
+- The opening screen takes about 6 seconds instead of 2. (#117)
 
 ### Security
 - `cookie` 0.18.3, for RUSTSEC-2026-0594 (repeated nonces in private cookies
