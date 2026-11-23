@@ -232,7 +232,7 @@ export interface GithubNotice {
   /** Where it happened: "cortex #128 · checks". */
   detail: string;
   url: string;
-  /** The pull request's number and short title; 0 and "" for an action. */
+  /** The pull request's number and short title (0 and "" for a failed action); "approved" names them in its phrase. */
   number: number;
   title: string;
 }

@@ -7,11 +7,11 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Changed
-- When someone approves a pull request of yours, the island says so in
-  green: "Your PR #128 (Short title) was approved!", as soon as it is
-  approved, even while its checks still run. It takes the place of "Your PR
-  is ready"; an approved pull request whose checks fail shows "A PR failed!"
-  instead. (#135)
+- When someone approves a pull request of yours (not a draft), the island
+  says so in green: "Your PR #128 (Short title) was approved!", at its next
+  GitHub check (every 3 minutes), even while the checks still run. It takes
+  the place of "Your PR is ready"; if the checks then fail, "A PR failed!"
+  stands beside it. (#135)
 
 ## [0.4.0] - 2026-11-23
 

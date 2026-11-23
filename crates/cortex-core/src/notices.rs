@@ -20,15 +20,16 @@ pub const MAX_RUNS: usize = 10;
 /// Failed actions older than this are not news.
 const RUNS_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_DETAIL_CHARS: usize = 60;
-/// A title inside a phrase: the island is at most 460 points wide.
-const MAX_TITLE_CHARS: usize = 28;
+/// A title inside a phrase, its "…" included: the island is at most 460
+/// points wide, and the phrase must keep "was approved!" in sight.
+const MAX_TITLE_CHARS: usize = 24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeKind {
     /// Someone asked for your review.
     Review,
-    /// Your pull request was approved (and its checks do not fail) (#135).
+    /// Your pull request was approved (#135).
     Approved,
     /// Your pull request's checks fail.
     Failed,
@@ -126,11 +127,18 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
         out.push(pr(NoticeKind::Review, "review", pull, who.into()));
     }
     for pull in &summary.mine {
-        // Approved with failing checks is "A PR failed!": one notice per pull request.
-        if !pull.draft && pull.review == Review::Approved && pull.checks != Checks::Failing {
-            let mut notice = pr(NoticeKind::Approved, "approved", pull, String::new());
-            notice.detail = bounded(short(&pull.repo));
-            out.push(notice);
+        // Whatever its checks do, or a red-then-green CI would announce the
+        // same approval twice; while they fail, "A PR failed!" stands beside it.
+        if !pull.draft && pull.review == Review::Approved {
+            out.push(Notice {
+                key: format!("approved:{}", pull.url),
+                kind: NoticeKind::Approved,
+                // The phrase names the number already.
+                detail: bounded(short(&pull.repo)),
+                url: pull.url.clone(),
+                number: pull.number,
+                title: short_title(&pull.title),
+            });
         }
     }
     out
@@ -144,12 +152,15 @@ fn bounded(text: &str) -> String {
     truncate(text, MAX_DETAIL_CHARS)
 }
 
-/// "Notices on the island, with…": cut on a character, never after a space.
+/// "Notices on the island…": at most [`MAX_TITLE_CHARS`] with the "…",
+/// never a space before it.
+// shortcut: cuts on characters, so a long title can split a joined emoji
+// (👩‍💻); cut on graphemes if titles like that turn up.
 fn short_title(title: &str) -> String {
     if title.chars().count() <= MAX_TITLE_CHARS {
         return title.into();
     }
-    let cut: String = title.chars().take(MAX_TITLE_CHARS).collect();
+    let cut: String = title.chars().take(MAX_TITLE_CHARS - 1).collect();
     format!("{}…", cut.trim_end())
 }
 
@@ -512,14 +523,17 @@ mod tests {
                 (NoticeKind::Review, "infra #482 · pessoa-b"),
                 (NoticeKind::Approved, "cortex"),
                 (NoticeKind::Approved, "cortex"),
+                (NoticeKind::Approved, "cortex"),
             ]
         );
+        // Approved and failing: both stand, so passing again announces nothing new.
+        assert_eq!(notices[4].number, 128);
         assert_eq!(
-            (notices[4].number, notices[4].title.as_str()),
-            (130, "Notices on the island, with…")
+            (notices[5].number, notices[5].title.as_str()),
+            (130, "Notices on the island,…")
         );
         assert_eq!(
-            notices[5].number, 132,
+            notices[6].number, 132,
             "checks still running: approved all the same"
         );
         assert_eq!(
@@ -529,6 +543,20 @@ mod tests {
         assert_eq!(
             notices[0].key,
             "critical:https://github.com/mt/infra/pull/482:3"
+        );
+    }
+
+    #[test]
+    fn a_long_title_is_cut_to_its_limit_without_a_space_before_the_ellipsis() {
+        assert_eq!(short_title("Short"), "Short");
+        let exact = "a".repeat(MAX_TITLE_CHARS);
+        assert_eq!(short_title(&exact), exact);
+        let long = short_title(&"é".repeat(40));
+        assert_eq!(long.chars().count(), MAX_TITLE_CHARS);
+        assert!(long.ends_with('…'));
+        assert_eq!(
+            short_title("Keep the color until a click, not a hover"),
+            "Keep the color until a…"
         );
     }
 
