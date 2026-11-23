@@ -32,8 +32,9 @@ with more than one account (personal and work).
    Cortex switches back to the previous account right after.
 4. **Off by default.** The pill is turned on in Settings. This is a network
    call the user asks for (ADR 0002); while it is off, Cortex runs nothing.
-5. **Polling, slow and only while on:** one query per enabled account every 3
-   minutes, plus "Refresh now". No timers at all while off.
+5. **Polling, slow and only while on:** one query per enabled account every
+   minute (every 3 minutes until v0.4.2, when the island's notices made the
+   wait felt), plus "Refresh now". No timers at all while off.
 6. `gh` is found on `PATH` and in the usual install locations (GUI apps on
    macOS do not inherit the shell `PATH`). If it is missing or signed out,
    Settings says exactly what to do.

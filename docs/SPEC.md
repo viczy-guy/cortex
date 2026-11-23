@@ -247,7 +247,7 @@ each launch rewrites the entry if the app moved.
 
 Opt-in in Settings, off by default. Cortex reads up to 10 github.com accounts
 from the GitHub CLI (`gh`). Accounts are shown by default and can be hidden in
-Settings. Cortex checks shown accounts every 3 minutes while on (or when
+Settings. Cortex checks shown accounts every minute while on (or when
 Refresh now is clicked). Off means no polling or timers.
 
 The island pill totals requested reviews, failing own PRs, and open PRs across

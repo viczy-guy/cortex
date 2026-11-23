@@ -28,7 +28,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Notify;
 
 pub const GITHUB_EVENT: &str = "cortex://github";
-const POLL: Duration = Duration::from_secs(180);
+// GitHub asks notification readers to wait at least 60 s between reads.
+const POLL: Duration = Duration::from_secs(60);
 const GH_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_STDOUT: u64 = 2 * 1024 * 1024;
 const MAX_DIAGNOSTICS: u64 = 64 * 1024;
