@@ -11,7 +11,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       installs the Windows and Linux packages on clean CI runners.
 - [x] **A1 · v0.2.1 — Maintenance.** Spec in step with the app, two copies
       running at once, an easy way to quit a stuck app, current GitHub Actions.
-- [ ] **A2 · v0.3.0 — New island.** The shape of the MacBook camera cutout,
+- [x] **A2 · v0.3.0 — New island.** The shape of the MacBook camera cutout,
       reacting to the mouse; choice of screen and five positions; up to four
       agents side by side; mascot and border take the state color (green done,
       amber needs you, red danger) until you act; a mascot of your choice; one
