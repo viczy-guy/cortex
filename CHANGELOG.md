@@ -15,8 +15,9 @@ follows [Semantic Versioning](https://semver.org).
   Agents already shows where creating your own agents will go. Nothing a
   setting does has changed, only where it lives. (#151)
 - **The first launch plays out.** The island appears only once the welcome
-  screen ends, and a new install then opens Settings with **Get started**:
-  connect Claude Code and, if you want, GitHub. (#152)
+  screen ends (at once if an agent is waiting for an answer), and a new
+  install then opens Settings with **Get started**: connect Claude Code and,
+  if you want, GitHub. (#152)
 - **Quicker GitHub notices.** Pull requests are checked about every 15
   seconds instead of every minute, so an approval or a review request shows
   almost at once. Once a minute while GitHub keeps failing, and on macOS
