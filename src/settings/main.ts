@@ -46,7 +46,7 @@ let updates: UpdateStatus | null = null;
 let updatesBusy = false;
 let updatesError: string | null = null;
 let island: IslandPrefs | null = null;
-let soundBusy = false;
+let toggleBusy = false;
 let startup: AutostartStatus | null = null;
 let startupError: string | null = null;
 let startupBusy = false;
@@ -380,11 +380,17 @@ function renderIsland(): void {
     if (screens && prefs.screen !== null && !screens.some(({ name }) => name === prefs.screen)) {
       displays.append(islandChoice(`${prefs.screen} (not connected)`, true));
     }
-    islandBlock.append(gallery, el("h3", undefined, "Position"), positions, el("h3", undefined, "Screen"), displays);
+    const lively = prefs.lively;
+    const liveRow = el("div", "status-row");
+    const liveToggle = button(lively ? "btn-neutral" : "btn-allow", lively ? "Turn off" : "Turn on", () => void changeToggle(() => api.islandSetLively(!lively)));
+    liveToggle.disabled = toggleBusy;
+    liveRow.append(el("span", lively ? "status-dot connected" : "status-dot"), el("span", undefined, lively ? "Lively mascot on" : "Lively mascot off"), liveToggle);
+    const liveNote = el("div", "note", "The mascot follows your mouse, blinks, naps after 10 minutes without agents or mouse, and reacts to a click (three quick ones make it dizzy). With Reduce motion on in your system, it does not jump or shake.");
+    islandBlock.append(gallery, el("h3", undefined, "Lively mascot"), liveNote, liveRow, el("h3", undefined, "Position"), positions, el("h3", undefined, "Screen"), displays);
     const on = prefs.sound;
     const row = el("div", "status-row");
-    const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeSound(!on));
-    toggle.disabled = soundBusy;
+    const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeToggle(() => api.islandSetSound(!on)));
+    toggle.disabled = toggleBusy;
     row.append(el("span", on ? "status-dot connected" : "status-dot"), el("span", undefined, on ? "Sounds on" : "Sounds off"), toggle);
     const previews = el("div", "actions");
     previews.append(
@@ -428,17 +434,17 @@ async function refreshScreens(): Promise<void> {
   renderIsland();
 }
 
-async function changeSound(enabled: boolean): Promise<void> {
-  if (soundBusy) return;
-  soundBusy = true;
+async function changeToggle(set: () => Promise<void>): Promise<void> {
+  if (toggleBusy) return;
+  toggleBusy = true;
   islandError = null;
   renderIsland();
   try {
-    await api.islandSetSound(enabled);
+    await set();
   } catch (error) {
     islandError = String(error);
   } finally {
-    soundBusy = false;
+    toggleBusy = false;
     renderIsland();
   }
 }

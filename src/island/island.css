@@ -142,6 +142,62 @@ body {
   .bounce { animation: none; }
 }
 
+/* ---- The lively mascot (#145): eyes, lids and small moves ---------------- */
+
+.mascot :is(.m-body, .m-head, .m-look, .m-lid, .m-brow, .m-stache, .m-ear-l, .m-ear-r, .m-knot) { transform-box: fill-box; }
+.mascot .m-body { transform-origin: 50% 100%; }
+.mascot :is(.m-lid, .m-brow) { transform-origin: center; transition: transform 0.08s ease-out, opacity 0.06s; }
+.mascot :is(.m-look, .m-head) { transition: transform 0.14s ease-out; }
+.mascot.pixel :is(.m-look, .m-head) { transition: none; }
+.mascot .m-z { font: 700 7px var(--font); fill: currentColor; opacity: 0; }
+
+/* Lids: closed, smiling, wide, curious, asleep. A mascot with drawn lids swaps them in. */
+.mascot.blink:not(.has-closed) .m-lid { transform: scaleY(0.1); }
+.mascot.happy:not(.has-happy) .m-lid { transform: translateY(-0.6px) scaleY(0.32); }
+.mascot.wide .m-lid { transform: scale(1.22); }
+.mascot.near:not(.happy, .wide, .blink, .asleep) .m-lid { transform: scale(1.1); }
+.mascot.asleep:not(.has-closed) .m-lid { transform: scaleY(0.12); }
+.mascot.has-closed:is(.blink, .asleep) .m-lid, .mascot.has-happy.happy .m-lid { opacity: 0; }
+.mascot.has-closed:is(.blink, .asleep) .m-closed, .mascot.has-happy.happy .m-happy { display: inline; }
+.mascot.asleep .m-z { opacity: 0.8; }
+
+/* Eyebrows rise in surprise and sink in sleep; ears droop; the mustache wiggles. */
+.mascot.wide .m-brow { transform: translateY(-1.4px); }
+.mascot.happy .m-brow { transform: translateY(-0.7px); }
+.mascot.asleep .m-brow { transform: translateY(0.7px); }
+.mascot :is(.m-ear-l, .m-ear-r) { transform-origin: 50% 100%; transition: rotate 0.3s ease; }
+.mascot.asleep .m-ear-l { rotate: -38deg; }
+.mascot.asleep .m-ear-r { rotate: 38deg; }
+.mascot .m-stache { transform-origin: 50% 30%; }
+
+/* Moves, each played once: a hop, a squash, a shake, a wobble. */
+.mascot .m-body.boop { animation: boop 0.32s ease-out; }
+.mascot .m-body.shake { animation: shake 0.45s ease-in-out 2; }
+.mascot .m-body.wobble { animation: wobble 0.4s ease-in-out 5; }
+.mascot.dizzy .m-look { animation: roll 0.5s linear 4; }
+.mascot.happy .m-stache { animation: wiggle 0.2s ease-in-out 4; }
+.mascot.happy .m-ear-l { animation: ear-l 0.3s ease-in-out 3; }
+.mascot.happy .m-ear-r { animation: ear-r 0.3s ease-in-out 0.1s 3; }
+.mascot.happy .m-knot { animation: bob 0.28s ease-in-out 3; }
+@keyframes boop { 35% { transform: scale(1.14, 0.8); } 70% { transform: translateY(-2px) scale(0.96, 1.06); } }
+@keyframes shake { 25% { transform: translateX(-1.6px); } 75% { transform: translateX(1.6px); } }
+@keyframes wobble { 25% { transform: rotate(-9deg); } 75% { transform: rotate(9deg); } }
+@keyframes roll {
+  0%, 100% { transform: translate(2px, 0); }
+  25% { transform: translate(0, 1.4px); }
+  50% { transform: translate(-2px, 0); }
+  75% { transform: translate(0, -1.4px); }
+}
+@keyframes wiggle { 25% { transform: rotate(-9deg); } 75% { transform: rotate(9deg); } }
+@keyframes ear-l { 50% { rotate: -16deg; } }
+@keyframes ear-r { 50% { rotate: 16deg; } }
+@keyframes bob { 50% { transform: translateY(-1.8px); } }
+
+/* Reduce motion: no jumps, shakes or dizziness; the eyes still follow, at once. */
+@media (prefers-reduced-motion: reduce) {
+  .mascot, .mascot * { animation: none !important; transition: none !important; }
+}
+
 .brand-dot {
   width: 9px;
   height: 9px;

@@ -265,3 +265,11 @@ export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement |
   }
   return svg;
 }
+
+/** How a mascot's eyes move (#145): how far, in grid units, and by whole pixels or not. */
+export function mascotReach(mascot: Mascot): { reach: [number, number]; pixel: boolean } {
+  if (mascot === "none") return { reach: [0, 0], pixel: false };
+  const design = DESIGNS[mascot];
+  const look = Boolean(design.look?.length);
+  return { reach: design.reach ?? (look ? [2.2, 1.6] : [1.1, 0.8]), pixel: Boolean(design.pixel) };
+}

@@ -147,8 +147,22 @@ export interface IslandPrefs {
   position: IslandPosition;
   screen: string | null;
   sound: boolean;
+  /** The lively mascot (#145). */
+  lively: boolean;
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
+
+/** Where the lively mascot looks (#145): sent when it changes, and once a minute while the mouse moves. */
+export interface Gaze {
+  /** -1 (left) to 1 (right). */
+  x: number;
+  /** -1 (up) to 1 (down). */
+  y: number;
+  near: boolean;
+  /** `false` while the screen is locked: nothing may repaint (#51). */
+  awake: boolean;
+}
+export const GAZE_EVENT = "cortex://gaze";
 export const ISLAND_SCREENS_EVENT = "cortex://island-screens";
 
 export interface AutostartStatus {
@@ -194,6 +208,8 @@ export const api = {
   islandSetPosition: (position: IslandPosition) => invoke<void>("island_set_position", { position }),
   islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
   islandSetSound: (enabled: boolean) => invoke<void>("island_set_sound", { enabled }),
+  islandSetLively: (enabled: boolean) => invoke<void>("island_set_lively", { enabled }),
+  islandGazeOrigin: (x: number, y: number) => invoke<void>("island_gaze_origin", { x, y }),
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),

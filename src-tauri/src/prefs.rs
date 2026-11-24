@@ -12,6 +12,7 @@ pub struct IslandPrefs {
     pub position: String,
     pub screen: Option<String>,
     pub sound: bool,
+    pub lively: bool,
 }
 
 impl From<&Prefs> for IslandPrefs {
@@ -21,6 +22,7 @@ impl From<&Prefs> for IslandPrefs {
             position: prefs.island_position.as_deref().unwrap_or("top").to_owned(),
             screen: prefs.island_screen.clone(),
             sound: prefs.sound.unwrap_or(true),
+            lively: prefs.lively.unwrap_or(true),
         }
     }
 }
@@ -36,12 +38,20 @@ pub fn island_set_mascot(app: AppHandle, mascot: String) -> Result<(), String> {
         return Err("Unknown mascot.".into());
     }
     let prefs = update(|p| p.mascot = Some(mascot))?;
+    crate::gaze::set_lively(&prefs);
     let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
     Ok(())
 }
 #[tauri::command]
 pub fn island_set_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
     let prefs = update(|p| p.sound = Some(enabled))?;
+    let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
+    Ok(())
+}
+#[tauri::command]
+pub fn island_set_lively(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let prefs = update(|p| p.lively = Some(enabled))?;
+    crate::gaze::set_lively(&prefs);
     let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
     Ok(())
 }
