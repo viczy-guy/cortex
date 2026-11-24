@@ -15,7 +15,8 @@ const NAP_CHECK_MS = 30_000;
 const BLINK_MS = 120;
 const CLICKS_FOR_DIZZY = 3;
 const DIZZY_WINDOW_MS = 1500;
-const DIZZY_MS = 2000;const MOVES = ["boop", "shake", "wobble"] as const;
+const DIZZY_MS = 2000;
+const MOVES = ["boop", "shake", "wobble"] as const;
 
 type Mood = "happy" | "wide" | "dizzy";
 type Move = (typeof MOVES)[number];
@@ -203,9 +204,9 @@ function feel(next: Mood, ms: number): void {
   mood = next;
   paint();
   moodTimer = window.setTimeout(() => {
-    if (!live()) return;
+    // Cleared even with no mascot drawn: the next one would wear it.
     mood = null;
-    paint();
+    if (live()) paint();
   }, ms);
 }
 
@@ -229,14 +230,15 @@ function look(lx: number, ly: number): void {
     y = Math.round(ly * 1.2);
   }
   shift(target, x, y);
-  // The eyebrows go with the eyes, like a face: across, and up when they look up. Never
-  // down, onto the glasses, nor up while a mood lifts them already (into the ninja's mask).
+  // The eyebrows go with the eyes, like a face; only across while a mood lifts or sinks
+  // them, which would push the ninja's into its mask.
   const brows = node.querySelector<SVGGElement>(".m-follow");
-  if (brows && target.classList.contains("m-look")) shift(brows, x, mood ? 0 : Math.min(y, 0));
+  if (brows && target.classList.contains("m-look")) shift(brows, x, mood ? 0 : y < 0 ? y : y * reach.browDown);
 }
 
 function shift(target: SVGGElement, x: number, y: number): void {
-  const transform = x === 0 && y === 0 ? "" : `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
+  // Written as the browser reads it back ("1.9px", not "1.90px"): the same place is not written again.
+  const transform = x === 0 && y === 0 ? "" : `translate(${+x.toFixed(2)}px, ${+y.toFixed(2)}px)`;
   if (target.style.transform !== transform) target.style.transform = transform;
 }
 

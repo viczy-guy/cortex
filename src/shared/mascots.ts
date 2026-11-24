@@ -47,6 +47,8 @@ interface Design {
   pixel?: true;
   /** How far the eyes go, in grid units across and down. */
   reach?: [number, number];
+  /** How much of the eyes' move down the eyebrows take (all of it by default); across and up, all. */
+  browDown?: number;
 }
 
 const r = (x: number, y: number, width: number, height: number, rx: number): Record<string, number> => ({ x, y, width, height, rx });
@@ -118,6 +120,8 @@ const DESIGNS: Record<Exclude<Mascot, "none">, Design> = {
     lids: [3, 4],
     parts: { 5: "brow", 6: "brow", 7: "stache" },
     reach: [1.9, 1.4],
+    // Lower, they would land on the glasses.
+    browDown: 0,
   },
   penguin: {
     shapes: [
@@ -238,6 +242,7 @@ export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement |
   body.append(head);
   svg.append(body);
   let look: SVGGElement | null = null;
+  let follow: SVGGElement | null = null;
   let part: { name: Part; g: SVGGElement } | null = null;
   design.shapes.forEach((shape, i) => {
     const node = shapeNode(shape, design.lids?.includes(i) ? "m-lid" : undefined);
@@ -251,11 +256,13 @@ export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement |
     } else if (name) {
       if (part?.name !== name) {
         part = { name, g: group(`m-${name}`) };
-        // Eyebrows go where the eyes look, in a group of their own: `m-brow` keeps its rise and sink.
+        // Eyebrows go where the eyes look, all in one group: `m-brow` keeps its rise and sink.
         if (name === "brow") {
-          const follow = group("m-follow");
+          if (!follow) {
+            follow = group("m-follow");
+            head.append(follow);
+          }
           follow.append(part.g);
-          head.append(follow);
         } else head.append(part.g);
       }
       part.g.append(node);
@@ -272,10 +279,10 @@ export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement |
   return svg;
 }
 
-/** How a mascot's eyes move (#145): how far, in grid units, and by whole pixels or not. */
-export function mascotReach(mascot: Mascot): { reach: [number, number]; pixel: boolean } {
-  if (mascot === "none") return { reach: [0, 0], pixel: false };
+/** How a mascot's eyes move (#145): how far, in grid units, by whole pixels or not, and how far down the eyebrows go with them. */
+export function mascotReach(mascot: Mascot): { reach: [number, number]; pixel: boolean; browDown: number } {
+  if (mascot === "none") return { reach: [0, 0], pixel: false, browDown: 0 };
   const design = DESIGNS[mascot];
   const look = Boolean(design.look?.length);
-  return { reach: design.reach ?? (look ? [2.2, 1.6] : [1.1, 0.8]), pixel: Boolean(design.pixel) };
+  return { reach: design.reach ?? (look ? [2.2, 1.6] : [1.1, 0.8]), pixel: Boolean(design.pixel), browDown: design.browDown ?? 1 };
 }
