@@ -12,6 +12,9 @@ follows [Semantic Versioning](https://semver.org).
   shows the state of everything at a glance, and a click opens its page.
   Agents already shows where creating your own agents will go. Nothing a
   setting does has changed, only where it lives. (#151)
+- **The first launch plays out.** The island appears only once the welcome
+  screen ends, and a new install then opens Settings with **Get started**:
+  connect Claude Code and, if you want, GitHub. (#152)
 
 ## [0.5.0] - 2026-11-24
 

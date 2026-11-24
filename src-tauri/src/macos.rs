@@ -151,7 +151,7 @@ pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         // Menu events are app-wide: the ids say which menu they came from.
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "menu-bar-settings" => crate::spawn_open_settings(app.clone()),
+            "menu-bar-settings" => crate::spawn_open_settings(app.clone(), false),
             "menu-bar-quit" => {
                 // The way out must not hang on a stuck teardown.
                 std::thread::spawn(|| {

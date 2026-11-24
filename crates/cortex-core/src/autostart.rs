@@ -62,6 +62,12 @@ pub fn was_updated(
     }
 }
 
+/// A new install (#152): no version saved (every launch since 0.3.2 saves
+/// one) and no launch-at-login answer (which 0.3.0 and 0.3.1 did save).
+pub fn is_first_launch(last_version: Option<&str>, launch_at_login: Option<bool>) -> bool {
+    last_version.is_none() && launch_at_login.is_none()
+}
+
 /// A path that cannot be an installed app: a cargo build, or on macOS a
 /// binary outside an app bundle, an app still on its disk image
 /// (`/Volumes/<image>/<App>.app`) or one macOS runs from a translocated copy.
@@ -164,6 +170,17 @@ mod tests {
         assert!(was_updated(None, Some(false), "0.3.2"));
         // A new install: nothing saved yet.
         assert!(!was_updated(None, None, "0.3.2"));
+    }
+
+    #[test]
+    fn only_a_launch_with_nothing_saved_is_a_first_launch() {
+        assert!(is_first_launch(None, None));
+        // The second launch saved its version.
+        assert!(!is_first_launch(Some("0.6.0"), Some(true)));
+        // 0.3.0 and 0.3.1 saved no version, but did save launch at login.
+        assert!(!is_first_launch(None, Some(false)));
+        // A dev build never saves launch at login, but does save its version.
+        assert!(!is_first_launch(Some("0.6.0"), None));
     }
 
     #[test]
