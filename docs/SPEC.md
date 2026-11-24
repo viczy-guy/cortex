@@ -61,12 +61,16 @@ are doing.
   mouse coming near the island, an agent, a notice or a click wakes it. A
   click on the island (not on a button) squashes it with a smile; three
   within 1.5 s make it dizzy for 2 s. When the color rises it jumps with wide
-  eyes, smiling for green and shaking for red. Cortex reads the cursor ten
-  times a second only while the mascot is lively and tells the island only
-  when the direction changes (`cortex_core::gaze`), so a resting mouse costs
-  nothing; on macOS a locked screen stops it all, since a repaint of a locked
+  eyes, smiling for green and shaking for red. Only while the mascot is lively,
+  Cortex reads the cursor ten times a second while it moves and a few times a
+  second once it rests (on macOS straight from Core Graphics, never waking
+  the main thread); it tells the island only when the direction changes, one
+  of 5 × 3 (`cortex_core::gaze`), measured from the mascot, whose place the
+  island reports when it draws or resizes. Eyes and lids switch without
+  easing: on a 30 × 18 point face an ease does not show, and each frame is a
+  repaint. On macOS a locked screen stops it all, since a repaint of a locked
   island keeps WebKit busy until unlock (#51). Reduce motion removes the
-  jumps, shakes and dizziness; the eyes still follow, without easing. Where
+  jumps, shakes and dizziness; the eyes still follow. Where
   the cursor cannot be read (Wayland), the eyes look ahead.
 - Each notice has a short phrase and where it happened (#131): "A PR has
   critical changes, review it!", "A PR failed!", "An action failed!", "An

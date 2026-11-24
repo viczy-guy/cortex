@@ -1,9 +1,9 @@
 //! The lively mascot's eyes (#145). While the mascot is lively, a thread of its
-//! own reads the cursor ten times a second and tells the island only when the
-//! direction changes, plus once a minute while the mouse keeps moving (so a
-//! busy mouse is never taken for a nap). A resting mouse sends nothing. On
-//! macOS a locked screen pauses it all: any repaint of a locked island keeps
-//! WebKit busy until unlock (#51).
+//! own reads the cursor (ten times a second while it moves, less once it
+//! rests) and tells the island only when the direction changes, plus once a
+//! minute while the mouse keeps moving (so a busy mouse is never taken for a
+//! nap). On macOS a locked screen pauses it all: any repaint of a locked
+//! island keeps WebKit busy until unlock (#51).
 
 use cortex_core::gaze::{gaze, Gaze, STEPS_X, STEPS_Y};
 use cortex_core::prefs::Prefs;
@@ -11,21 +11,29 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub const GAZE_EVENT: &str = "cortex://gaze";
 static LIVELY: AtomicBool = AtomicBool::new(true);
 /// Where the mascot sits in the island, in points from its top left corner;
-/// the island says so after it draws (`None`: the window's center).
+/// the island says so when that changes (`None`: the window's center).
 static ORIGIN: Mutex<Option<(f64, f64)>> = Mutex::new(None);
+/// The island's window moved, resized or changed scale: it is read again.
+static RESHAPED: AtomicBool = AtomicBool::new(true);
 const TICK: Duration = Duration::from_millis(100);
+/// A cursor still for `REST_AFTER` is read less often; a move then shows a
+/// little later, while a resting mouse costs less.
+const REST_AFTER: Duration = Duration::from_secs(3);
+const RESTING_TICK: Duration = Duration::from_millis(400);
 /// While paused (not lively, no mascot, screen locked, no cursor), how often to
 /// look again.
 const IDLE: Duration = Duration::from_secs(2);
-/// Ticks between two looks at the lock and the screens: once a second. The
-/// direction is also worked out again then, in case the island moved under a
-/// resting cursor.
-const SLOW_EVERY: u32 = 10;
+/// How often to look at the lock. The direction is also worked out again
+/// then, in case the island moved under a resting cursor.
+const SLOW: Duration = Duration::from_secs(1);
+/// The island's window is read again on its own events, and at least this
+/// often in case one went missing.
+const FRAME_EVERY: Duration = Duration::from_secs(10);
 /// A moving mouse is reported at least this often, even in the same direction.
 const STILL_MOVING: Duration = Duration::from_secs(60);
 
@@ -64,11 +72,24 @@ pub fn island_gaze_origin(x: f64, y: f64) {
     if fits(x) && fits(y) {
         *ORIGIN.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, y));
     }
+    RESHAPED.store(true, Ordering::Relaxed);
 }
 
 pub fn spawn(app: AppHandle) {
-    // Its own thread: each read waits on the main thread, which an async
-    // worker must not do.
+    if let Some(island) = app.get_webview_window("island") {
+        island.on_window_event(|event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::Moved(_)
+                    | tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                RESHAPED.store(true, Ordering::Relaxed);
+            }
+        });
+    }
+    // Its own thread: reading the window waits on the main thread, which an
+    // async worker must not do.
     let started = std::thread::Builder::new()
         .name("cortex-gaze".into())
         .spawn(move || watch(&app));
@@ -81,18 +102,23 @@ fn watch(app: &AppHandle) {
     let mut last: Option<(Gaze, bool)> = None;
     let mut last_sent = Instant::now();
     let mut cursor_was: Option<(f64, f64)> = None;
-    let mut main_scale = 1.0;
-    let mut ticks: u32 = 0;
+    let mut last_slow: Option<Instant> = None;
+    let mut last_motion = Instant::now();
     let mut locked = false;
+    let mut island: Option<Frame> = None;
+    let mut framed_at = Instant::now();
     loop {
         if !LIVELY.load(Ordering::Relaxed) {
             last = None;
             cursor_was = None;
+            island = None;
             std::thread::sleep(IDLE);
             continue;
         }
-        let slow = ticks.is_multiple_of(SLOW_EVERY);
-        ticks = ticks.wrapping_add(1);
+        let slow = last_slow.is_none_or(|at| at.elapsed() >= SLOW);
+        if slow {
+            last_slow = Some(Instant::now());
+        }
         // Once locked, the lock is looked at on every pass until it lifts.
         if slow || locked {
             locked = screen_locked();
@@ -101,27 +127,47 @@ fn watch(app: &AppHandle) {
                 std::thread::sleep(IDLE);
                 continue;
             }
-            if let Ok(Some(main)) = app.primary_monitor() {
-                main_scale = main.scale_factor();
-            }
         }
-        std::thread::sleep(TICK);
-        let Some(cursor) = app.cursor_position().ok().filter(readable) else {
+        if RESHAPED.swap(false, Ordering::Relaxed) || framed_at.elapsed() >= FRAME_EVERY {
+            island = None;
+        }
+        std::thread::sleep(if last_motion.elapsed() >= REST_AFTER {
+            RESTING_TICK
+        } else {
+            TICK
+        });
+        let Some(at) = cursor(app) else {
             send(app, &mut last, &mut last_sent, Gaze::AHEAD, true);
             std::thread::sleep(IDLE);
             continue;
         };
-        let at = (cursor.x, cursor.y);
         let moved = cursor_was != Some(at);
+        if moved {
+            last_motion = Instant::now();
+        }
         if !moved && !slow && last.is_some_and(|(_, awake)| awake) {
             continue;
         }
-        let Some(g) = look_from_island(app, at, main_scale) else {
+        if island.is_none() {
+            island = island_frame(app);
+            framed_at = Instant::now();
+        }
+        let Some(g) = island.map(|frame| look_from(frame, at)) else {
+            // No window to look from yet: wait rather than ask the main
+            // thread again on every pass.
+            std::thread::sleep(IDLE);
             continue;
         };
         cursor_was = Some(at);
         if moved && last_sent.elapsed() >= STILL_MOVING {
             last = None;
+        }
+        // The screen may have locked since the last look: a new direction
+        // would repaint a locked island (#51).
+        if last != Some((g, true)) && screen_locked() {
+            locked = true;
+            send(app, &mut last, &mut last_sent, Gaze::AHEAD, false);
+            continue;
         }
         send(app, &mut last, &mut last_sent, g, true);
     }
@@ -142,39 +188,90 @@ fn send(
     let _ = app.emit_to("island", GAZE_EVENT, GazeEvent::new(g, awake));
 }
 
-/// Wayland gives no cursor outside the window and says (0, 0).
-fn readable(cursor: &PhysicalPosition<f64>) -> bool {
-    !(cfg!(target_os = "linux") && cursor.x == 0.0 && cursor.y == 0.0)
+/// The cursor in points, straight from Core Graphics: no wait on the main
+/// thread, which `AppHandle::cursor_position` would wake on every read.
+#[cfg(target_os = "macos")]
+fn cursor(_app: &AppHandle) -> Option<(f64, f64)> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventCreate(source: *const c_void) -> *const c_void;
+        fn CGEventGetLocation(event: *const c_void) -> CGPoint;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRelease(cf: *const c_void);
+    }
+    // SAFETY: the event comes from a Create function, is checked for null,
+    // read once and released once; Core Graphics events are usable from any
+    // thread.
+    let point = unsafe {
+        let event = CGEventCreate(std::ptr::null());
+        if event.is_null() {
+            return None;
+        }
+        let point = CGEventGetLocation(event);
+        CFRelease(event);
+        point
+    };
+    (point.x.is_finite() && point.y.is_finite()).then_some((point.x, point.y))
 }
 
-/// The cursor's direction from the mascot.
-fn look_from_island(app: &AppHandle, cursor: (f64, f64), main_scale: f64) -> Option<Gaze> {
+/// The cursor in physical pixels. Wayland gives none outside the window and
+/// says (0, 0).
+#[cfg(not(target_os = "macos"))]
+fn cursor(app: &AppHandle) -> Option<(f64, f64)> {
+    let at = app.cursor_position().ok()?;
+    let unknown = cfg!(target_os = "linux") && at.x == 0.0 && at.y == 0.0;
+    (!unknown).then_some((at.x, at.y))
+}
+
+/// The island window: where it is, its size and its scale, read again only
+/// when it changes (each read waits on the main thread).
+#[derive(Clone, Copy)]
+struct Frame {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    scale: f64,
+}
+
+fn island_frame(app: &AppHandle) -> Option<Frame> {
     let island = app.get_webview_window("island")?;
     let pos = island.outer_position().ok()?;
     let size = island.outer_size().ok()?;
     let scale = island.scale_factor().ok()?;
-    if !(scale.is_finite() && scale > 0.0) {
-        return None;
-    }
+    (scale.is_finite() && scale > 0.0).then(|| Frame {
+        x: f64::from(pos.x),
+        y: f64::from(pos.y),
+        width: f64::from(size.width),
+        height: f64::from(size.height),
+        scale,
+    })
+}
+
+/// The cursor's direction from the mascot.
+fn look_from(island: Frame, cursor: (f64, f64)) -> Gaze {
+    let Frame {
+        x,
+        y,
+        width,
+        height,
+        scale,
+    } = island;
     let origin = *ORIGIN.lock().unwrap_or_else(|e| e.into_inner());
-    let (ox, oy) = origin.unwrap_or((
-        f64::from(size.width) / scale / 2.0,
-        f64::from(size.height) / scale / 2.0,
-    ));
+    let (ox, oy) = origin.unwrap_or((width / scale / 2.0, height / scale / 2.0));
     if cfg!(target_os = "macos") {
-        // tao turns the cursor into pixels with the main screen's scale and
-        // the window with its own: both back to points, or a second screen
-        // with another scale would skew the direction.
-        let main = if main_scale.is_finite() && main_scale > 0.0 {
-            main_scale
-        } else {
-            1.0
-        };
-        let center = (f64::from(pos.x) / scale + ox, f64::from(pos.y) / scale + oy);
-        Some(gaze((cursor.0 / main, cursor.1 / main), center, 1.0))
+        // The cursor is in points: the window goes back to points too.
+        gaze(cursor, (x / scale + ox, y / scale + oy), 1.0)
     } else {
-        let center = (f64::from(pos.x) + ox * scale, f64::from(pos.y) + oy * scale);
-        Some(gaze(cursor, center, scale))
+        gaze(cursor, (x + ox * scale, y + oy * scale), scale)
     }
 }
 
