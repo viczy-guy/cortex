@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- **Settings is a portal.** A sidebar with one page per subject: Overview,
+  Agents, Island, Notices & sounds, GitHub, General and About. The Overview
+  shows the state of everything at a glance, and a click opens its page.
+  Agents already shows where creating your own agents will go. Nothing a
+  setting does has changed, only where it lives. (#151)
+
 ## [0.5.0] - 2026-11-24
 
 ### Added
