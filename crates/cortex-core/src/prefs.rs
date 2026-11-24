@@ -21,8 +21,9 @@ pub struct Prefs {
 }
 
 /// The mascot gallery; "none" hides the mascot.
-pub const MASCOTS: [&str; 9] = [
-    "eyes", "lens", "owl", "cat", "ghost", "robot", "mustache", "penguin", "none",
+pub const MASCOTS: [&str; 13] = [
+    "eyes", "lens", "owl", "cat", "ghost", "robot", "mustache", "penguin", "skull", "ninja",
+    "bunny", "samurai", "none",
 ];
 pub const DEFAULT_MASCOT: &str = "eyes";
 
@@ -167,6 +168,11 @@ mod tests {
         assert!(unknown.github);
         assert_eq!(unknown.mascot, None);
         assert!(MASCOTS.contains(&DEFAULT_MASCOT));
+        // The mascots added in #144 are kept like the others.
+        for name in ["skull", "ninja", "bunny", "samurai"] {
+            let json = format!(r#"{{"version":1,"github":false,"mascot":"{name}"}}"#);
+            assert_eq!(prefs_from_json(&json).mascot.as_deref(), Some(name));
+        }
     }
 
     #[test]
