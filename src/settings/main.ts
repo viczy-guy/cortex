@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
-  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, releaseNotesUrl,
+  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, githubShown, releaseNotesUrl,
   type GithubStatus, UPDATES_EVENT, type UpdateStatus, ISLAND_PREFS_EVENT, type IslandPrefs, type AutostartStatus,
   ISLAND_SCREENS_EVENT, type IslandPosition, type IslandScreen,
   type AlwaysRule, type HooksPreview, type HooksStatus,
@@ -677,8 +677,10 @@ async function start(): Promise<void> {
   await listen<GithubStatus>(GITHUB_EVENT, (event) => {
     githubChanged = true;
     githubRevision++;
+    // A rebuild takes the keyboard focus off its buttons: only for a change.
+    const same = githubShown(github) === githubShown(event.payload);
     github = event.payload;
-    renderGithub();
+    if (!same) renderGithub();
   });
   let updatesChanged = false;
   await listen<UpdateStatus>(UPDATES_EVENT, (event) => {

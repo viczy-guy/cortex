@@ -3,8 +3,8 @@ use crate::prefs::{self, Prefs};
 use cortex_core::{
     github::{
         account_is_shown, active_account, device_code, has_account, is_valid_login, is_valid_token,
-        overall_state, parse_accounts, parse_summary, release_notes_url, GhAccount, CLI_URL,
-        DEVICE_URL, MAX_ACCOUNTS, QUERY,
+        overall_state, parse_accounts, parse_summary, poll_due, release_notes_url, GhAccount,
+        CLI_URL, DEVICE_URL, MAX_ACCOUNTS, POLL_SECS, POLL_SLOW_SECS, QUERY,
     },
     notices::{
         notices, notifications_path, parse_failed_runs, parse_plans, plan_query,
@@ -28,12 +28,6 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Notify;
 
 pub const GITHUB_EVENT: &str = "cortex://github";
-/// Pull requests are read again this long after a check ends (asked for by
-/// the maintainer, 24/11/2026: approvals and review requests show quickly).
-const POLL: Duration = Duration::from_secs(15);
-/// With the screen locked nobody sees the island: the old pace, so a night
-/// of polling costs a quarter. Failed actions keep GitHub's own interval.
-const POLL_LOCKED: Duration = Duration::from_secs(60);
 const GH_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_STDOUT: u64 = 2 * 1024 * 1024;
 const MAX_DIAGNOSTICS: u64 = 64 * 1024;
@@ -381,6 +375,11 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
         memory
             .runs_due
             .insert(login.clone(), now.saturating_add(secs * 1000));
+    } else if due {
+        // A failed read (a 429, say) waits at least as long as a good one.
+        memory
+            .runs_due
+            .insert(login.clone(), now.saturating_add(POLL_SLOW_SECS * 1000));
     }
     summary.failed_runs = memory.runs.get(&login).cloned().unwrap_or_default();
     let due = memory
@@ -904,11 +903,10 @@ pub async fn poller(app: AppHandle) {
     let state = app.state::<GithubState>();
     loop {
         let request = {
-            let mut inner = state.lock();
+            let inner = state.lock();
+            // No "checking" here: turning on and launching already show it, and
+            // every 15 s the dot and the account count would blink.
             if inner.status.enabled && inner.running.is_none() {
-                inner.status.state = "checking";
-                inner.status.message = None;
-                inner.emit(&app);
                 Some((inner.revision, inner.prefs.github_hidden.clone()))
             } else {
                 None
@@ -933,6 +931,7 @@ pub async fn poller(app: AppHandle) {
                 status.installer = None;
                 match result {
                     Ok(PollResult::Accounts(mut accounts)) => {
+                        status.message = None;
                         for account in accounts
                             .iter_mut()
                             .filter(|a| a.shown && a.summary.is_none())
@@ -970,12 +969,19 @@ pub async fn poller(app: AppHandle) {
             state.wake.notified().await;
             continue;
         }
-        let wait = if crate::gaze::screen_locked() {
-            POLL_LOCKED
-        } else {
-            POLL
-        };
-        tokio::select! { _ = tokio::time::sleep(wait) => {}, _ = state.wake.notified() => {} }
+        // Woken every POLL_SECS to look at the lock: unlocking is seen within 15 s.
+        let failing = state.lock().status.state == "error";
+        let mut slept = 0;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(POLL_SECS)) => {}
+                _ = state.wake.notified() => break,
+            }
+            slept += POLL_SECS;
+            if poll_due(slept, crate::gaze::screen_locked(), failing) {
+                break;
+            }
+        }
     }
 }
 

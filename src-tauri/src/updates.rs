@@ -14,6 +14,9 @@ pub const UPDATES_EVENT: &str = "cortex://updates";
 // shortcut: every minute while the maintainer tests releases (24/11/2026);
 // back to 6 hours when the testing phase ends (#158).
 const CHECK_EVERY: Duration = Duration::from_secs(60);
+/// A package that failed to download or verify waits the old pace: a broken
+/// release must not be downloaded every minute (82 MB for the AppImage).
+const CHECK_AFTER_BAD_PACKAGE: Duration = Duration::from_secs(6 * 60 * 60);
 /// A download that stalls must not hold the checker (and its buffer) forever.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
@@ -230,23 +233,32 @@ pub async fn updates_install(
 pub async fn checker(app: AppHandle) {
     let state = app.state::<UpdateState>();
     loop {
+        let mut bad_package = false;
         let due = {
             let mut inner = state.lock();
             let due = inner.status.enabled == Some(true)
                 && !inner.installing
                 && matches!(inner.status.state, "idle" | "error");
+            // From "up to date" the check is quiet: every minute, Settings
+            // would blink "Checking…".
+            let quiet = inner.status.state == "idle";
             if due {
                 inner.status.state = "checking";
                 inner.status.version = None;
                 inner.status.message = None;
-                inner.emit(&app);
+                if !quiet {
+                    inner.emit(&app);
+                }
             }
-            due.then_some(inner.revision)
+            due.then_some((inner.revision, quiet))
         };
-        if let Some(revision) = due {
+        if let Some((revision, quiet)) = due {
             let result = fetch(&app, revision).await;
             let mut inner = state.lock();
             if inner.revision == revision {
+                // `fetch` reports "downloading" once a newer version was found.
+                bad_package = result.is_err() && inner.status.state == "downloading";
+                let unchanged = quiet && matches!(result, Ok(None));
                 match result {
                     Ok(Some((update, bytes))) => {
                         inner.status.state = "ready";
@@ -261,10 +273,17 @@ pub async fn checker(app: AppHandle) {
                         inner.status.message = Some(message);
                     }
                 }
-                inner.emit(&app);
+                if !unchanged {
+                    inner.emit(&app);
+                }
             }
         }
-        let _ = tokio::time::timeout(CHECK_EVERY, state.wake.notified()).await;
+        let wait = if bad_package {
+            CHECK_AFTER_BAD_PACKAGE
+        } else {
+            CHECK_EVERY
+        };
+        let _ = tokio::time::timeout(wait, state.wake.notified()).await;
     }
 }
 

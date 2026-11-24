@@ -285,8 +285,9 @@ each launch rewrites the entry if the app moved.
 Opt-in in Settings, off by default. Cortex reads up to 10 github.com accounts
 from the GitHub CLI (`gh`). Accounts are shown by default and can be hidden in
 Settings. Cortex checks shown accounts about every 15 seconds while on (15
-seconds after the last check ended, a minute while the screen is locked, or
-when Refresh now is clicked). Off means no polling or timers.
+seconds after the last check ended, or when Refresh now is clicked). Once a
+minute while GitHub keeps failing, and on macOS while the screen is locked;
+unlocking is seen within 15 seconds. Off means no polling or timers.
 
 The island pill totals requested reviews, failing own PRs, and open PRs across
 shown accounts. Its expanded GitHub card groups requested reviews and own pull
@@ -335,7 +336,8 @@ answer can be changed in Settings → General.
 
 While on, Cortex fetches the release manifest (`latest.json` of the latest
 published GitHub release) at launch and every minute while Cortex is being
-tested (back to every 6 hours afterwards, #158), and sends nothing but that
+tested (back to every 6 hours afterwards, #158; after a package that failed
+to download or verify, 6 hours), and sends nothing but that
 request. A newer version is downloaded in the background and verified against
 the minisign public key compiled into the app; the signature must also name the
 announced version, so a tampered manifest cannot downgrade to an older signed
