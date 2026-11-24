@@ -9,8 +9,8 @@ follows [Semantic Versioning](https://semver.org).
 ## [0.5.0] - 2026-11-23
 
 ### Added
-- **A lively mascot.** Its eyes follow your mouse, it blinks, looks around
-  and naps after 10 minutes with nothing going on; a click squashes it with
+- **A lively mascot.** Its eyes (and eyebrows) follow your mouse, it blinks,
+  looks around and naps after 10 minutes with nothing going on; a click squashes it with
   a smile, three quick ones make it dizzy; when the island's color rises it
   smiles for green and shakes for red. On by default; Settings → Island turns
   it off, and Reduce motion keeps it from jumping. It costs next to nothing
@@ -18,6 +18,8 @@ follows [Semantic Versioning](https://semver.org).
   while the screen is locked. (#145)
 - Four new mascots in Settings → Island: Skull, Ninja, Bunny mochi and Samurai
   mochi. (#144)
+- **Clear all** on top of the list of notices, when two or more are standing:
+  one click clears them all. (#150)
 
 ### Changed
 - The glasses and mustache mascot has eyes behind the glasses and eyebrows. (#144)
