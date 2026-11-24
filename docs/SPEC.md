@@ -55,7 +55,7 @@ are doing.
   still (not at all with reduced motion).
 - The lively mascot (#145, on by default; Settings → Island turns it off):
   its eyes follow the mouse anywhere, on any screen (the pixel penguin's a
-  pixel at a time); it blinks every 2.5 to 6 s, looks around now and then
+  pixel at a time), and eyebrows go with them, across and up, never down; it blinks every 2.5 to 6 s, looks around now and then
   while the mouse rests, and naps after 10 minutes with no agent working, no
   notice standing and no mouse movement (eyes closed, a still "z"). The
   mouse coming near the island, an agent, a notice or a click wakes it. A
@@ -87,7 +87,8 @@ are doing.
   than the island's color, or than the phrase showing, does not speak.
   Hovering lists every standing notice, the most urgent first (not over a
   card); a click on a row clears that one, and a GitHub one also opens on
-  GitHub. Each account's first GitHub answer (after launch, after turning
+  GitHub. With two or more, "Clear all" under the list clears every one, as
+  a click on the island does. Each account's first GitHub answer (after launch, after turning
   GitHub on, or once the account is shown again) speaks nothing: what was
   there is not news; a notice that went and comes back is. In the session cards the
   "working" dot is gray, as on the island: blue is the review's.

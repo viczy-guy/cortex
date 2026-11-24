@@ -229,6 +229,12 @@ function acknowledge(): void {
   stopSaying();
 }
 
+/** "Clear all" under the list: every notice goes, as on a click on the island. */
+function clearAll(): void {
+  acknowledge();
+  render();
+}
+
 /** A click on one notice in the list: that one goes, and GitHub's open. */
 function actOn(notice: ViewNotice): void {
   if (saying?.key === notice.key) stopSaying();
@@ -580,7 +586,7 @@ function panelContent(): HTMLElement[] {
   if (!expanded) {
     // Hovering lists what is standing, the most urgent first (#131).
     const notices = hovered && snapshot.approvals.length === 0 ? activeNotices() : [];
-    return notices.length > 0 ? [...question, noticeRows(notices, actOn)] : question;
+    return notices.length > 0 ? [...question, noticeRows(notices, actOn, clearAll)] : question;
   }
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];

@@ -714,6 +714,7 @@ body {
   cursor: pointer;
 }
 .notice-row:hover { background: var(--btn-neutral-bg); }
+.notice-rows .btn-clear { align-self: flex-end; padding: 3px 10px; font-size: 11px; }
 .notice-row b {
   flex: 0 1 auto;
   min-width: 0;

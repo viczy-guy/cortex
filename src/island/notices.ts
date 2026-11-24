@@ -4,7 +4,7 @@
  * sessions. View helpers only.
  */
 
-import { el } from "../shared/dom";
+import { button, el } from "../shared/dom";
 import type { GithubNotice, SessionView } from "../shared/ipc";
 import { sessionKey, type Tone } from "./notch";
 
@@ -73,8 +73,8 @@ export function sayLine(notice: ViewNotice, more: number): HTMLElement[] {
   return more > 0 ? [text, el("span", "more", `+${more}`)] : [text];
 }
 
-/** One row per notice, the most urgent first; a click acts on that one only. */
-export function noticeRows(notices: ViewNotice[], act: (notice: ViewNotice) => void): HTMLElement {
+/** One row per notice, the most urgent first; a click acts on that one only. With two or more, "Clear all". */
+export function noticeRows(notices: ViewNotice[], act: (notice: ViewNotice) => void, clearAll: () => void): HTMLElement {
   const list = el("div", "notice-rows");
   for (const notice of notices) {
     const row = el("button", "notice-row");
@@ -87,5 +87,6 @@ export function noticeRows(notices: ViewNotice[], act: (notice: ViewNotice) => v
     });
     list.append(row);
   }
+  if (notices.length > 1) list.append(button("btn-neutral btn-clear", "Clear all", clearAll));
   return list;
 }

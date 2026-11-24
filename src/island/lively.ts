@@ -15,8 +15,7 @@ const NAP_CHECK_MS = 30_000;
 const BLINK_MS = 120;
 const CLICKS_FOR_DIZZY = 3;
 const DIZZY_WINDOW_MS = 1500;
-const DIZZY_MS = 2000;
-const MOVES = ["boop", "shake", "wobble"] as const;
+const DIZZY_MS = 2000;const MOVES = ["boop", "shake", "wobble"] as const;
 
 type Mood = "happy" | "wide" | "dizzy";
 type Move = (typeof MOVES)[number];
@@ -229,6 +228,14 @@ function look(lx: number, ly: number): void {
     x = Math.round(lx * 1.4);
     y = Math.round(ly * 1.2);
   }
+  shift(target, x, y);
+  // The eyebrows go with the eyes, like a face: across, and up when they look up. Never
+  // down, onto the glasses, nor up while a mood lifts them already (into the ninja's mask).
+  const brows = node.querySelector<SVGGElement>(".m-follow");
+  if (brows && target.classList.contains("m-look")) shift(brows, x, mood ? 0 : Math.min(y, 0));
+}
+
+function shift(target: SVGGElement, x: number, y: number): void {
   const transform = x === 0 && y === 0 ? "" : `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
   if (target.style.transform !== transform) target.style.transform = transform;
 }

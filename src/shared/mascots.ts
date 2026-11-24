@@ -222,7 +222,8 @@ function group(className: string): SVGGElement {
 /**
  * The mascot as an SVG element, or `null` for "none". Its pieces are named for
  * the lively mascot (#145): `m-body` jumps, `m-head` turns, `m-look` holds the
- * eyes that follow the mouse, `m-lid` closes, `m-closed` and `m-happy` replace
+ * eyes that follow the mouse, `m-follow` holds the eyebrows that go with them,
+ * `m-lid` closes, `m-closed` and `m-happy` replace
  * the lids where flattening them would not read.
  */
 export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement | null {
@@ -250,7 +251,12 @@ export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement |
     } else if (name) {
       if (part?.name !== name) {
         part = { name, g: group(`m-${name}`) };
-        head.append(part.g);
+        // Eyebrows go where the eyes look, in a group of their own: `m-brow` keeps its rise and sink.
+        if (name === "brow") {
+          const follow = group("m-follow");
+          follow.append(part.g);
+          head.append(follow);
+        } else head.append(part.g);
       }
       part.g.append(node);
     } else head.append(node);
