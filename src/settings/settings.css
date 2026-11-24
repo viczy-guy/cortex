@@ -6,7 +6,7 @@ html, body {
 }
 
 html, body { height: 100%; }
-[hidden] { display: none !important; }
+.page[hidden], .rule-row[hidden] { display: none; }
 body { display: flex; overflow: hidden; }
 
 /* The sidebar (#151): one item per page. */

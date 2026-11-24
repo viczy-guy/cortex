@@ -558,10 +558,12 @@ function startRow(title: string, text: string, label: string, act: () => void): 
 }
 const startClaude = startRow("Connect Claude Code", "Its sessions show in the island, and you answer its requests from there.", "Connect…", () => {
   show("agents");
+  pages.get("agents")!.item.focus();
   void previewHooks(false);
 });
 const startGithub = startRow("Connect GitHub", "Optional: your pull requests and the reviews waiting for you.", "Set up…", () => {
   show("github");
+  pages.get("github")!.item.focus();
   if (github && !github.enabled) void changeGithub(() => api.githubSetEnabled(true));
 });
 

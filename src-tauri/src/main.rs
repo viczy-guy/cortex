@@ -139,6 +139,12 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
 /// window from a sync command deadlocks on Windows.
 async fn show_settings(app: AppHandle, start: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
+        // Opened by hand during the first opening screen: Get started too.
+        if start {
+            let mut url = window.url().map_err(|e| e.to_string())?;
+            url.set_query(Some("start"));
+            window.navigate(url).map_err(|e| e.to_string())?;
+        }
         window.unminimize().map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
         return window.set_focus().map_err(|e| e.to_string());
@@ -658,7 +664,7 @@ fn main() {
             // Never over a file that could not be read: it would lose every
             // setting, and every launch would look like a new install.
             let prefs_valid = prefs::load_valid().is_some();
-            let first_launch = prefs_valid
+            let mut first_launch = prefs_valid
                 && cortex_core::autostart::is_first_launch(
                     last_version.as_deref(),
                     launch_at_login,
@@ -667,6 +673,8 @@ fn main() {
                 let saved = version.clone();
                 if let Err(err) = prefs::update(|p| p.last_version = Some(saved)) {
                     eprintln!("cortex: {err}");
+                    // Unsaved, every launch would be the first one.
+                    first_launch = false;
                 }
             }
             let screen = cortex_core::autostart::opening_screen(
