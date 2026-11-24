@@ -15,6 +15,13 @@ follows [Semantic Versioning](https://semver.org).
 - **The first launch plays out.** The island appears only once the welcome
   screen ends, and a new install then opens Settings with **Get started**:
   connect Claude Code and, if you want, GitHub. (#152)
+- **Quicker GitHub notices.** Pull requests are checked about every 15
+  seconds instead of every minute, so an approval or a review request shows
+  almost at once. Once a minute while GitHub keeps failing, and on macOS
+  while the screen is locked. Failed actions still follow GitHub's own pace,
+  about a minute.
+- **Updates are checked every minute** while Cortex is being tested, instead
+  of every 6 hours; it goes back to 6 hours afterwards. (#158)
 
 ## [0.5.0] - 2026-11-24
 

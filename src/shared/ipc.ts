@@ -290,3 +290,6 @@ export const GITHUB_CLI_URL = "https://cli.github.com/";
 /** Must match `release_notes_url` in cortex-core: `open_url` accepts only that page. */
 export const releaseNotesUrl = (version: string): string => `https://github.com/viczy-guy/cortex/releases/tag/v${version}`;
 export const GITHUB_EVENT = "cortex://github";
+/** A status as drawn: `fetched_at_ms` changes on every check (15 s) but is never shown. */
+export const githubShown = (status: GithubStatus | null): string =>
+  JSON.stringify(status, (key, value: unknown) => (key === "fetched_at_ms" ? undefined : value));

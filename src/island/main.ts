@@ -13,6 +13,7 @@ import {
   GAZE_EVENT,
   type Gaze,
   GITHUB_EVENT,
+  githubShown,
   type GithubStatus,
   HOVER_EVENT,
   type HooksStatus,
@@ -756,8 +757,10 @@ async function start(): Promise<void> {
   let githubChanged = false;
   await listen<GithubStatus>(GITHUB_EVENT, (event) => {
     githubChanged = true;
+    // A redraw under the pointer can lose a click: only for a change.
+    const same = githubShown(github) === githubShown(event.payload);
     github = event.payload;
-    render();
+    if (!same) render();
   });
   let updatesChanged = false;
   await listen<UpdateStatus>(UPDATES_EVENT, (event) => {

@@ -3,6 +3,17 @@ use serde::Serialize;
 use serde_json::Value;
 
 pub const MAX_ACCOUNTS: usize = 10;
+/// Pull requests are read again this long after a check (asked for by the
+/// maintainer, 24/11/2026: approvals and review requests show quickly).
+pub const POLL_SECS: u64 = 15;
+/// The old pace: while the screen is locked nobody sees the island, and a
+/// GitHub that refuses is not asked four times a minute.
+pub const POLL_SLOW_SECS: u64 = 60;
+
+/// Whether the poller checks again `slept_secs` after its last check.
+pub fn poll_due(slept_secs: u64, locked: bool, failing: bool) -> bool {
+    slept_secs >= POLL_SLOW_SECS || (slept_secs >= POLL_SECS && !locked && !failing)
+}
 pub const DEVICE_URL: &str = "https://github.com/login/device";
 pub const CLI_URL: &str = "https://cli.github.com/";
 
@@ -315,6 +326,21 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pull_requests_are_read_every_15_s_and_once_a_minute_when_locked_or_failing() {
+        use super::poll_due;
+        assert!(!poll_due(0, false, false));
+        assert!(poll_due(15, false, false));
+        for slept in [15, 30, 45] {
+            assert!(!poll_due(slept, true, false));
+            assert!(!poll_due(slept, false, true));
+        }
+        assert!(poll_due(60, true, false));
+        assert!(poll_due(60, false, true));
+        // Unlocked after 30 s: read at once.
+        assert!(poll_due(30, false, false));
+    }
+
     use super::*;
     use serde_json::json;
     #[test]
