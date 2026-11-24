@@ -23,7 +23,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       failed, or an Atlantis plan destroys something. The phrase shows for a
       few seconds; hovering lists what stands. (The updating, done and error
       screens planned for A3 shipped in 0.3.2.)
-- [ ] **A2c · v0.5.0 — Lively mascot.** The mascot follows your mouse,
+- [x] **A2c · v0.5.0 — Lively mascot.** The mascot follows your mouse,
       blinks, naps when nothing happens and reacts to a click and to the
       island's color; four new mascots (skull, ninja, bunny mochi, samurai
       mochi). On by default, with a switch in Settings.
