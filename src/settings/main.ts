@@ -63,12 +63,12 @@ function show(id: PageId): void {
   root.scrollTop = 0;
 }
 
-// Up and down move through the pages, as in a system list.
 nav.addEventListener("keydown", (event) => {
   if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
   const ids = [...pages.keys()];
-  const current = ids.findIndex((id) => pages.get(id)!.item.hasAttribute("aria-current"));
-  const next = ids[current + (event.key === "ArrowUp" ? -1 : 1)];
+  // From the focused item: Tab moves the focus without opening its page.
+  const from = ids.findIndex((id) => pages.get(id)!.item === event.target);
+  const next = from < 0 ? undefined : ids[from + (event.key === "ArrowUp" ? -1 : 1)];
   if (!next) return;
   event.preventDefault();
   show(next);
@@ -114,6 +114,7 @@ const POSITIONS: Record<IslandPosition, string> = {
 };
 let status: HooksStatus | null = null;
 let rules: AlwaysRule[] = [];
+let rulesLoad: "pending" | "done" | "failed" = "pending";
 let busy = false;
 let github: GithubStatus | null = null;
 let githubBusy = false;
@@ -490,7 +491,9 @@ function renderIsland(): void {
   }
   if (islandError) islandBlock.append(el("div", "note note-error", islandError));
   if (screensError) islandBlock.append(el("div", "note note-error", screensError));
-  if (soundsError) soundsBlock.append(el("div", "note note-error", soundsError));
+  // Without the prefs there is no toggle: say why on this page too.
+  const soundsMessage = soundsError ?? (prefs ? null : islandError);
+  if (soundsMessage) soundsBlock.append(el("div", "note note-error", soundsMessage));
 }
 
 // The four colors, each with its sound to try (#131).
@@ -505,7 +508,9 @@ for (const [tone, name, text] of TONES) {
   const row = el("div", "rule-row");
   const label = el("div", "rule-scope");
   label.append(el("div", undefined, name), el("div", "note", text));
-  row.append(el("span", `status-dot tone-${tone}`), label, button("btn-neutral", "Play", () => playSound(tone, true)));
+  const play = button("btn-neutral", "Play", () => playSound(tone, true));
+  play.setAttribute("aria-label", `Play the ${name} sound`);
+  row.append(el("span", `status-dot tone-${tone}`), label, play);
   colorsBlock.append(row);
 }
 
@@ -518,25 +523,44 @@ const createRow = el("div", "rule-row");
 createRow.append(createLabel, createButton);
 createBlock.append(createRow);
 
-/** One line per subject, each opening its page; "…" until its status loads. */
+// One line per subject, each opening its page. Built once and updated in
+// place: rebuilding would drop the keyboard focus on every status event.
+const overviewRows = ([
+  ["agents", "Claude Code"], ["agents", "Always rules"], ["github", "GitHub"], ["island", "Island"],
+  ["notices", "Sounds"], ["general", "Updates"], ["general", "Open at login"],
+] as const).map(([id, name]) => {
+  const row = el("button", "overview-row");
+  const dot = el("span", "status-dot blank");
+  const value = el("span", "overview-value", "…");
+  const chevron = el("span", "overview-chevron", "›");
+  chevron.setAttribute("aria-hidden", "true");
+  row.append(dot, el("span", "overview-name", name), value, chevron);
+  row.addEventListener("click", () => {
+    show(id);
+    pages.get(id)!.item.focus();
+  });
+  overviewBlock.append(row);
+  return { dot, value };
+});
+
+/** "…" while a status loads; a failed load is told here too, not only on its page. */
 function renderOverview(): void {
-  const rows: [PageId, string, string, boolean | null][] = [
-    ["agents", "Claude Code", status ? hooksLabel(status) : "…", status ? status.installed && !status.outdated : null],
-    ["agents", "Always rules", rules.length === 0 ? "No rules yet" : `${rules.length} ${rules.length === 1 ? "rule" : "rules"}`, null],
-    ["github", "GitHub", github ? githubLabel(github) + (github.state === "ok" && github.accounts.length > 1 ? ` · ${github.accounts.length} accounts` : "") : "…", github ? github.state === "ok" : null],
-    ["island", "Island", island ? `${MASCOT_NAMES[island.mascot]} · ${POSITIONS[island.position]}${island.lively ? " · lively" : ""}` : "…", null],
-    ["notices", "Sounds", island ? (island.sound ? "On" : "Off") : "…", island ? island.sound : null],
-    ["general", "Updates", updates ? updatesLabel(updates) : "…", updates ? updates.state === "idle" || updates.state === "ready" : null],
-    ["general", "Open at login", startup ? startupLabel(startup) : "…", startup ? startup.enabled : null],
+  const pending = (failed: unknown): [string, null] => [failed ? "Couldn't load" : "…", null];
+  const count = rules.length === 0 ? "No rules yet" : `${rules.length} ${rules.length === 1 ? "rule" : "rules"}`;
+  const lines: [string, boolean | null][] = [
+    status ? [hooksLabel(status), status.installed] : pending(flow.phase === "error"),
+    rulesLoad === "done" ? [count, null] : pending(rulesLoad === "failed"),
+    github ? [githubLabel(github) + (github.state === "ok" && github.accounts.length > 1 ? ` · ${github.accounts.length} accounts` : ""), github.state === "ok"] : pending(githubError),
+    island ? [`${MASCOT_NAMES[island.mascot]} · ${POSITIONS[island.position]}${island.lively ? " · lively" : ""}`, null] : pending(islandError),
+    island ? [island.sound ? "On" : "Off", island.sound] : pending(islandError),
+    updates ? [updatesLabel(updates), updates.state === "idle" || updates.state === "ready"] : pending(updatesError),
+    startup ? [startupLabel(startup), startup.enabled] : pending(startupError),
   ];
-  overviewBlock.replaceChildren(...rows.map(([id, name, value, ok]) => {
-    const row = el("button", "overview-row");
-    const chevron = el("span", "overview-chevron", "›");
-    chevron.setAttribute("aria-hidden", "true");
-    row.append(el("span", ok === null ? "status-dot blank" : ok ? "status-dot connected" : "status-dot"), el("span", "overview-name", name), el("span", "overview-value", value), chevron);
-    row.addEventListener("click", () => show(id));
-    return row;
-  }));
+  lines.forEach(([text, ok], i) => {
+    const { dot, value } = overviewRows[i]!; // Same order as the rows above.
+    value.textContent = text;
+    dot.className = ok === null ? "status-dot blank" : ok ? "status-dot connected" : "status-dot";
+  });
 }
 
 async function changeIsland(change: () => Promise<void>): Promise<void> {
@@ -654,6 +678,7 @@ async function start(): Promise<void> {
   await listen<AlwaysRule[]>(RULES_EVENT, (event) => {
     rulesChanged = true;
     rules = event.payload;
+    rulesLoad = "done";
     renderRules();
   });
   await Promise.all([
@@ -665,8 +690,10 @@ async function start(): Promise<void> {
     api.hooksStatus().then((value) => { if (!hooksChanged) status = value; }).catch((error: unknown) => {
       flow = { phase: "error", message: String(error) };
     }).finally(renderHooks),
-    api.rulesList().then((value) => { if (!rulesChanged) rules = value; renderRules(); }).catch((error: unknown) => {
+    api.rulesList().then((value) => { if (!rulesChanged) rules = value; rulesLoad = "done"; renderRules(); }).catch((error: unknown) => {
+      if (!rulesChanged) rulesLoad = "failed";
       rulesBlock.append(el("div", "note note-error", String(error)));
+      renderOverview();
     }),
     getVersion().then((version) => {
       const commit = import.meta.env.VITE_CORTEX_COMMIT;

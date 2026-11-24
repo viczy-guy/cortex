@@ -228,8 +228,8 @@ app's data directory, refreshed on every launch.
 ## Settings
 
 The gear in the island opens a separate, opaque Settings window with a
-sidebar of pages (#151); the arrow keys move through it. Settings always opens
-on the Overview.
+sidebar of pages (#151); the arrow keys move through it. A new Settings
+window opens on the Overview.
 
 - **Overview** has one line per subject (Claude Code, Always rules, GitHub,
   Island, Sounds, Updates, Open at login) with its state; a click opens its
