@@ -8,6 +8,7 @@
     "allow-island-prefs",
     "allow-snapshot",
     "allow-island-fit",
+    "allow-island-gaze-origin",
     "allow-island-cutout",
     "allow-respond",
     "allow-answer",

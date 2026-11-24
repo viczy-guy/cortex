@@ -38,6 +38,7 @@ pub fn island_set_mascot(app: AppHandle, mascot: String) -> Result<(), String> {
         return Err("Unknown mascot.".into());
     }
     let prefs = update(|p| p.mascot = Some(mascot))?;
+    crate::gaze::set_lively(&prefs);
     let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
     Ok(())
 }
@@ -50,7 +51,7 @@ pub fn island_set_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn island_set_lively(app: AppHandle, enabled: bool) -> Result<(), String> {
     let prefs = update(|p| p.lively = Some(enabled))?;
-    crate::gaze::LIVELY.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::gaze::set_lively(&prefs);
     let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
     Ok(())
 }

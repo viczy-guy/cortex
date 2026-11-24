@@ -152,11 +152,11 @@ export interface IslandPrefs {
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
 
-/** Where the lively mascot looks (#145), sent only when it changes. */
+/** Where the lively mascot looks (#145): sent when it changes, and once a minute while the mouse moves. */
 export interface Gaze {
-  /** -4 (left) to 4 (right). */
+  /** -1 (left) to 1 (right). */
   x: number;
-  /** -3 (up) to 3 (down). */
+  /** -1 (up) to 1 (down). */
   y: number;
   near: boolean;
   /** `false` while the screen is locked: nothing may repaint (#51). */
@@ -209,6 +209,7 @@ export const api = {
   islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
   islandSetSound: (enabled: boolean) => invoke<void>("island_set_sound", { enabled }),
   islandSetLively: (enabled: boolean) => invoke<void>("island_set_lively", { enabled }),
+  islandGazeOrigin: (x: number, y: number) => invoke<void>("island_gaze_origin", { x, y }),
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),
