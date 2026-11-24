@@ -6,13 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-11-23
+## [0.5.0] - 2026-11-24
 
 ### Added
 - **A lively mascot.** Its eyes (and eyebrows) follow your mouse, it blinks,
-  looks around and naps after 10 minutes with nothing going on; a click squashes it with
-  a smile, three quick ones make it dizzy; when the island's color rises it
-  smiles for green and shakes for red. On by default; Settings → Island turns
+  looks around and naps after 10 minutes with nothing going on; a click
+  squashes it with a smile, three quick ones make it dizzy; when the island's
+  color rises it smiles for green and shakes for red. On by default; Settings → Island turns
   it off, and Reduce motion keeps it from jumping. It costs next to nothing
   (about 0.2% of one core while you move the mouse) and on macOS it stops
   while the screen is locked. (#145)
