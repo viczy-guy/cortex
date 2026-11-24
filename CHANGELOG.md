@@ -13,8 +13,9 @@ follows [Semantic Versioning](https://semver.org).
   and naps after 10 minutes with nothing going on; a click squashes it with
   a smile, three quick ones make it dizzy; when the island's color rises it
   smiles for green and shakes for red. On by default; Settings → Island turns
-  it off, and Reduce motion keeps it from jumping. A resting mouse costs
-  nothing, and on macOS it stops while the screen is locked. (#145)
+  it off, and Reduce motion keeps it from jumping. It costs next to nothing
+  (about 0.2% of one core while you move the mouse) and on macOS it stops
+  while the screen is locked. (#145)
 - Four new mascots in Settings → Island: Skull, Ninja, Bunny mochi and Samurai
   mochi. (#144)
 

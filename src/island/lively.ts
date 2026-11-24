@@ -64,7 +64,6 @@ export function livelyMascot(mascot: Mascot): SVGSVGElement | null {
 function dress(svg: SVGSVGElement): void {
   if (svg.querySelector(".m-closed")) svg.classList.add("has-closed");
   if (svg.querySelector(".m-happy")) svg.classList.add("has-happy");
-  if (reach.pixel) svg.classList.add("pixel");
   const z = document.createElementNS("http://www.w3.org/2000/svg", "text");
   z.setAttribute("class", "m-z");
   z.setAttribute("x", "33");
@@ -78,6 +77,10 @@ function dress(svg: SVGSVGElement): void {
     else if (target instanceof Element && target.classList.contains("m-body")) target.classList.remove(...MOVES);
   });
 }
+
+// The window grows and shrinks after a render, and folds back without one:
+// the mascot's place is read again whenever its size changes.
+window.addEventListener("resize", () => queueMicrotask(report));
 
 /** The mascot's center in the island, sent when it moves. */
 function report(): void {

@@ -146,9 +146,8 @@ body {
 
 .mascot :is(.m-body, .m-head, .m-look, .m-lid, .m-brow, .m-stache, .m-ear-l, .m-ear-r, .m-knot) { transform-box: fill-box; }
 .mascot .m-body { transform-origin: 50% 100%; }
-.mascot :is(.m-lid, .m-brow) { transform-origin: center; transition: transform 0.08s ease-out, opacity 0.06s; }
-.mascot :is(.m-look, .m-head) { transition: transform 0.14s ease-out; }
-.mascot.pixel :is(.m-look, .m-head) { transition: none; }
+/* Eyes, lids and brows switch at once: an ease on a 30 × 18 point face does not show, and every frame of it is a repaint. */
+.mascot :is(.m-lid, .m-brow) { transform-origin: center; }
 .mascot .m-z { font: 700 7px var(--font); fill: currentColor; opacity: 0; }
 
 /* Lids: closed, smiling, wide, curious, asleep. A mascot with drawn lids swaps them in. */
@@ -193,7 +192,7 @@ body {
 @keyframes ear-r { 50% { rotate: 16deg; } }
 @keyframes bob { 50% { transform: translateY(-1.8px); } }
 
-/* Reduce motion: no jumps, shakes or dizziness; the eyes still follow, at once. */
+/* Reduce motion: no jumps, shakes or dizziness; the eyes still follow. */
 @media (prefers-reduced-motion: reduce) {
   .mascot, .mascot * { animation: none !important; transition: none !important; }
 }

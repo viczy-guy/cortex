@@ -4,9 +4,11 @@
 
 use serde::Serialize;
 
-/// Steps on each side of straight ahead: four across, three up and down.
-pub const STEPS_X: i8 = 4;
-pub const STEPS_Y: i8 = 3;
+/// Steps on each side of straight ahead: two across, one up and down. On a
+/// 30 × 18 point mascot a finer step moves the eyes by less than a pixel,
+/// and each step is a repaint.
+pub const STEPS_X: i8 = 2;
+pub const STEPS_Y: i8 = 1;
 /// Logical points at which the eyes are about three quarters of the way
 /// across (`tanh`): far enough that a cursor anywhere on the screen still
 /// reads as a direction, near enough that a move beside the island shows.
@@ -86,10 +88,12 @@ mod tests {
 
     #[test]
     fn a_small_move_beside_the_island_changes_the_step() {
-        let a = gaze((1060.0, 20.0), CENTER, 1.0);
-        let b = gaze((1160.0, 20.0), CENTER, 1.0);
-        assert!(a.x >= 1 && b.x > a.x, "{a:?} {b:?}");
-        assert!(a.near && !b.near);
+        let a = gaze((1040.0, 20.0), CENTER, 1.0);
+        let b = gaze((1100.0, 20.0), CENTER, 1.0);
+        assert_eq!((a.x, b.x), (0, 1), "{a:?} {b:?}");
+        assert!(a.near && b.near);
+        let far = gaze((1400.0, 20.0), CENTER, 1.0);
+        assert_eq!((far.x, far.near), (STEPS_X, false));
     }
 
     #[test]
