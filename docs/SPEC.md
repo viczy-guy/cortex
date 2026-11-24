@@ -121,7 +121,7 @@ new GitHub notice at least as urgent as the island's color (the rule for its
 phrase), in its color, blue being the "Toque" (two notes up, softer than the
 alert: a request, not an emergency). If several come together, the most urgent
 plays; a lower one arriving while a higher one plays is not played. Sounds
-are on by default and can be muted or sampled in Settings → Island.
+are on by default and can be muted or sampled in Settings → Notices & sounds.
 
 ## Opening screen
 
@@ -227,20 +227,26 @@ app's data directory, refreshed on every launch.
 
 ## Settings
 
-The gear in the island opens a separate, opaque Settings window:
+The gear in the island opens a separate, opaque Settings window with a
+sidebar of pages (#151); the arrow keys move through it. A new Settings
+window opens on the Overview.
 
-- **Claude Code** shows hook status and offers reviewed installation or removal,
-  with the exact diff and a dated backup before writing.
-- **Always rules** lists local rules and allows removing one or all. Removing
-  all requires a second click within four seconds.
-- **Island** chooses the mascot from a gallery of twelve, or none, turns the lively
-  mascot on or off, sets the
-  island's screen and position, and controls and samples the sounds.
-- **Startup** turns launch at login on or off (see below).
+- **Overview** has one line per subject (Claude Code, Always rules, GitHub,
+  Island, Sounds, Updates, Open at login) with its state; a click opens its
+  page.
+- **Agents**: **Claude Code** shows hook status and offers reviewed
+  installation or removal, with the exact diff and a dated backup before
+  writing. **Create an agent** is a disabled card that says it comes in a new
+  version. **Always rules** lists local rules and allows removing one or all;
+  removing all requires a second click within four seconds.
+- **Island** chooses the mascot from a gallery of twelve, or none, turns the
+  lively mascot on or off, and sets the island's screen and position.
+- **Notices & sounds** explains the four colors, each with its sound to play,
+  and turns the sounds on or off.
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
-- **Updates** turns the update check on or off and offers **Update and
-  restart** once a verified update is ready.
+- **General** turns launch at login on or off (see below), and the update
+  check, with **Update and restart** once a verified update is ready.
 - **About** shows the app version, a "What's new" link to the notes of that
   version, its local-only policy, and Quit Cortex.
 
@@ -317,7 +323,7 @@ and no shell.
 
 Opt-in (ADR 0004). On first launch the island asks once, "Check for updates
 automatically?"; until the answer is Yes, Cortex makes no update request. The
-answer can be changed in Settings → Updates.
+answer can be changed in Settings → General.
 
 While on, Cortex fetches the release manifest (`latest.json` of the latest
 published GitHub release) at launch and every 6 hours, and sends nothing but that

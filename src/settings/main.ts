@@ -13,18 +13,98 @@ import { MASCOT_NAMES, MASCOTS, mascotSvg } from "../shared/mascots";
 import { alwaysScope } from "../shared/rules";
 import { playSound } from "../shared/sounds";
 
+// A portal (#151): one page per subject, picked in the sidebar.
+const nav = document.getElementById("settings-nav")!;
 const root = document.getElementById("settings")!;
-function section(title: string): HTMLElement {
-  const section = el("section");
-  const block = el("div", "card");
-  section.append(el("h2", undefined, title), block);
-  root.append(section);
-  return block;
+type PageId = "overview" | "agents" | "island" | "notices" | "github" | "general" | "about";
+const pages = new Map<PageId, { page: HTMLElement; item: HTMLButtonElement }>();
+
+/** Stroked 16 × 16 outlines, one path each. */
+const ICONS: Record<PageId, string> = {
+  overview: "M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z",
+  agents: "M1.5 2.5h13v11h-13zM4.5 6.5l2 1.5-2 1.5M8.5 10h3",
+  island: "M2 3h12v1.5a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3zM6.5 5.3v.1M9.5 5.3v.1M3 12h10",
+  notices: "M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8zM6.6 14a1.5 1.5 0 0 0 2.8 0",
+  github: "M3 3.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M3 12.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M10 12.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M4.5 5v6M11.5 11V7a2 2 0 0 0-2-2H8m1.5-1.8L7.7 5l1.8 1.8",
+  general: "M5.8 8a2.2 2.2 0 1 0 4.4 0a2.2 2.2 0 1 0-4.4 0M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4L5 11M11 5l1.4-1.4",
+  about: "M1.7 8a6.3 6.3 0 1 0 12.6 0a6.3 6.3 0 1 0-12.6 0M8 7.2v4M8 4.8v.1",
+};
+
+function navIcon(id: PageId): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "nav-icon");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", ICONS[id]);
+  svg.append(path);
+  return svg;
 }
-const hooksBlock = section("Claude Code");
-const rulesBlock = section("Always rules");
-const githubBlock = section("GitHub");
-const islandBlock = section("Island");
+
+function page(id: PageId, name: string): HTMLElement {
+  const node = el("section", "page");
+  node.hidden = true;
+  node.append(el("h1", undefined, name));
+  root.append(node);
+  const item = el("button", "nav-item");
+  item.append(navIcon(id), el("span", undefined, name));
+  item.addEventListener("click", () => show(id));
+  nav.append(item);
+  pages.set(id, { page: node, item });
+  return node;
+}
+
+function show(id: PageId): void {
+  for (const [key, { page, item }] of pages) {
+    page.hidden = key !== id;
+    if (key === id) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  }
+  root.scrollTop = 0;
+}
+
+nav.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+  const ids = [...pages.keys()];
+  // From the focused item: Tab moves the focus without opening its page.
+  const from = ids.findIndex((id) => pages.get(id)!.item === event.target);
+  const next = from < 0 ? undefined : ids[from + (event.key === "ArrowUp" ? -1 : 1)];
+  if (!next) return;
+  event.preventDefault();
+  show(next);
+  pages.get(next)!.item.focus();
+});
+
+/** A card on a page, under a heading when it has a title. */
+function block(parent: HTMLElement, title?: string, className = "card"): HTMLElement {
+  const card = el("div", className);
+  if (title) {
+    const group = el("div", "group");
+    group.append(el("h2", undefined, title), card);
+    parent.append(group);
+  } else {
+    parent.append(card);
+  }
+  return card;
+}
+
+const overviewBlock = block(page("overview", "Overview"), undefined, "card overview");
+const agentsPage = page("agents", "Agents");
+const hooksBlock = block(agentsPage, "Claude Code");
+const createBlock = block(agentsPage, undefined, "card card-soon");
+const rulesBlock = block(agentsPage, "Always rules");
+const islandBlock = block(page("island", "Island"));
+const noticesPage = page("notices", "Notices & sounds");
+const colorsBlock = block(noticesPage, "Colors");
+const soundsBlock = block(noticesPage, "Sounds");
+const githubBlock = block(page("github", "GitHub"));
+nav.append(el("div", "nav-separator"));
+const generalPage = page("general", "General");
+const startupBlock = block(generalPage, "Open at login");
+const updatesBlock = block(generalPage, "Updates");
+const aboutBlock = block(page("about", "About"));
+show("overview");
+
 const POSITIONS: Record<IslandPosition, string> = {
   top: "Top center",
   left: "Left side",
@@ -32,11 +112,9 @@ const POSITIONS: Record<IslandPosition, string> = {
   "bottom-left": "Bottom left",
   "bottom-right": "Bottom right",
 };
-const startupBlock = section("Startup");
-const updatesBlock = section("Updates");
-const aboutBlock = section("About");
 let status: HooksStatus | null = null;
 let rules: AlwaysRule[] = [];
+let rulesLoad: "pending" | "done" | "failed" = "pending";
 let busy = false;
 let github: GithubStatus | null = null;
 let githubBusy = false;
@@ -51,6 +129,7 @@ let startup: AutostartStatus | null = null;
 let startupError: string | null = null;
 let startupBusy = false;
 let islandError: string | null = null;
+let soundsError: string | null = null;
 let islandBusy = false;
 let screens: IslandScreen[] | null = null;
 let screensRevision = 0;
@@ -69,13 +148,17 @@ function closeFlow(): void {
   renderHooks();
 }
 
+function hooksLabel({ installed, outdated }: HooksStatus): string {
+  return outdated ? "Connected · update available" : installed ? "Connected" : "Not connected";
+}
+
 function renderHooks(): void {
   hooksBlock.replaceChildren();
   if (status) {
     const row = el("div", "status-row");
     row.append(
       el("span", status.installed ? "status-dot connected" : "status-dot"),
-      el("span", undefined, status.outdated ? "Connected · update available" : status.installed ? "Connected" : "Not connected"),
+      el("span", undefined, hooksLabel(status)),
     );
     hooksBlock.append(row, el("div", "note note-dim", status.settings_path));
   }
@@ -116,6 +199,7 @@ function renderHooks(): void {
   }
   actions.querySelectorAll("button").forEach((node) => { node.disabled = busy; });
   hooksBlock.append(actions);
+  renderOverview();
 }
 
 async function previewHooks(removing: boolean): Promise<void> {
@@ -170,6 +254,7 @@ async function changeRules(change: () => Promise<void>): Promise<void> {
 
 function renderRules(): void {
   clearConfirmation();
+  renderOverview();
   rulesBlock.replaceChildren(el("div", "note", 'Requests matching a rule are allowed without asking. Rules are created by "Always" on an approval card and stored only on this computer.'));
   if (rulesError) rulesBlock.append(el("div", "note note-error", rulesError));
   if (rules.length === 0) {
@@ -199,7 +284,19 @@ function renderRules(): void {
   rulesBlock.append(actions);
 }
 
+function githubLabel({ accounts, state, message }: GithubStatus): string {
+  return {
+    off: "Off",
+    checking: accounts.length > 0 ? "On" : "Checking…",
+    ok: "On",
+    no_gh: "GitHub CLI not found",
+    signed_out: "Signed out",
+    error: message ?? "GitHub request failed",
+  }[state];
+}
+
 function renderGithub(): void {
+  renderOverview();
   githubBlock.replaceChildren(
     el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks about once a minute while on."),
     el("div", "note", "Every account signed in to gh is shown; hide the ones you don't want."),
@@ -212,16 +309,8 @@ function renderGithub(): void {
   if (github) {
     const { accounts, enabled, installer, state, task } = github;
     const running = task.kind === "installing" || task.kind === "signing_in";
-    const labels = {
-      off: "Off",
-      checking: accounts.length > 0 ? "On" : "Checking…",
-      ok: "On",
-      no_gh: "GitHub CLI not found",
-      signed_out: "Signed out",
-      error: github.message ?? "GitHub request failed",
-    };
     const row = el("div", "status-row");
-    row.append(el("span", state === "ok" ? "status-dot connected" : "status-dot"), el("span", undefined, labels[state]));
+    row.append(el("span", state === "ok" ? "status-dot connected" : "status-dot"), el("span", undefined, githubLabel(github)));
     githubBlock.append(row);
 
     const actions = el("div", "actions");
@@ -298,23 +387,27 @@ async function changeGithub(change: () => Promise<void>): Promise<void> {
   }
 }
 
+function updatesLabel({ state, version, message }: UpdateStatus): string {
+  return {
+    unsupported: "Not available for this package: update it with your package manager.",
+    off: "Off",
+    idle: "On · up to date",
+    checking: "Checking…",
+    downloading: `Downloading Cortex ${version ?? ""}…`,
+    ready: `Cortex ${version ?? ""} is ready`,
+    error: message ?? "Update check failed",
+  }[state];
+}
+
 function renderUpdates(): void {
+  renderOverview();
   updatesBlock.replaceChildren(
     el("div", "note", "When on, Cortex asks GitHub for a new release at launch and every 6 hours, and sends nothing else. An update is installed only if it carries Cortex's signature, and only when you click Update and restart."),
   );
   if (updates) {
-    const { enabled, state, version, message } = updates;
-    const labels = {
-      unsupported: "Not available for this package: update it with your package manager.",
-      off: "Off",
-      idle: "On · up to date",
-      checking: "Checking…",
-      downloading: `Downloading Cortex ${version ?? ""}…`,
-      ready: `Cortex ${version ?? ""} is ready`,
-      error: message ?? "Update check failed",
-    };
+    const { enabled, state } = updates;
     const row = el("div", "status-row");
-    row.append(el("span", state === "idle" || state === "ready" ? "status-dot connected" : "status-dot"), el("span", undefined, labels[state]));
+    row.append(el("span", state === "idle" || state === "ready" ? "status-dot connected" : "status-dot"), el("span", undefined, updatesLabel(updates)));
     updatesBlock.append(row);
     if (state !== "unsupported") {
       const actions = el("div", "actions");
@@ -352,7 +445,9 @@ function islandChoice(label: string, selected: boolean, change?: () => Promise<v
 }
 
 function renderIsland(): void {
-  islandBlock.replaceChildren(el("div", "note", "The mascot sits in the island and takes the color of what needs you: green when an agent is done, blue when someone asks for your review or approves your pull request, amber when an agent waits for you, red when something failed."));
+  renderOverview();
+  islandBlock.replaceChildren(el("div", "note", "The mascot sits in the island and takes the color of what needs you (see Notices & sounds)."));
+  soundsBlock.replaceChildren();
   const prefs = island;
   if (prefs) {
     const gallery = el("div", "mascot-gallery");
@@ -389,20 +484,83 @@ function renderIsland(): void {
     islandBlock.append(gallery, el("h3", undefined, "Lively mascot"), liveNote, liveRow, el("h3", undefined, "Position"), positions, el("h3", undefined, "Screen"), displays);
     const on = prefs.sound;
     const row = el("div", "status-row");
-    const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeToggle(() => api.islandSetSound(!on)));
+    const toggle = button(on ? "btn-neutral" : "btn-allow", on ? "Turn off" : "Turn on", () => void changeToggle(() => api.islandSetSound(!on), true));
     toggle.disabled = toggleBusy;
     row.append(el("span", on ? "status-dot connected" : "status-dot"), el("span", undefined, on ? "Sounds on" : "Sounds off"), toggle);
-    const previews = el("div", "actions");
-    previews.append(
-      button("btn-neutral", "Done", () => playSound("green", true)),
-      button("btn-neutral", "Review", () => playSound("blue", true)),
-      button("btn-neutral", "Needs you", () => playSound("amber", true)),
-      button("btn-neutral", "Failed", () => playSound("red", true)),
-    );
-    islandBlock.append(el("h3", undefined, "Sounds"), row, previews);
+    soundsBlock.append(row);
   }
   if (islandError) islandBlock.append(el("div", "note note-error", islandError));
   if (screensError) islandBlock.append(el("div", "note note-error", screensError));
+  // Without the prefs there is no toggle: say why on this page too.
+  const soundsMessage = soundsError ?? (prefs ? null : islandError);
+  if (soundsMessage) soundsBlock.append(el("div", "note note-error", soundsMessage));
+}
+
+// The four colors, each with its sound to try (#131).
+const TONES = [
+  ["green", "Done", "An agent is done."],
+  ["blue", "Review", "Someone asks for your review or approves your pull request."],
+  ["amber", "Needs you", "An agent waits for you."],
+  ["red", "Failed", "Something failed: an agent, a pull request or an action."],
+] as const;
+colorsBlock.append(el("div", "note", "The mascot and the island's border take the color of what needs you."));
+for (const [tone, name, text] of TONES) {
+  const row = el("div", "rule-row");
+  const label = el("div", "rule-scope");
+  label.append(el("div", undefined, name), el("div", "note", text));
+  const play = button("btn-neutral", "Play", () => playSound(tone, true));
+  play.setAttribute("aria-label", `Play the ${name} sound`);
+  row.append(el("span", `status-dot tone-${tone}`), label, play);
+  colorsBlock.append(row);
+}
+
+// Agent recipes come later (#92); the maintainer wants the place seen now (#151).
+const createLabel = el("div", "rule-scope");
+createLabel.append(el("div", "card-title", "Create an agent"), el("div", "note", "Pick the model, the folder, the instructions, the tools and the knowledge sources. Coming in a new version."));
+const createButton = button("btn-allow", "Create…", () => undefined);
+createButton.disabled = true;
+const createRow = el("div", "rule-row");
+createRow.append(createLabel, createButton);
+createBlock.append(createRow);
+
+// One line per subject, each opening its page. Built once and updated in
+// place: rebuilding would drop the keyboard focus on every status event.
+const overviewRows = ([
+  ["agents", "Claude Code"], ["agents", "Always rules"], ["github", "GitHub"], ["island", "Island"],
+  ["notices", "Sounds"], ["general", "Updates"], ["general", "Open at login"],
+] as const).map(([id, name]) => {
+  const row = el("button", "overview-row");
+  const dot = el("span", "status-dot blank");
+  const value = el("span", "overview-value", "…");
+  const chevron = el("span", "overview-chevron", "›");
+  chevron.setAttribute("aria-hidden", "true");
+  row.append(dot, el("span", "overview-name", name), value, chevron);
+  row.addEventListener("click", () => {
+    show(id);
+    pages.get(id)!.item.focus();
+  });
+  overviewBlock.append(row);
+  return { dot, value };
+});
+
+/** "…" while a status loads; a failed load is told here too, not only on its page. */
+function renderOverview(): void {
+  const pending = (failed: unknown): [string, null] => [failed ? "Couldn't load" : "…", null];
+  const count = rules.length === 0 ? "No rules yet" : `${rules.length} ${rules.length === 1 ? "rule" : "rules"}`;
+  const lines: [string, boolean | null][] = [
+    status ? [hooksLabel(status), status.installed] : pending(flow.phase === "error"),
+    rulesLoad === "done" ? [count, null] : pending(rulesLoad === "failed"),
+    github ? [githubLabel(github) + (github.state === "ok" && github.accounts.length > 1 ? ` · ${github.accounts.length} accounts` : ""), github.state === "ok"] : pending(githubError),
+    island ? [`${MASCOT_NAMES[island.mascot]} · ${POSITIONS[island.position]}${island.lively ? " · lively" : ""}`, null] : pending(islandError),
+    island ? [island.sound ? "On" : "Off", island.sound] : pending(islandError),
+    updates ? [updatesLabel(updates), updates.state === "idle" || updates.state === "ready"] : pending(updatesError),
+    startup ? [startupLabel(startup), startup.enabled] : pending(startupError),
+  ];
+  lines.forEach(([text, ok], i) => {
+    const { dot, value } = overviewRows[i]!; // Same order as the rows above.
+    value.textContent = text;
+    dot.className = ok === null ? "status-dot blank" : ok ? "status-dot connected" : "status-dot";
+  });
 }
 
 async function changeIsland(change: () => Promise<void>): Promise<void> {
@@ -434,27 +592,33 @@ async function refreshScreens(): Promise<void> {
   renderIsland();
 }
 
-async function changeToggle(set: () => Promise<void>): Promise<void> {
+async function changeToggle(set: () => Promise<void>, sounds = false): Promise<void> {
   if (toggleBusy) return;
   toggleBusy = true;
-  islandError = null;
+  if (sounds) soundsError = null;
+  else islandError = null;
   renderIsland();
   try {
     await set();
   } catch (error) {
-    islandError = String(error);
+    if (sounds) soundsError = String(error);
+    else islandError = String(error);
   } finally {
     toggleBusy = false;
     renderIsland();
   }
 }
 
+function startupLabel({ available, enabled }: AutostartStatus): string {
+  return !available ? "Not available for this copy: open Cortex from where it is installed." : enabled ? "On · opens at login" : "Off";
+}
+
 function renderStartup(): void {
+  renderOverview();
   startupBlock.replaceChildren(el("div", "note", "Cortex opens when you log in, straight into the island, with no opening screen."));
   if (startup) {
     const row = el("div", "status-row");
-    const label = !startup.available ? "Not available for this copy: open Cortex from where it is installed." : startup.enabled ? "On · opens at login" : "Off";
-    row.append(el("span", startup.enabled ? "status-dot connected" : "status-dot"), el("span", undefined, label));
+    row.append(el("span", startup.enabled ? "status-dot connected" : "status-dot"), el("span", undefined, startupLabel(startup)));
     startupBlock.append(row);
     if (startup.available || startup.enabled) {
       const on = startup.enabled;
@@ -514,6 +678,7 @@ async function start(): Promise<void> {
   await listen<AlwaysRule[]>(RULES_EVENT, (event) => {
     rulesChanged = true;
     rules = event.payload;
+    rulesLoad = "done";
     renderRules();
   });
   await Promise.all([
@@ -525,8 +690,10 @@ async function start(): Promise<void> {
     api.hooksStatus().then((value) => { if (!hooksChanged) status = value; }).catch((error: unknown) => {
       flow = { phase: "error", message: String(error) };
     }).finally(renderHooks),
-    api.rulesList().then((value) => { if (!rulesChanged) rules = value; renderRules(); }).catch((error: unknown) => {
+    api.rulesList().then((value) => { if (!rulesChanged) rules = value; rulesLoad = "done"; renderRules(); }).catch((error: unknown) => {
+      if (!rulesChanged) rulesLoad = "failed";
       rulesBlock.append(el("div", "note note-error", String(error)));
+      renderOverview();
     }),
     getVersion().then((version) => {
       const commit = import.meta.env.VITE_CORTEX_COMMIT;

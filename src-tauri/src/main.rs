@@ -150,8 +150,9 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("settings.html".into()),
     )
     .title("Cortex Settings")
-    .inner_size(560.0, 640.0)
-    .min_inner_size(480.0, 480.0)
+    // A 184-point sidebar beside a page about as wide as the old window (#151).
+    .inner_size(720.0, 560.0)
+    .min_inner_size(620.0, 440.0)
     .resizable(true)
     .center()
     .focused(true)

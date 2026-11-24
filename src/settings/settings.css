@@ -5,8 +5,42 @@ html, body {
   font-size: 13px;
 }
 
-body { padding: 20px; overflow-y: auto; }
-section + section { margin-top: 24px; }
+html, body { height: 100%; }
+body { display: flex; overflow: hidden; }
+
+/* The sidebar (#151): one item per page. */
+#settings-nav {
+  width: 184px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border-right: 1px solid var(--surface-border);
+}
+.nav-item, .overview-row {
+  display: flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-item { gap: 9px; padding: 6px 9px; border-radius: var(--radius-btn); }
+.nav-item:hover, .overview-row:hover { background: var(--btn-neutral-bg); }
+.nav-item[aria-current="page"] { background: color-mix(in srgb, var(--brand) 14%, transparent); color: var(--brand); }
+.nav-item:focus-visible, .overview-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.nav-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.nav-separator { height: 1px; margin: 6px 9px; background: var(--surface-border); }
+
+#settings { flex: 1; min-width: 0; overflow-y: auto; padding: 20px; }
+.page { display: flex; flex-direction: column; gap: 22px; }
+.page[hidden] { display: none; }
+h1 { font-size: 20px; font-weight: 700; }
 h2 {
   margin-bottom: 10px;
   color: var(--text-dim);
@@ -27,6 +61,22 @@ h2 {
 .status-row, .rule-row { display: flex; align-items: center; gap: 10px; }
 .status-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--state-idle); }
 .status-dot.connected { background: var(--state-finished); }
+.status-dot.blank { visibility: hidden; }
+.status-dot.tone-green { background: var(--tone-green); }
+.status-dot.tone-blue { background: var(--tone-blue); }
+.status-dot.tone-amber { background: var(--tone-amber); }
+.status-dot.tone-red { background: var(--tone-red); }
+
+.overview { gap: 0; padding: 0; overflow: hidden; }
+.overview-row { gap: 10px; padding: 11px 12px; border-top: 1px solid var(--surface-border); }
+.overview-row:first-child { border-top: 0; }
+.overview-name { width: 120px; flex: none; font-weight: 600; }
+.overview-value { flex: 1; min-width: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.overview-chevron { color: var(--text-faint); }
+
+/* A place for what comes in a later version. */
+.card-soon { border-style: dashed; background: none; }
+.card-title { font-weight: 600; }
 .rule-scope { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .rule-row .btn { flex: none; }
 .empty { color: var(--text-faint); }
