@@ -303,7 +303,7 @@ function githubLabel({ accounts, state, message }: GithubStatus): string {
 function renderGithub(): void {
   renderOverview();
   githubBlock.replaceChildren(
-    el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks about once a minute while on."),
+    el("div", "note", "Shows your open pull requests and the reviews waiting for you, using the GitHub CLI (gh) you are already signed in to. Cortex never stores a GitHub token. Checks about every 15 seconds while on."),
     el("div", "note", "Every account signed in to gh is shown; hide the ones you don't want."),
   );
   const action = (style: string, label: string, change: () => Promise<void>, disabled = false): HTMLButtonElement => {
@@ -407,7 +407,7 @@ function updatesLabel({ state, version, message }: UpdateStatus): string {
 function renderUpdates(): void {
   renderOverview();
   updatesBlock.replaceChildren(
-    el("div", "note", "When on, Cortex asks GitHub for a new release at launch and every 6 hours, and sends nothing else. An update is installed only if it carries Cortex's signature, and only when you click Update and restart."),
+    el("div", "note", "When on, Cortex asks GitHub for a new release at launch and every minute, and sends nothing else. An update is installed only if it carries Cortex's signature, and only when you click Update and restart."),
   );
   if (updates) {
     const { enabled, state } = updates;

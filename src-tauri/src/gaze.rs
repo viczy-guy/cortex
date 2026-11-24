@@ -278,7 +278,7 @@ fn look_from(island: Frame, cursor: (f64, f64)) -> Gaze {
 /// Whether the login session's screen is locked (the lock screen or the
 /// screen saver with a password).
 #[cfg(target_os = "macos")]
-fn screen_locked() -> bool {
+pub(crate) fn screen_locked() -> bool {
     use std::ffi::c_void;
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
@@ -327,6 +327,6 @@ fn screen_locked() -> bool {
 
 /// Only WebKit on macOS pays for a locked repaint (#51).
 #[cfg(not(target_os = "macos"))]
-fn screen_locked() -> bool {
+pub(crate) fn screen_locked() -> bool {
     false
 }

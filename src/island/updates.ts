@@ -15,7 +15,7 @@ export function updatesQuestion(answer: (enabled: boolean) => void, error: strin
     el(
       "div",
       "note",
-      "Cortex would ask GitHub for a new release at launch and every 6 hours, and send nothing else. An update is installed only if it carries Cortex's signature, and only when you click to restart. You can change this in Settings.",
+      "Cortex would ask GitHub for a new release at launch and every minute, and send nothing else. An update is installed only if it carries Cortex's signature, and only when you click to restart. You can change this in Settings.",
     ),
   );
   if (error) card.append(el("div", "note note-error", error));

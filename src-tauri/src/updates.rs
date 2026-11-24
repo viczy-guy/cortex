@@ -11,7 +11,9 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Notify;
 
 pub const UPDATES_EVENT: &str = "cortex://updates";
-const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+// shortcut: every minute while the maintainer tests releases (24/11/2026);
+// back to 6 hours when the testing phase ends (#158).
+const CHECK_EVERY: Duration = Duration::from_secs(60);
 /// A download that stalls must not hold the checker (and its buffer) forever.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 

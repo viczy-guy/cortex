@@ -28,7 +28,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Notify;
 
 pub const GITHUB_EVENT: &str = "cortex://github";
-const POLL: Duration = Duration::from_secs(60);
+/// Pull requests are read again this long after a check ends (asked for by
+/// the maintainer, 24/11/2026: approvals and review requests show quickly).
+const POLL: Duration = Duration::from_secs(15);
+/// With the screen locked nobody sees the island: the old pace, so a night
+/// of polling costs a quarter. Failed actions keep GitHub's own interval.
+const POLL_LOCKED: Duration = Duration::from_secs(60);
 const GH_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_STDOUT: u64 = 2 * 1024 * 1024;
 const MAX_DIAGNOSTICS: u64 = 64 * 1024;
@@ -965,7 +970,12 @@ pub async fn poller(app: AppHandle) {
             state.wake.notified().await;
             continue;
         }
-        tokio::select! { _ = tokio::time::sleep(POLL) => {}, _ = state.wake.notified() => {} }
+        let wait = if crate::gaze::screen_locked() {
+            POLL_LOCKED
+        } else {
+            POLL
+        };
+        tokio::select! { _ = tokio::time::sleep(wait) => {}, _ = state.wake.notified() => {} }
     }
 }
 
