@@ -88,10 +88,12 @@ mod tests {
 
     #[test]
     fn a_small_move_beside_the_island_changes_the_step() {
-        let a = gaze((1100.0, 20.0), CENTER, 1.0);
-        let b = gaze((1400.0, 20.0), CENTER, 1.0);
-        assert!(a.x >= 1 && b.x > a.x, "{a:?} {b:?}");
-        assert!(a.near && !b.near);
+        let a = gaze((1040.0, 20.0), CENTER, 1.0);
+        let b = gaze((1100.0, 20.0), CENTER, 1.0);
+        assert_eq!((a.x, b.x), (0, 1), "{a:?} {b:?}");
+        assert!(a.near && b.near);
+        let far = gaze((1400.0, 20.0), CENTER, 1.0);
+        assert_eq!((far.x, far.near), (STEPS_X, false));
     }
 
     #[test]

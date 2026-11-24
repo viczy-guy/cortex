@@ -1,9 +1,9 @@
 //! The lively mascot's eyes (#145). While the mascot is lively, a thread of its
-//! own reads the cursor ten times a second and tells the island only when the
-//! direction changes, plus once a minute while the mouse keeps moving (so a
-//! busy mouse is never taken for a nap). A resting mouse sends nothing. On
-//! macOS a locked screen pauses it all: any repaint of a locked island keeps
-//! WebKit busy until unlock (#51).
+//! own reads the cursor (ten times a second while it moves, less once it
+//! rests) and tells the island only when the direction changes, plus once a
+//! minute while the mouse keeps moving (so a busy mouse is never taken for a
+//! nap). On macOS a locked screen pauses it all: any repaint of a locked
+//! island keeps WebKit busy until unlock (#51).
 
 use cortex_core::gaze::{gaze, Gaze, STEPS_X, STEPS_Y};
 use cortex_core::prefs::Prefs;
@@ -16,9 +16,9 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const GAZE_EVENT: &str = "cortex://gaze";
 static LIVELY: AtomicBool = AtomicBool::new(true);
 /// Where the mascot sits in the island, in points from its top left corner;
-/// the island says so after it draws (`None`: the window's center).
+/// the island says so when that changes (`None`: the window's center).
 static ORIGIN: Mutex<Option<(f64, f64)>> = Mutex::new(None);
-/// The island drew or changed size: its window is read again.
+/// The island's window moved, resized or changed scale: it is read again.
 static RESHAPED: AtomicBool = AtomicBool::new(true);
 const TICK: Duration = Duration::from_millis(100);
 /// A cursor still for `REST_AFTER` is read less often; a move then shows a
@@ -31,8 +31,8 @@ const IDLE: Duration = Duration::from_secs(2);
 /// How often to look at the lock. The direction is also worked out again
 /// then, in case the island moved under a resting cursor.
 const SLOW: Duration = Duration::from_secs(1);
-/// The island's window is read when the island reports a change, and at
-/// least this often in case one went unreported.
+/// The island's window is read again on its own events, and at least this
+/// often in case one went missing.
 const FRAME_EVERY: Duration = Duration::from_secs(10);
 /// A moving mouse is reported at least this often, even in the same direction.
 const STILL_MOVING: Duration = Duration::from_secs(60);
@@ -76,8 +76,20 @@ pub fn island_gaze_origin(x: f64, y: f64) {
 }
 
 pub fn spawn(app: AppHandle) {
-    // Its own thread: each read waits on the main thread, which an async
-    // worker must not do.
+    if let Some(island) = app.get_webview_window("island") {
+        island.on_window_event(|event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::Moved(_)
+                    | tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                RESHAPED.store(true, Ordering::Relaxed);
+            }
+        });
+    }
+    // Its own thread: reading the window waits on the main thread, which an
+    // async worker must not do.
     let started = std::thread::Builder::new()
         .name("cortex-gaze".into())
         .spawn(move || watch(&app));
@@ -115,9 +127,9 @@ fn watch(app: &AppHandle) {
                 std::thread::sleep(IDLE);
                 continue;
             }
-            if RESHAPED.swap(false, Ordering::Relaxed) || framed_at.elapsed() >= FRAME_EVERY {
-                island = None;
-            }
+        }
+        if RESHAPED.swap(false, Ordering::Relaxed) || framed_at.elapsed() >= FRAME_EVERY {
+            island = None;
         }
         std::thread::sleep(if last_motion.elapsed() >= REST_AFTER {
             RESTING_TICK
@@ -141,11 +153,21 @@ fn watch(app: &AppHandle) {
             framed_at = Instant::now();
         }
         let Some(g) = island.map(|frame| look_from(frame, at)) else {
+            // No window to look from yet: wait rather than ask the main
+            // thread again on every pass.
+            std::thread::sleep(IDLE);
             continue;
         };
         cursor_was = Some(at);
         if moved && last_sent.elapsed() >= STILL_MOVING {
             last = None;
+        }
+        // The screen may have locked since the last look: a new direction
+        // would repaint a locked island (#51).
+        if last != Some((g, true)) && screen_locked() {
+            locked = true;
+            send(app, &mut last, &mut last_sent, Gaze::AHEAD, false);
+            continue;
         }
         send(app, &mut last, &mut last_sent, g, true);
     }
@@ -209,8 +231,8 @@ fn cursor(app: &AppHandle) -> Option<(f64, f64)> {
     (!unknown).then_some((at.x, at.y))
 }
 
-/// The island window: where it is, its size and its scale, read once a
-/// second rather than on every move (each read waits on the main thread).
+/// The island window: where it is, its size and its scale, read again only
+/// when it changes (each read waits on the main thread).
 #[derive(Clone, Copy)]
 struct Frame {
     x: f64,
