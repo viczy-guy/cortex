@@ -34,13 +34,14 @@ type Part = "brow" | "stache" | "ear-l" | "ear-r" | "knot";
 
 interface Design {
   shapes: Shape[];
-  /** The shapes that follow the mouse (by index); without them the whole head turns. */
+  /** The shapes that follow the mouse (consecutive indexes); without them the whole head turns. */
   look?: number[];
   /** The shapes that close when the eyes do. */
   lids?: number[];
   /** Drawn in place of the lids when the eyes close or smile. */
   closed?: Shape[];
   happy?: Shape[];
+  /** Consecutive shapes of one part move as one group (an ear with its inner ear). */
   parts?: Record<number, Part>;
   /** Pixel art: the eyes move a whole pixel at a time. */
   pixel?: true;
@@ -169,8 +170,8 @@ const DESIGNS: Record<Exclude<Mascot, "none">, Design> = {
     shapes: [
       // Ellipses tilted inside the path, so a rotation of the ear never fights a transform attribute.
       ["f", "path", { d: "M14.32 1.26A2.3 5.3 -14 0 1 16.88 11.54A2.3 5.3 -14 0 1 14.32 1.26z" }],
-      ["f", "path", { d: "M25.68 1.26A2.3 5.3 14 0 1 23.12 11.54A2.3 5.3 14 0 1 25.68 1.26z" }],
       ["h", "path", { d: "M14.8 3A.8 3.3 -14 0 1 16.4 9.4A.8 3.3 -14 0 1 14.8 3z" }],
+      ["f", "path", { d: "M25.68 1.26A2.3 5.3 14 0 1 23.12 11.54A2.3 5.3 14 0 1 25.68 1.26z" }],
       ["h", "path", { d: "M25.2 3A.8 3.3 14 0 1 23.6 9.4A.8 3.3 14 0 1 25.2 3z" }],
       ["f", "ellipse", { cx: 20, cy: 15.6, rx: 9.6, ry: 7.4 }],
       ["h", "circle", c(16.6, 15.2, 1.05)],
@@ -179,7 +180,7 @@ const DESIGNS: Record<Exclude<Mascot, "none">, Design> = {
     ],
     look: [5, 6],
     lids: [5, 6],
-    parts: { 0: "ear-l", 1: "ear-r", 2: "ear-l", 3: "ear-r" },
+    parts: { 0: "ear-l", 1: "ear-l", 2: "ear-r", 3: "ear-r" },
     reach: [1.2, 0.8],
   },
   samurai: {
@@ -236,16 +237,24 @@ export function mascotSvg(mascot: Mascot, className = "mascot"): SVGSVGElement |
   body.append(head);
   svg.append(body);
   let look: SVGGElement | null = null;
+  let part: { name: Part; g: SVGGElement } | null = null;
   design.shapes.forEach((shape, i) => {
-    const classes = [design.lids?.includes(i) ? "m-lid" : "", design.parts?.[i] ? `m-${design.parts[i]}` : ""].filter(Boolean).join(" ");
-    const node = shapeNode(shape, classes || undefined);
+    const node = shapeNode(shape, design.lids?.includes(i) ? "m-lid" : undefined);
+    const name = design.parts?.[i];
     if (design.look?.includes(i)) {
       if (!look) {
         look = group("m-look");
         head.append(look);
       }
       look.append(node);
+    } else if (name) {
+      if (part?.name !== name) {
+        part = { name, g: group(`m-${name}`) };
+        head.append(part.g);
+      }
+      part.g.append(node);
     } else head.append(node);
+    if (name !== part?.name) part = null;
   });
   for (const alt of ["closed", "happy"] as const) {
     const shapes = design[alt];

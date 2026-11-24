@@ -210,7 +210,7 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
-- **Island** chooses the mascot from a gallery of eight, or none, sets the
+- **Island** chooses the mascot from a gallery of twelve, or none, sets the
   island's screen and position, and controls and samples the sounds.
 - **Startup** turns launch at login on or off (see below).
 - **GitHub** turns the pull request pill on or off and manages its accounts

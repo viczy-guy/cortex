@@ -168,8 +168,7 @@ mod tests {
         assert!(unknown.github);
         assert_eq!(unknown.mascot, None);
         assert!(MASCOTS.contains(&DEFAULT_MASCOT));
-        // The mascots added in #144 are kept like the others.
-        for name in ["skull", "ninja", "bunny", "samurai"] {
+        for name in MASCOTS {
             let json = format!(r#"{{"version":1,"github":false,"mascot":"{name}"}}"#);
             assert_eq!(prefs_from_json(&json).mascot.as_deref(), Some(name));
         }
