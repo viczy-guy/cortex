@@ -10,6 +10,7 @@
     "allow-island-fit",
     "allow-island-gaze-origin",
     "allow-island-cutout",
+    "allow-opening-shown",
     "allow-respond",
     "allow-answer",
     "allow-open-settings",

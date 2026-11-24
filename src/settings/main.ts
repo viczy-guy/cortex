@@ -88,7 +88,12 @@ function block(parent: HTMLElement, title?: string, className = "card"): HTMLEle
   return card;
 }
 
-const overviewBlock = block(page("overview", "Overview"), undefined, "card overview");
+const overviewPage = page("overview", "Overview");
+// A new install opens Settings here (#152): what to connect first.
+const starting = new URLSearchParams(window.location.search).has("start");
+const startBlock = block(overviewPage, "Get started");
+startBlock.parentElement!.hidden = true;
+const overviewBlock = block(overviewPage, undefined, "card overview");
 const agentsPage = page("agents", "Agents");
 const hooksBlock = block(agentsPage, "Claude Code");
 const createBlock = block(agentsPage, undefined, "card card-soon");
@@ -543,8 +548,29 @@ const overviewRows = ([
   return { dot, value };
 });
 
+function startRow(title: string, text: string, label: string, act: () => void): HTMLElement {
+  const row = el("div", "rule-row");
+  const about = el("div", "rule-scope");
+  about.append(el("div", "card-title", title), el("div", "note", text));
+  row.append(about, button("btn-allow", label, act));
+  startBlock.append(row);
+  return row;
+}
+const startClaude = startRow("Connect Claude Code", "Its sessions show in the island, and you answer its requests from there.", "Connect…", () => {
+  show("agents");
+  void previewHooks(false);
+});
+const startGithub = startRow("Connect GitHub", "Optional: your pull requests and the reviews waiting for you.", "Set up…", () => {
+  show("github");
+  if (github && !github.enabled) void changeGithub(() => api.githubSetEnabled(true));
+});
+
 /** "…" while a status loads; a failed load is told here too, not only on its page. */
 function renderOverview(): void {
+  // Each step shows once its status is known, until it is done.
+  startClaude.hidden = !status || status.installed;
+  startGithub.hidden = !github || github.state === "ok";
+  startBlock.parentElement!.hidden = !starting || (startClaude.hidden && startGithub.hidden);
   const pending = (failed: unknown): [string, null] => [failed ? "Couldn't load" : "…", null];
   const count = rules.length === 0 ? "No rules yet" : `${rules.length} ${rules.length === 1 ? "rule" : "rules"}`;
   const lines: [string, boolean | null][] = [

@@ -132,6 +132,13 @@ version at the bottom. It closes after about 6 seconds. A click skips it
 frame without animation for 3 seconds. Launches at login (`--autostart`)
 skip it. Rust closes the window after 10 seconds if it is still open.
 
+The island waits for this screen (and for "Update complete") and appears
+when it closes; it never stays hidden more than 12 seconds (#152). On a new
+install (no saved version and no "open at login" answer), Settings then
+opens on the Overview with **Get started**: **Connect Claude Code** (the
+reviewed installer, on Agents) and **Connect GitHub** (optional). Each line
+goes once it is done; later launches do not open Settings.
+
 The same window shows the updates (#127):
 
 - **Updating…**: a click on **Update and restart** (island or Settings)

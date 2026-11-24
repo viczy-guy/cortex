@@ -129,10 +129,15 @@ fn emit_hooks(app: &AppHandle) {
     }
 }
 
-/// Open (or bring forward) the Settings window. Async on purpose: creating
-/// a window from a sync command deadlocks on Windows.
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
+    show_settings(app, false).await
+}
+
+/// Open (or bring forward) the Settings window; with `start`, a new install's,
+/// which shows what to connect first (#152). Async on purpose: creating a
+/// window from a sync command deadlocks on Windows.
+async fn show_settings(app: AppHandle, start: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
         window.unminimize().map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
@@ -147,7 +152,14 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     let window = tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
-        tauri::WebviewUrl::App("settings.html".into()),
+        tauri::WebviewUrl::App(
+            if start {
+                "settings.html?start"
+            } else {
+                "settings.html"
+            }
+            .into(),
+        ),
     )
     .title("Cortex Settings")
     // A 184-point sidebar beside a page about as wide as the old window (#151).
@@ -241,9 +253,9 @@ fn check_island(app: AppHandle, delay: std::time::Duration) {
 }
 
 /// Open Settings from Rust, outside a command.
-fn spawn_open_settings(app: AppHandle) {
+fn spawn_open_settings(app: AppHandle, start: bool) {
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = open_settings(app).await {
+        if let Err(err) = show_settings(app, start).await {
             eprintln!("cortex: settings window failed: {err}");
         }
     });
@@ -263,6 +275,30 @@ fn close_splash(app: &AppHandle) {
             eprintln!("cortex: opening screen did not close: {err}");
             let _ = window.destroy();
         }
+    }
+    opening_closed(app);
+}
+
+/// This launch's opening screen is up: the island waits for it (#152).
+static OPENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A new install: Settings opens once the opening screen goes (#152).
+static FIRST_LAUNCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const OPENING_CLOSED_EVENT: &str = "cortex://opening-closed";
+
+/// Asked by the island before its first drawing.
+#[tauri::command]
+fn opening_shown() -> bool {
+    OPENING.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// The opening screen went, or never came: the island appears, and a new
+/// install gets Settings with what to connect first.
+fn opening_closed(app: &AppHandle) {
+    if OPENING.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        let _ = app.emit_to("island", OPENING_CLOSED_EVENT, ());
+    }
+    if FIRST_LAUNCH.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        spawn_open_settings(app.clone(), true);
     }
 }
 
@@ -578,6 +614,7 @@ fn main() {
             prefs::island_set_lively,
             gaze::island_gaze_origin,
             splash_done,
+            opening_shown,
             open_settings,
             quit,
             rules_list,
@@ -618,8 +655,15 @@ fn main() {
 
             autostart::on_launch();
             let version = handle.package_info().version.to_string();
-            // Never over a file that could not be read: it would lose every setting.
-            if last_version.as_deref() != Some(version.as_str()) && prefs::load_valid().is_some() {
+            // Never over a file that could not be read: it would lose every
+            // setting, and every launch would look like a new install.
+            let prefs_valid = prefs::load_valid().is_some();
+            let first_launch = prefs_valid
+                && cortex_core::autostart::is_first_launch(
+                    last_version.as_deref(),
+                    launch_at_login,
+                );
+            if last_version.as_deref() != Some(version.as_str()) && prefs_valid {
                 let saved = version.clone();
                 if let Err(err) = prefs::update(|p| p.last_version = Some(saved)) {
                     eprintln!("cortex: {err}");
@@ -634,6 +678,9 @@ fn main() {
                     &version,
                 ),
             );
+            use std::sync::atomic::Ordering::Release;
+            FIRST_LAUNCH.store(first_launch && screen == OpeningScreen::Welcome, Release);
+            OPENING.store(screen != OpeningScreen::Nothing, Release);
             let opened = match screen {
                 OpeningScreen::Welcome => open_splash(&handle, None),
                 OpeningScreen::Updated => open_splash(&handle, Some("mode=updated")),
@@ -641,6 +688,7 @@ fn main() {
             };
             if let Err(err) = opened {
                 eprintln!("cortex: opening screen failed: {err}");
+                opening_closed(&handle);
             }
             // A GPU process that hangs while the system is busy (just after an
             // update or a login) leaves the island empty for good (#115).
@@ -668,7 +716,7 @@ fn main() {
             // Dev aid: open Settings at launch, for visual checks without a click.
             #[cfg(debug_assertions)]
             if std::env::var_os("CORTEX_DEV_OPEN_SETTINGS").is_some() {
-                spawn_open_settings(handle.clone());
+                spawn_open_settings(handle.clone(), false);
             }
 
             tauri::async_runtime::spawn(github::poller(handle.clone()));
@@ -687,7 +735,7 @@ fn main() {
             // island is really drawn (#115).
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
-                spawn_open_settings(app.clone());
+                spawn_open_settings(app.clone(), false);
                 check_island(app.clone(), std::time::Duration::ZERO);
             }
             #[cfg(not(target_os = "macos"))]

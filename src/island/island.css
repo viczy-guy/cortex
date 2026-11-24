@@ -11,6 +11,9 @@ body {
   cursor: default;
 }
 
+/* Until the opening screen goes (#152). */
+body.waiting { visibility: hidden; }
+
 /* While the island eases (#118) the window is larger than it: keep it at
    its edge, the same place it has when the window fits it exactly. */
 body {

@@ -6,6 +6,7 @@ html, body {
 }
 
 html, body { height: 100%; }
+[hidden] { display: none !important; }
 body { display: flex; overflow: hidden; }
 
 /* The sidebar (#151): one item per page. */
@@ -39,7 +40,6 @@ body { display: flex; overflow: hidden; }
 
 #settings { flex: 1; min-width: 0; overflow-y: auto; padding: 20px; }
 .page { display: flex; flex-direction: column; gap: 22px; }
-.page[hidden] { display: none; }
 h1 { font-size: 20px; font-weight: 700; }
 h2 {
   margin-bottom: 10px;

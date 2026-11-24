@@ -21,6 +21,7 @@ import {
   ISLAND_PREFS_EVENT,
   type IslandPosition,
   type IslandPrefs,
+  OPENING_CLOSED_EVENT,
   OUTSIDE_CLICK_EVENT,
   type PendingApproval,
   type SessionView,
@@ -735,6 +736,13 @@ async function installUpdate(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  // The opening screen plays out first; the island appears after it (#152).
+  // Rust closes that screen within 10 s: never stay hidden past that.
+  await listen(OPENING_CLOSED_EVENT, () => document.body.classList.remove("waiting"));
+  if (await api.openingShown().catch(() => false)) {
+    document.body.classList.add("waiting");
+    window.setTimeout(() => document.body.classList.remove("waiting"), 12_000);
+  }
   let githubChanged = false;
   await listen<GithubStatus>(GITHUB_EVENT, (event) => {
     githubChanged = true;

@@ -181,6 +181,7 @@ export interface UpdateStatus {
 }
 
 export const UPDATES_EVENT = "cortex://updates";
+export const OPENING_CLOSED_EVENT = "cortex://opening-closed";
 
 export const api = {
   updatesStatus: () => invoke<UpdateStatus>("updates_status"),
@@ -213,6 +214,8 @@ export const api = {
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),
+  /** The launch's opening screen is still up: the island waits (#152). */
+  openingShown: () => invoke<boolean>("opening_shown"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),
   snapshot: () => invoke<Snapshot>("snapshot"),
