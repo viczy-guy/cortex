@@ -146,9 +146,9 @@ body {
 
 .mascot :is(.m-body, .m-head, .m-look, .m-lid, .m-brow, .m-stache, .m-ear-l, .m-ear-r, .m-knot) { transform-box: fill-box; }
 .mascot .m-body { transform-origin: 50% 100%; }
-.mascot :is(.m-lid, .m-brow) { transform-origin: center; transition: transform 0.08s ease-out, opacity 0.06s; }
-.mascot :is(.m-look, .m-head) { transition: transform 0.14s ease-out; }
-.mascot.pixel :is(.m-look, .m-head) { transition: none; }
+/* Lids and brows switch at once: an ease on a 30 × 18 point face does not show, and every frame of it is a repaint. */
+.mascot :is(.m-lid, .m-brow) { transform-origin: center; }
+/* The eyes jump to a new direction: at 30 × 18 points an ease would not show, and each step would cost a few repaints. */
 .mascot .m-z { font: 700 7px var(--font); fill: currentColor; opacity: 0; }
 
 /* Lids: closed, smiling, wide, curious, asleep. A mascot with drawn lids swaps them in. */
