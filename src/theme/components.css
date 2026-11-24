@@ -92,3 +92,7 @@
 .m-fill { fill: currentColor; }
 .m-stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .m-hole { fill: var(--mascot-hole); }
+.m-stroke-thin { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+.m-hole-line { fill: none; stroke: var(--mascot-hole); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+/* Drawn only while the eyes are closed or smiling (#145). */
+.m-alt { display: none; }

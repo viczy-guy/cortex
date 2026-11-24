@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Four new mascots in Settings → Island: Skull, Ninja, Bunny mochi and Samurai
+  mochi. (#144)
+
+### Changed
+- The glasses and mustache mascot has eyes behind the glasses and eyebrows. (#144)
+
 ## [0.4.3] - 2026-11-23
 
 ### Changed
