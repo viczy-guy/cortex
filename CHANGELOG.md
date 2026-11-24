@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-24
+
 ### Changed
 - **Settings is a portal.** A sidebar with one page per subject: Overview,
   Agents, Island, Notices & sounds, GitHub, General and About. The Overview
@@ -19,7 +21,7 @@ follows [Semantic Versioning](https://semver.org).
   seconds instead of every minute, so an approval or a review request shows
   almost at once. Once a minute while GitHub keeps failing, and on macOS
   while the screen is locked. Failed actions still follow GitHub's own pace,
-  about a minute.
+  about a minute. (#159)
 - **Updates are checked every minute** while Cortex is being tested, instead
   of every 6 hours; it goes back to 6 hours afterwards. (#158)
 
