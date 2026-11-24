@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-23
+
 ### Added
 - **A lively mascot.** Its eyes follow your mouse, it blinks, looks around
   and naps after 10 minutes with nothing going on; a click squashes it with
