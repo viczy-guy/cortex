@@ -8,6 +8,7 @@ pub mod approval;
 pub mod autostart;
 pub mod diff;
 pub mod event;
+pub mod gaze;
 pub mod github;
 pub mod hooks;
 pub mod notices;

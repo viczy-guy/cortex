@@ -53,6 +53,21 @@ are doing.
   card clears that session. Hovering opens the island in the color and clears
   nothing (#126). When the color rises, the mascot jumps twice, then stays
   still (not at all with reduced motion).
+- The lively mascot (#145, on by default; Settings → Island turns it off):
+  its eyes follow the mouse anywhere, on any screen (the pixel penguin's a
+  pixel at a time); it blinks every 2.5 to 6 s, looks around now and then
+  while the mouse rests, and naps after 10 minutes with no agent working, no
+  notice standing and no mouse movement (eyes closed, a still "z"). The
+  mouse coming near the island, an agent, a notice or a click wakes it. A
+  click on the island (not on a button) squashes it with a smile; three
+  within 1.5 s make it dizzy for 2 s. When the color rises it jumps with wide
+  eyes, smiling for green and shaking for red. Cortex reads the cursor ten
+  times a second only while the mascot is lively and tells the island only
+  when the direction changes (`cortex_core::gaze`), so a resting mouse costs
+  nothing; on macOS a locked screen stops it all, since a repaint of a locked
+  island keeps WebKit busy until unlock (#51). Reduce motion removes the
+  jumps, shakes and dizziness; the eyes still follow, without easing. Where
+  the cursor cannot be read (Wayland), the eyes look ahead.
 - Each notice has a short phrase and where it happened (#131): "A PR has
   critical changes, review it!", "A PR failed!", "An action failed!", "An
   agent failed" (red); "An agent needs you" (amber); "A PR needs your review"
@@ -210,7 +225,8 @@ The gear in the island opens a separate, opaque Settings window:
   with the exact diff and a dated backup before writing.
 - **Always rules** lists local rules and allows removing one or all. Removing
   all requires a second click within four seconds.
-- **Island** chooses the mascot from a gallery of twelve, or none, sets the
+- **Island** chooses the mascot from a gallery of twelve, or none, turns the lively
+  mascot on or off, sets the
   island's screen and position, and controls and samples the sounds.
 - **Startup** turns launch at login on or off (see below).
 - **GitHub** turns the pull request pill on or off and manages its accounts

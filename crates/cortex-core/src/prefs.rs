@@ -12,6 +12,8 @@ pub struct Prefs {
     pub mascot: Option<String>,
     /// Island notice sounds; `None` means on.
     pub sound: Option<bool>,
+    /// The lively mascot (#145); `None` means on.
+    pub lively: Option<bool>,
     /// Launch at login (#81). `None` until the first launch turns it on.
     pub launch_at_login: Option<bool>,
     pub island_position: Option<String>,
@@ -86,6 +88,7 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
         updates,
         mascot,
         sound: v.get("sound").and_then(Value::as_bool),
+        lively: v.get("lively").and_then(Value::as_bool),
         launch_at_login: v.get("launch_at_login").and_then(Value::as_bool),
         island_position: v["island_position"]
             .as_str()
@@ -103,7 +106,7 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen,"last_version":prefs.last_version})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"lively":prefs.lively,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen,"last_version":prefs.last_version})
         .to_string()
 }
 #[cfg(test)]
@@ -194,6 +197,7 @@ mod tests {
             let p = Prefs {
                 github: true,
                 sound,
+                lively: sound.map(|on| !on),
                 ..Prefs::default()
             };
             assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
@@ -201,6 +205,7 @@ mod tests {
         for json in [
             r#"{"version":1,"github":true}"#,
             r#"{"version":1,"github":true,"sound":"false"}"#,
+            r#"{"version":1,"github":true,"lively":1}"#,
         ] {
             assert_eq!(
                 checked_prefs_from_json(json),

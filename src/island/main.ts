@@ -10,6 +10,8 @@ import { button, el } from "../shared/dom";
 import {
   api,
   HOOKS_EVENT,
+  GAZE_EVENT,
+  type Gaze,
   GITHUB_EVENT,
   type GithubStatus,
   HOVER_EVENT,
@@ -27,11 +29,12 @@ import {
   UPDATES_EVENT,
   type UpdateStatus,
 } from "../shared/ipc";
-import { type Mascot, mascotSvg } from "../shared/mascots";
+import type { Mascot } from "../shared/mascots";
 import { playSound } from "../shared/sounds";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
 import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone, type Tone, topTone } from "./notch";
+import { livelyMascot, onGaze, poke, react, setBusy, setLively } from "./lively";
 import { agentNotice, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
@@ -294,6 +297,7 @@ function render(): void {
   dismissed = new Set([...dismissed].filter((id) => pending.has(id)));
   pruneSelections(pending);
   updateTone();
+  setBusy(tone !== "gray" || snapshot.sessions.some((s) => s.state === "working" || s.state === "thinking"));
 
   if (isHidden()) {
     expanded = false;
@@ -332,8 +336,9 @@ function render(): void {
     } else {
       node.append(left, ...(saying ? say : right));
     }
-    top.addEventListener("click", () => {
+    top.addEventListener("click", (event) => {
       acknowledge();
+      pokeUnlessButton(event);
       setHovered(true);
     });
     folded = foldedKey();
@@ -381,15 +386,23 @@ function render(): void {
 /**
  * The mascot in the island's color, or a dot when the user hid it. The jump
  * is spent on the first mascot drawn after the color rose: a redraw never
- * starts it again, so it cannot loop.
+ * starts it again, so it cannot loop. The mascot is one node across redraws,
+ * so the lively mascot keeps its eyes (#145).
  */
 function mascotNode(): Element {
-  const node: Element = mascotSvg(mascot) ?? el("span", "brand-dot");
+  const svg = livelyMascot(mascot);
+  const node: Element = svg ?? el("span", "brand-dot");
   if (bounce) {
     bounce = false;
-    node.classList.add("bounce");
+    if (svg && tone !== "gray") react(tone);
+    else node.classList.add("bounce");
   }
   return node;
+}
+
+/** A click on the island, not on one of its buttons, is a poke for the mascot. */
+function pokeUnlessButton(event: Event): void {
+  if (!(event.target instanceof Element && event.target.closest("button"))) poke();
 }
 
 function prCount({ reviews, failing }: { reviews: number; failing: number }): HTMLElement {
@@ -503,8 +516,9 @@ function bar(): HTMLElement {
  * beside the buttons opens or closes the session cards.
  */
 function onClick(top: HTMLElement, toggles: boolean): HTMLElement {
-  top.addEventListener("click", () => {
+  top.addEventListener("click", (event) => {
     acknowledge();
+    pokeUnlessButton(event);
     // A button stops the click and may not redraw: the cleared colors still must.
     queueMicrotask(render);
   }, { capture: true });
@@ -735,6 +749,7 @@ async function start(): Promise<void> {
   await listen<IslandPrefs>(ISLAND_PREFS_EVENT, ({ payload }) => {
     islandChanged = true;
     sound = payload.sound;
+    setLively(payload.lively);
     if (mascot === payload.mascot && position === payload.position) return;
     mascot = payload.mascot;
     position = payload.position;
@@ -747,6 +762,7 @@ async function start(): Promise<void> {
     render();
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
+  await listen<Gaze>(GAZE_EVENT, ({ payload }) => onGaze(payload));
   await listen(OUTSIDE_CLICK_EVENT, foldAway);
   // Windows / Linux: the island only learns of an outside click if it had focus.
   window.addEventListener("blur", foldAway);
@@ -758,7 +774,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) ({ mascot, sound, position } = value); }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

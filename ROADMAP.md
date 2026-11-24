@@ -23,21 +23,25 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       failed, or an Atlantis plan destroys something. The phrase shows for a
       few seconds; hovering lists what stands. (The updating, done and error
       screens planned for A3 shipped in 0.3.2.)
-- [ ] **A3 · v0.5.0 — Updates itself, new name.** A stable version installs
+- [ ] **A2c · v0.5.0 — Lively mascot.** The mascot follows your mouse,
+      blinks, naps when nothing happens and reacts to a click and to the
+      island's color; four new mascots (skull, ninja, bunny mochi, samurai
+      mochi). On by default, with a switch in Settings.
+- [ ] **A3 · v0.6.0 — Updates itself, new name.** A stable version installs
       with no click when nothing is waiting; a test channel before the stable
       one; new features ship switched off; the new product name, migrating
       existing installs.
-- [ ] **A4 · v0.6.0 — Ask from the island.** A prompt box in the island: pick
+- [ ] **A4 · v0.7.0 — Ask from the island.** A prompt box in the island: pick
       the agent, the model and the folder. It runs through the CLIs you already
       have installed and signed in; everything the agent wants to do still goes
       through the same approval cards.
-- [ ] **A5 · v0.7.0 — More agents.** Codex CLI and Gemini CLI; showing when one
+- [ ] **A5 · v0.8.0 — More agents.** Codex CLI and Gemini CLI; showing when one
       agent calls another; Always rules per agent and per folder; a red card
       with no Always for destructive actions.
-- [ ] **A6 · v0.8.0 — Act on pull requests.** A notice when someone requests
+- [ ] **A6 · v0.9.0 — Act on pull requests.** A notice when someone requests
       your review; the agent's analysis in the card; approve or request changes
       from the island, with your own GitHub account.
-- [ ] **A7 · v0.9.0 — Your agents.** A recipe per agent: model, folder,
+- [ ] **A7 · v0.10.0 — Your agents.** A recipe per agent: model, folder,
       instructions, tools and knowledge sources.
 - [ ] **A8 · v1.0 — Connected app.** An optional account; notices and approvals
       for agents that run on a server; Windows and Linux installers tried on

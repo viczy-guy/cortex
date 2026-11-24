@@ -13,6 +13,7 @@
     "allow-island-set-position",
     "allow-island-set-screen",
     "allow-island-set-sound",
+    "allow-island-set-lively",
     "allow-github-status",
     "allow-github-set-enabled",
     "allow-github-refresh",

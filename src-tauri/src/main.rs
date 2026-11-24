@@ -5,6 +5,7 @@
 mod autostart;
 mod displays;
 mod files;
+mod gaze;
 mod github;
 mod hooks;
 mod prefs;
@@ -535,6 +536,7 @@ fn main() {
 
     let prefs = prefs::load();
     let island = prefs::IslandPrefs::from(&prefs);
+    gaze::LIVELY.store(island.lively, std::sync::atomic::Ordering::Relaxed);
     let (last_version, launch_at_login) = (prefs.last_version.clone(), prefs.launch_at_login);
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -572,6 +574,7 @@ fn main() {
             island_set_position,
             island_set_screen,
             prefs::island_set_sound,
+            prefs::island_set_lively,
             splash_done,
             open_settings,
             quit,
@@ -668,6 +671,7 @@ fn main() {
 
             tauri::async_runtime::spawn(github::poller(handle.clone()));
             tauri::async_runtime::spawn(updates::checker(handle.clone()));
+            tauri::async_runtime::spawn(gaze::watcher(handle.clone()));
 
             // The janitor (sleeps whenever the board is empty).
             tauri::async_runtime::spawn(server::janitor(handle));
