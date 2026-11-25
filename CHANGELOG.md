@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-25
+
 ### Added
 - **While you were away.** Nothing rings or speaks while nobody is looking:
   the screen locked, ten minutes without the mouse or the keyboard, or the

@@ -33,7 +33,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       launch lets the welcome screen play out, then opens Settings to connect
       Claude Code and GitHub. Pull requests are checked every 15 seconds;
       updates every minute while Cortex is being tested.
-- [ ] **A2e · v0.7.0 — While you were away.** Nothing rings while nobody is
+- [x] **A2e · v0.7.0 — While you were away.** Nothing rings while nobody is
       looking (app closed, screen locked, ten minutes idle); coming back turns
       the island pink with a summary of what happened, with See all and
       Dismiss.
