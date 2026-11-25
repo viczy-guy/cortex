@@ -1,12 +1,16 @@
 import { getVersion } from "@tauri-apps/api/app";
 
 import { button, el } from "../shared/dom";
+import { setLanguage, t } from "../shared/i18n";
 import { api } from "../shared/ipc";
 import { mascotSvg } from "../shared/mascots";
 
 /** How long "Updating…" shows before the install starts, so it is seen at all. */
 const UPDATING_MIN_MS = 1200;
 
+// The prefs first: the language of every text and the mascot (#154).
+const prefs = await api.islandPrefs().catch(() => null);
+setLanguage(prefs?.language ?? "en");
 const root = document.querySelector<HTMLElement>("#splash");
 const mode = new URLSearchParams(window.location.search).get("mode");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -17,12 +21,12 @@ else if (root) opening(root, mode === "updated");
 function mascotBox(): HTMLElement {
   const mascot = el("div", "mascot");
   mascot.setAttribute("aria-hidden", "true");
-  mascot.append(el("span", "mascot-dot"));
-  api.islandPrefs().then((prefs) => {
+  if (!prefs) {
+    mascot.append(el("span", "mascot-dot"));
+  } else {
     const svg = mascotSvg(prefs.mascot, "splash-mascot");
-    if (svg) mascot.replaceChildren(svg);
-    else mascot.replaceChildren(); // "No mascot": nothing jumps there.
-  }).catch(() => { /* Keep the fallback dot. */ });
+    if (svg) mascot.append(svg); // "No mascot": nothing jumps there.
+  }
   return mascot;
 }
 
@@ -37,14 +41,14 @@ function versionLine(): HTMLElement {
 /** "Welcome", or after an update (#127) straight to "Update complete". */
 function opening(root: HTMLElement, updated: boolean): void {
   const ready = el("div", "ready");
-  ready.append(mascotBox(), el("p", undefined, updated ? "Update complete, let's get to work?" : "Let's get to work?"));
+  ready.append(mascotBox(), el("p", undefined, updated ? t("splash.updated") : t("splash.ready")));
   if (updated) {
     root.classList.add("updated");
     root.append(ready, versionLine());
   } else {
     const dot = el("span", "opening-dot");
     dot.setAttribute("aria-hidden", "true");
-    root.append(dot, el("p", "welcome", "Welcome"), ready, versionLine());
+    root.append(dot, el("p", "welcome", t("splash.welcome")), ready, versionLine());
   }
 
   let finished = false;
@@ -84,7 +88,7 @@ function updating(root: HTMLElement): void {
     root.classList.remove("failed");
     const track = el("span", "track");
     track.append(el("i"));
-    view.replaceChildren(mascot, el("p", "title", "Updating…"), track, versions);
+    view.replaceChildren(mascot, el("p", "title", t("splash.updating")), track, versions);
     await new Promise((resolve) => window.setTimeout(resolve, UPDATING_MIN_MS));
     try {
       await api.updatesInstall();
@@ -97,15 +101,15 @@ function updating(root: HTMLElement): void {
     root.classList.add("failed");
     const actions = el("div", "actions");
     actions.append(
-      button("btn-neutral", "Continue without updating", () => {
+      button("btn-neutral", t("splash.continue"), () => {
         api.splashDone().catch(() => { /* Rust closes the splash if IPC fails. */ });
       }),
-      button("btn-allow", "Try again", () => void install()),
+      button("btn-allow", t("splash.retry"), () => void install()),
     );
     view.replaceChildren(
       mascot,
-      el("p", "title", "Oops, something got in the way."),
-      el("p", "dim", "Whenever you want to try again, click below."),
+      el("p", "title", t("splash.oops")),
+      el("p", "dim", t("splash.whenever")),
       actions,
     );
   }

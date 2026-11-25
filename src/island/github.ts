@@ -1,4 +1,5 @@
 import { button, el } from "../shared/dom";
+import { fromRust, t } from "../shared/i18n";
 import { api, type AccountStatus, type GithubSummary, type PullRequest } from "../shared/ipc";
 
 type SummarizedAccount = AccountStatus & { summary: GithubSummary };
@@ -20,15 +21,15 @@ export function githubCard(accounts: SummarizedAccount[]): HTMLElement {
     group.append(el("div", "github-section", title));
     for (const pr of pulls) {
       const row = button("github-row", "", () => {
-        void api.openUrl(pr.url).catch((reason: unknown) => { error.textContent = String(reason); card.append(error); });
+        void api.openUrl(pr.url).catch((reason: unknown) => { error.textContent = fromRust(String(reason)); card.append(error); });
       });
       row.title = `${pr.repo}#${pr.number} ${pr.title}`;
       row.append(el("span", `state-dot github-dot-${pr.checks}`), el("span", "github-repo", `${pr.repo}#${pr.number}`), el("span", "github-title", pr.title));
-      if (pr.draft) row.append(el("span", "github-tag", "draft"));
-      if (own && (pr.review === "approved" || pr.review === "changes_requested")) row.append(el("span", "github-tag", pr.review === "approved" ? "approved" : "changes requested"));
+      if (pr.draft) row.append(el("span", "github-tag", t("github.draft")));
+      if (own && (pr.review === "approved" || pr.review === "changes_requested")) row.append(el("span", "github-tag", pr.review === "approved" ? t("github.approved") : t("github.changes")));
       group.append(row);
     }
-    if (total > pulls.length) group.append(el("div", "github-more", `+${total - pulls.length} more`));
+    if (total > pulls.length) group.append(el("div", "github-more", t("github.more", total - pulls.length)));
   }
   for (const { login, summary } of accounts) {
     const group = second ? el("div", "github-group") : card;
@@ -36,9 +37,9 @@ export function githubCard(accounts: SummarizedAccount[]): HTMLElement {
       group.append(el("div", "github-account", login));
       card.append(group);
     }
-    section(group, "Review requested", summary.review_requests, summary.review_requests_total, false);
-    section(group, "Your pull requests", summary.mine, summary.mine_total, true);
-    if (summary.mine_total === 0 && summary.review_requests_total === 0 && summary.mine.length === 0 && summary.review_requests.length === 0) group.append(el("div", "github-more", "Nothing open."));
+    section(group, t("github.reviewRequested"), summary.review_requests, summary.review_requests_total, false);
+    section(group, t("github.yours"), summary.mine, summary.mine_total, true);
+    if (summary.mine_total === 0 && summary.review_requests_total === 0 && summary.mine.length === 0 && summary.review_requests.length === 0) group.append(el("div", "github-more", t("github.nothing")));
   }
   return card;
 }

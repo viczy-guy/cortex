@@ -5,26 +5,15 @@
  * Must match `MASCOTS` in `cortex-core/src/prefs.rs`.
  */
 
+import { t } from "./i18n";
+
 export const MASCOTS = [
   "eyes", "lens", "owl", "cat", "ghost", "robot", "mustache", "penguin", "skull", "ninja", "bunny", "samurai", "none",
 ] as const;
 export type Mascot = (typeof MASCOTS)[number];
 
-export const MASCOT_NAMES: Record<Mascot, string> = {
-  eyes: "Eyes",
-  lens: "Lens",
-  owl: "Owl",
-  cat: "Cat",
-  ghost: "Ghost",
-  robot: "Robot",
-  mustache: "Glasses and mustache",
-  penguin: "Pixel penguin",
-  skull: "Skull",
-  ninja: "Ninja",
-  bunny: "Bunny mochi",
-  samurai: "Samurai mochi",
-  none: "No mascot",
-};
+/** The mascot's name, in the current language (#154). */
+export const mascotName = (mascot: Mascot): string => t(`mascot.${mascot}`);
 
 /** `f` filled, `s` stroked, `t` thinly stroked, `h` a hole, `k` a line in the hole's color. */
 type Shape = ["f" | "s" | "t" | "h" | "k", "rect" | "circle" | "ellipse" | "path", Record<string, string | number>];

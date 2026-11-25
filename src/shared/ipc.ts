@@ -149,6 +149,10 @@ export interface IslandPrefs {
   sound: boolean;
   /** The lively mascot (#145). */
   lively: boolean;
+  /** The language shown (#154): the one picked, else the system's. */
+  language: "en" | "pt";
+  /** The one picked in Settings; `null` follows the system. */
+  language_choice: "en" | "pt" | null;
 }
 export const ISLAND_PREFS_EVENT = "cortex://island-prefs";
 
@@ -218,6 +222,7 @@ export const api = {
   splashDone: () => invoke<void>("splash_done"),
   /** The launch's opening screen is still up: the island waits (#152). */
   openingShown: () => invoke<boolean>("opening_shown"),
+  languageSet: (language: "en" | "pt" | null) => invoke<void>("language_set", { language }),
   awayNow: () => invoke<boolean>("away_now"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),

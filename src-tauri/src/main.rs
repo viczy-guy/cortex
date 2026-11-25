@@ -9,6 +9,7 @@ mod files;
 mod gaze;
 mod github;
 mod hooks;
+mod language;
 mod prefs;
 mod rules;
 mod server;
@@ -135,6 +136,16 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     show_settings(app, false).await
 }
 
+/// Another language (#154): what Rust draws follows; the webviews hear it
+/// through the island preferences.
+pub fn show_language(app: &AppHandle, lang: &str) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.set_title(language::settings_title(lang));
+    }
+    #[cfg(target_os = "macos")]
+    macos::set_menu_bar_language(app, lang);
+}
+
 /// Open (or bring forward) the Settings window; with `start`, a new install's,
 /// which shows what to connect first (#152). Async on purpose: creating a
 /// window from a sync command deadlocks on Windows.
@@ -144,6 +155,8 @@ async fn show_settings(app: AppHandle, start: bool) -> Result<(), String> {
         if start {
             let mut url = window.url().map_err(|e| e.to_string())?;
             url.set_query(Some("start"));
+            // Get started is on the Overview, whatever page it was left on.
+            url.set_fragment(None);
             window.navigate(url).map_err(|e| e.to_string())?;
         }
         window.unminimize().map_err(|e| e.to_string())?;
@@ -168,7 +181,7 @@ async fn show_settings(app: AppHandle, start: bool) -> Result<(), String> {
             .into(),
         ),
     )
-    .title("Cortex Settings")
+    .title(language::settings_title(language::current(&prefs::load())))
     // A 184-point sidebar beside a page about as wide as the old window (#151).
     .inner_size(720.0, 560.0)
     .min_inner_size(620.0, 440.0)
@@ -493,7 +506,7 @@ fn set_island_placement(
         placement.screen.clone_from(&island.screen);
         island
     };
-    let _ = app.emit(prefs::ISLAND_PREFS_EVENT, island);
+    prefs::emit(app, island);
     place_island(app);
     Ok(())
 }
@@ -619,6 +632,7 @@ fn main() {
             island_set_screen,
             prefs::island_set_sound,
             prefs::island_set_lively,
+            prefs::language_set,
             gaze::island_gaze_origin,
             splash_done,
             opening_shown,
@@ -644,7 +658,7 @@ fn main() {
                 eprintln!("cortex: panel setup failed, plain window fallback: {err}");
             }
             #[cfg(target_os = "macos")]
-            if let Err(err) = macos::add_menu_bar_item(&handle) {
+            if let Err(err) = macos::add_menu_bar_item(&handle, &island.language) {
                 eprintln!("cortex: menu-bar item failed: {err}");
             }
 

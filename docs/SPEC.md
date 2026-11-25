@@ -295,12 +295,13 @@ window opens on the Overview.
 - **GitHub** turns the pull request pill on or off and manages its accounts
   (see [GitHub](#github)).
 - **General** turns launch at login on or off (see below), and the update
-  check, with **Update and restart** once a verified update is ready.
+  check, with **Update and restart** once a verified update is ready. It
+  also picks the language (see [Language](#language)).
 - **About** shows the app version, a "What's new" link to the notes of that
   version, its local-only policy, and Quit Cortex.
 
 On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
-Cortex**. It is a native menu, so it still quits when the island's web view
+Cortex** (**Ajustes…** and **Encerrar o Cortex** in Portuguese). It is a native menu, so it still quits when the island's web view
 does not respond; a background app is not listed in Force Quit.
 Opening Cortex while it runs (the Finder, Launchpad, Spotlight) opens
 Settings.
@@ -312,6 +313,20 @@ visible island (up to three tries, 15 seconds apart). Two refusals restart
 Cortex; the new copy gets `--recovered-at=<time>`, and for ten minutes it shows
 no opening screen and does not restart again. A slow picture never counts.
 Cards still waiting go back to their agents, which then ask in the terminal.
+
+## Language
+
+Every text Cortex shows is in English and in Portuguese (#154). **System**,
+the default, follows the first of the system's preferred languages:
+Portuguese when it is Portuguese, English otherwise (on Linux, `LC_ALL`,
+`LC_MESSAGES` or `LANG`). Settings → General → Language picks **English** or
+**Português** for good, or goes back to **System**. Every window changes at
+once: the island draws again in place, Settings opens again on the page it
+was on, and the menu-bar item and the Settings title follow. The opening
+screen reads the language before it draws. The Windows setup (`.exe`) is in
+English or Portuguese, following the system; the `.msi` is in English. What
+GitHub, Atlantis and the agents write (titles, plans, commands, folders)
+stays as they wrote it.
 
 ## Launch at login
 

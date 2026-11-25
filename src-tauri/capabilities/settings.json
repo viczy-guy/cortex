@@ -14,6 +14,7 @@
     "allow-island-set-screen",
     "allow-island-set-sound",
     "allow-island-set-lively",
+    "allow-language-set",
     "allow-github-status",
     "allow-github-set-enabled",
     "allow-github-refresh",
