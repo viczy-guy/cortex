@@ -236,6 +236,41 @@ export const api = {
 
 export type Checks = "passing" | "failing" | "pending" | "none";
 export type Review = "approved" | "changes_requested" | "required" | "none";
+/** What a plan does to a resource, the most dangerous first (#161). */
+export type PlanOp = "destroy" | "replace" | "change" | "add";
+export interface PlanGroup {
+  /** The project, when the plan has several with changes: "production · data/rds". */
+  project: string | null;
+  op: PlanOp;
+  /** The resource type: "aws_instance". */
+  kind: string;
+  count: number;
+  /** The first resource's address, shown when it is alone. */
+  address: string;
+}
+/** A pull request's latest Atlantis run (#161), from `cortex_core::atlantis`. */
+export interface Plan {
+  stage: "planning" | "planned" | "plan_failed" | "locked" | "applying" | "applied" | "apply_failed";
+  add: number;
+  change: number;
+  replace: number;
+  destroy: number;
+  /** Projects planned so far, and those of them without changes. */
+  projects: number;
+  unchanged: number;
+  env: string | null;
+  production: boolean;
+  /** Resource types whose data a destroy or a replace loses. */
+  data: string[];
+  /** What deserves care, the most serious first. */
+  alerts: ("data" | "production" | "drift" | "partial" | "no_detail")[];
+  groups: PlanGroup[];
+  /** The list shows part of the plan, or none of it. */
+  partial: boolean;
+  error: string | null;
+  locked_by: number | null;
+  comment_url: string | null;
+}
 export interface PullRequest {
   repo: string;
   number: number;
@@ -245,18 +280,21 @@ export interface PullRequest {
   author: string | null;
   checks: Checks;
   review: Review;
+  plan: Plan | null;
 }
 /** Something on GitHub worth a notice (#131), most urgent first. */
 export interface GithubNotice {
   /** The same while the notice stands; a new failure or plan gets a new one. */
   key: string;
-  kind: "review" | "approved" | "failed" | "critical" | "action";
+  kind: "review" | "approved" | "failed" | "plan_ready" | "plan_destroys" | "plan_failed" | "applied" | "apply_failed" | "action";
   /** Where it happened: "cortex #128 · checks". */
   detail: string;
   url: string;
   /** The pull request's number and short title (0 and "" for a failed action); "approved" names them in its phrase. */
   number: number;
   title: string;
+  /** The Atlantis run it tells about; on a review request, its plan when that destroys nothing. */
+  plan?: Plan;
 }
 export interface GithubSummary {
   login: string;

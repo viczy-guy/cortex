@@ -1,7 +1,8 @@
 //! What the island tells the user about GitHub (#131): a review requested, a
-//! pull request approved or failing, a plan that destroys something, a failed
-//! action. The shell fetches; everything here only reads what came back.
+//! pull request approved or failing, an Atlantis plan or apply (#161), a
+//! failed action. The shell fetches; everything here only reads what came back.
 
+use crate::atlantis::{read_comments, Comment, Detail, Plan, Stage};
 use crate::github::{Checks, GithubSummary, PullRequest, Review};
 use crate::session::truncate;
 use serde::Serialize;
@@ -9,13 +10,19 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Pull requests whose comments are read per poll; the others wait for the
-/// next. Two keeps the answer (5 comments of up to 64 KiB each, JSON-escaped)
-/// well under the 2 MiB the shell reads.
+/// next. Two keeps the answer (8 comments of up to 64 KiB each, JSON-escaped)
+/// under the 2 MiB the shell reads.
 pub const MAX_PLAN_FETCH: usize = 2;
 /// Plans remembered; the least recently read go first.
-const MAX_PLANS: usize = 256;
-/// Comments read per pull request: an Atlantis plan and its continuations.
-const PLAN_COMMENTS: usize = 5;
+const MAX_PLANS: usize = 64;
+/// Comments read per pull request: an Atlantis plan, its continuations and
+/// the apply after it.
+const PLAN_COMMENTS: usize = 8;
+/// Failed reads in a row of one pull request before waiting for it to change.
+const MAX_READ_FAILURES: u8 = 3;
+/// An apply stays news for an hour: Atlantis merges its pull request at once,
+/// which leaves the open lists (#161).
+const APPLIED_WINDOW_MS: u64 = 60 * 60 * 1000;
 pub const MAX_RUNS: usize = 10;
 /// Failed actions older than this are not news.
 const RUNS_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
@@ -33,8 +40,16 @@ pub enum NoticeKind {
     Approved,
     /// Your pull request's checks fail.
     Failed,
-    /// An Atlantis plan on the pull request destroys something.
-    Critical,
+    /// An Atlantis plan of yours is ready and only adds or changes (#161).
+    PlanReady,
+    /// An Atlantis plan destroys or replaces something.
+    PlanDestroys,
+    /// An Atlantis plan failed.
+    PlanFailed,
+    /// An Atlantis apply of yours went through.
+    Applied,
+    /// An Atlantis apply of yours failed.
+    ApplyFailed,
     /// An action you started failed.
     Action,
 }
@@ -51,6 +66,10 @@ pub struct Notice {
     /// it ("Your PR #128 (Short title) was approved!"); 0 and empty otherwise.
     pub number: u64,
     pub title: String,
+    /// The Atlantis run it tells about; on a review request, its plan when
+    /// that destroys nothing (#161).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<Plan>,
 }
 
 /// A failed workflow run the user started, from GitHub's own notice of it.
@@ -79,23 +98,54 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
         url: pull.url.clone(),
         number: pull.number,
         title: short_title(&pull.title),
+        plan: None,
     };
     let mut out = Vec::new();
-    for pull in summary.mine.iter().chain(&summary.review_requests) {
-        if pull.destroy > 0 {
-            let mut notice = pr(
-                NoticeKind::Critical,
-                "critical",
-                pull,
-                format!("{} to destroy", pull.destroy),
-            );
-            // Another plan, another notice.
-            notice.key.push_str(&format!(":{}", pull.destroy));
-            out.push(notice);
-        }
+    let recent = iso_utc(summary.fetched_at_ms.saturating_sub(APPLIED_WINDOW_MS));
+    let open = summary
+        .mine
+        .iter()
+        .map(|p| (p, true, false))
+        .chain(summary.review_requests.iter().map(|p| (p, false, false)));
+    for (pull, own, merged) in open.chain(summary.merged.iter().map(|p| (p, true, true))) {
+        let Some(plan) = &pull.plan else {
+            continue;
+        };
+        let (kind, tag) = match plan.stage {
+            // Once merged, only an apply is news, and for an hour.
+            Stage::Applied if own && plan.at >= recent => (NoticeKind::Applied, "applied"),
+            _ if merged => continue,
+            Stage::PlanFailed => (NoticeKind::PlanFailed, "plan-failed"),
+            Stage::Planned if plan.destroy > 0 || plan.replace > 0 => {
+                (NoticeKind::PlanDestroys, "plan")
+            }
+            Stage::Planned if own && (plan.add > 0 || plan.change > 0) => {
+                (NoticeKind::PlanReady, "plan")
+            }
+            Stage::ApplyFailed if own => (NoticeKind::ApplyFailed, "apply-failed"),
+            _ => continue,
+        };
+        let where_ = plan.env.clone().unwrap_or_else(|| match plan.projects {
+            0 | 1 => "Atlantis".into(),
+            n => format!("{n} projects"),
+        });
+        let mut notice = pr(kind, tag, pull, where_);
+        // Another run, another notice.
+        notice.key.push_str(&format!(":{}", plan.at));
+        notice.plan = Some(plan.clone());
+        out.push(notice);
     }
     for pull in &summary.mine {
-        if pull.checks == Checks::Failing {
+        // Atlantis tells why its own failures fail the checks, unless another
+        // status fails too.
+        let atlantis_failed = pull.plan.as_ref().is_some_and(|p| {
+            !p.checks_failed
+                && matches!(
+                    p.stage,
+                    Stage::PlanFailed | Stage::Locked | Stage::ApplyFailed
+                )
+        });
+        if pull.checks == Checks::Failing && !atlantis_failed {
             out.push(pr(NoticeKind::Failed, "failed", pull, "checks".into()));
         }
     }
@@ -120,11 +170,18 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
             url: run.url(),
             number: 0,
             title: String::new(),
+            plan: None,
         });
     }
     for pull in &summary.review_requests {
         let who = pull.author.as_deref().unwrap_or("review");
-        out.push(pr(NoticeKind::Review, "review", pull, who.into()));
+        let mut notice = pr(NoticeKind::Review, "review", pull, who.into());
+        // A plan that destroys has its own notice; any other rides along.
+        notice.plan = pull
+            .plan
+            .clone()
+            .filter(|p| p.stage == Stage::Planned && p.destroy == 0 && p.replace == 0);
+        out.push(notice);
     }
     for pull in &summary.mine {
         // Whatever its checks do, or a red-then-green CI would announce the
@@ -138,6 +195,7 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
                 url: pull.url.clone(),
                 number: pull.number,
                 title: short_title(&pull.title),
+                plan: None,
             });
         }
     }
@@ -405,97 +463,77 @@ pub fn plan_query(count: usize) -> String {
     let fields: String = (0..count)
         .map(|i| {
             format!(
-                " p{i}: resource(url: $u{i}) {{ ... on PullRequest {{ comments(last: {PLAN_COMMENTS}) {{ nodes {{ body }} }} }} }}"
+                " p{i}: resource(url: $u{i}) {{ ... on PullRequest {{ comments(last: {PLAN_COMMENTS}) {{ nodes {{ body url createdAt author {{ login __typename }} }} }} }} }}"
             )
         })
         .collect();
     format!("query({}) {{{fields} }}", vars.join(", "))
 }
 
-/// What each pull request's latest Atlantis plan destroys, in the order asked
-/// (see [`destroy_count`]); `None` for the whole answer when it is not a
-/// GraphQL response, and for a pull request the account cannot read.
-pub fn parse_plans(json: &str, count: usize) -> Option<Vec<Option<u32>>> {
+/// Each pull request's latest plan and apply comments, in the order asked;
+/// `None` for the whole answer when it is not a GraphQL response, and for a
+/// pull request the account cannot read or with no plan in sight. Only the
+/// comments of the account that wrote its plan's status count (`authors`,
+/// one per pull request): anyone else's that looks like Atlantis's would
+/// mislead.
+pub fn parse_plans(json: &str, authors: &[&str]) -> Option<Vec<Option<Detail>>> {
     let v: Value = serde_json::from_str(json).ok()?;
     let data = v.get("data")?;
     Some(
-        (0..count)
-            .map(|i| {
-                let bodies: Vec<&str> = data[format!("p{i}")]["comments"]["nodes"]
+        authors
+            .iter()
+            .enumerate()
+            .map(|(i, author)| {
+                let by_atlantis = |c: &&Value| {
+                    !author.is_empty()
+                        && c["author"]["login"]
+                            .as_str()
+                            .is_some_and(|login| login.eq_ignore_ascii_case(author))
+                };
+                let comments: Vec<Comment> = data[format!("p{i}")]["comments"]["nodes"]
                     .as_array()?
                     .iter()
-                    .filter_map(|c| c["body"].as_str())
+                    .filter(by_atlantis)
+                    .filter_map(|c| {
+                        Some(Comment {
+                            body: c["body"].as_str()?,
+                            url: c["url"].as_str().unwrap_or(""),
+                            created_at: c["createdAt"].as_str().unwrap_or(""),
+                        })
+                    })
                     .collect();
-                destroy_count(&bodies)
+                let detail = read_comments(&comments);
+                (detail.plan.is_some() || detail.apply.is_some()).then_some(detail)
             })
             .collect(),
     )
 }
 
-/// Resources the latest Atlantis plan destroys, from a pull request's last
-/// comments, oldest first: the "Plan: … N to destroy" lines of the last
-/// comment that starts with "Ran Plan for" (a quote of one does not) and of
-/// its "Continued…" parts. Atlantis repeats each project's summary line
-/// outside its output block, so lines inside code blocks count first.
-/// `None` when no plan is in sight: the caller keeps what it knew, since
-/// later comments may have pushed the plan out of the window. Applies are
-/// not read: a failed or partial apply must not hide what is left, and the
-/// notice goes once a new plan destroys nothing or the pull request closes.
-pub fn destroy_count(bodies: &[&str]) -> Option<u32> {
-    let start = bodies
-        .iter()
-        .rposition(|b| b.trim_start().starts_with("Ran Plan for"))?;
-    let parts = bodies[start..]
-        .iter()
-        .enumerate()
-        .take_while(|(i, body)| *i == 0 || body.trim_start().starts_with("Continued"))
-        .map(|(_, body)| body);
-    let (mut inside, mut outside, mut seen_inside) = (0u32, 0u32, false);
-    for body in parts {
-        let mut fenced = false;
-        for line in body.lines() {
-            if line.trim_start().starts_with("```") {
-                fenced = !fenced;
-                continue;
-            }
-            let Some(destroy) = plan_destroys(line) else {
-                continue;
-            };
-            if fenced {
-                seen_inside = true;
-                inside = inside.saturating_add(destroy);
-            } else {
-                outside = outside.saturating_add(destroy);
-            }
-        }
-    }
-    Some(if seen_inside { inside } else { outside })
-}
-
-/// "Plan: 1 to add, 0 to change, 2 to destroy." → 2, also behind a log
-/// prefix ("16:47:01 STDOUT terraform: Plan: …", as Terragrunt prints it).
-fn plan_destroys(line: &str) -> Option<u32> {
-    let at = line.find("Plan: ")?;
-    line[at + "Plan: ".len()..].split(',').find_map(|part| {
-        part.trim()
-            .trim_end_matches('.')
-            .strip_suffix(" to destroy")?
-            .trim()
-            .parse()
-            .ok()
-    })
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PlanRead {
-    /// The pull request's `updatedAt` when its plan was last read.
+    /// The pull request's `updatedAt` when its comments were last read.
     updated_at: String,
-    destroy: u32,
+    /// The plan run they were read for: a detail is only ever shown with it.
+    planned_at: String,
+    detail: Option<Detail>,
     tried_ms: u64,
+    /// Reads failed in a row: tried again alone, and given up after a few
+    /// until the pull request changes (one too long for any answer).
+    failures: u8,
 }
 
-/// What the latest plan of each pull request destroys, per account, read
-/// again only once the pull request changed.
+/// A pull request whose comments are due: where, and what for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Due {
+    pub url: String,
+    pub updated_at: String,
+    pub planned_at: String,
+    /// The account that wrote the plan's status.
+    pub author: String,
+}
+
+/// The detail of each pull request's latest plan, per account, read again
+/// only once the pull request changed.
 #[derive(Debug, Default)]
 pub struct PlanCache {
     reads: BTreeMap<String, PlanRead>,
@@ -512,37 +550,63 @@ impl PlanCache {
         format!("{}\n{url}", login.to_ascii_lowercase())
     }
 
-    /// Up to [`MAX_PLAN_FETCH`] pull requests (`url`, `updatedAt`) changed
-    /// since their plan was read, the least recently tried first, so a few
-    /// busy ones never keep the others waiting.
+    /// Up to [`MAX_PLAN_FETCH`] pull requests with an Atlantis run that is
+    /// not planning, changed since their comments were read, the least
+    /// recently tried first, so a few busy ones never keep the others
+    /// waiting.
     pub fn due<'a>(
         &self,
         login: &str,
         pulls: impl IntoIterator<Item = &'a PullRequest>,
-    ) -> Vec<(String, String)> {
-        let mut due: Vec<(u64, &PullRequest)> = pulls
+    ) -> Vec<Due> {
+        let mut due: Vec<(u64, bool, &PullRequest, &Plan)> = pulls
             .into_iter()
-            .filter_map(|p| match self.reads.get(&Self::key(login, &p.url)) {
-                Some(read) if read.updated_at == p.updated_at => None,
-                read => Some((read.map_or(0, |r| r.tried_ms), p)),
+            .filter_map(|p| {
+                let plan = p
+                    .plan
+                    .as_ref()
+                    .filter(|plan| plan.stage != Stage::Planning)?;
+                match self.reads.get(&Self::key(login, &p.url)) {
+                    Some(read) if read.updated_at == p.updated_at => None,
+                    read => Some((
+                        read.map_or(0, |r| r.tried_ms),
+                        read.is_some_and(|r| r.failures > 0),
+                        p,
+                        plan,
+                    )),
+                }
             })
             .collect();
-        due.sort_by_key(|(tried, _)| *tried);
+        due.sort_by_key(|(tried, _, _, _)| *tried);
+        // After a failed read it goes alone: with a long plan, two could
+        // overflow the answer every time.
+        let take = if due.first().is_some_and(|(_, failed, _, _)| *failed) {
+            1
+        } else {
+            MAX_PLAN_FETCH
+        };
         due.into_iter()
-            .take(MAX_PLAN_FETCH)
-            .map(|(_, p)| (p.url.clone(), p.updated_at.clone()))
+            .take(take)
+            .map(|(_, _, p, plan)| Due {
+                url: p.url.clone(),
+                updated_at: p.updated_at.clone(),
+                planned_at: plan.planned_at.clone(),
+                author: plan.author.clone(),
+            })
             .collect()
     }
 
-    /// The outcome of reading one pull request at `updated_at`: `None` when
-    /// the request failed (read again later, after the others), `Some(None)`
-    /// when no plan was in sight (what was known stands).
+    /// The outcome of reading one pull request at `updated_at`, for the plan
+    /// run `planned_at`: `None` when the request failed (read again later,
+    /// after the others), `Some(None)` when no plan was in sight (later
+    /// comments pushed it out: what was known for the same run stands).
     pub fn record(
         &mut self,
         login: &str,
         url: &str,
         updated_at: &str,
-        read: Option<Option<u32>>,
+        planned_at: &str,
+        read: Option<Option<Detail>>,
         now_ms: u64,
     ) {
         let entry = self
@@ -550,15 +614,29 @@ impl PlanCache {
             .entry(Self::key(login, url))
             .or_insert_with(|| PlanRead {
                 updated_at: String::new(),
-                destroy: 0,
+                planned_at: String::new(),
+                detail: None,
                 tried_ms: 0,
+                failures: 0,
             });
         entry.tried_ms = now_ms;
-        if let Some(destroy) = read {
-            entry.updated_at = updated_at.into();
-            if let Some(destroy) = destroy {
-                entry.destroy = destroy;
+        let read = match read {
+            Some(read) => {
+                entry.failures = 0;
+                Some(read)
             }
+            None => {
+                entry.failures = entry.failures.saturating_add(1);
+                // Given up until the pull request changes: what was known stands.
+                (entry.failures >= MAX_READ_FAILURES).then_some(None)
+            }
+        };
+        if let Some(detail) = read {
+            entry.updated_at = updated_at.into();
+            if detail.is_some() || entry.planned_at != planned_at {
+                entry.detail = detail;
+            }
+            entry.planned_at = planned_at.into();
         }
         while self.reads.len() > MAX_PLANS {
             let oldest = self
@@ -572,10 +650,12 @@ impl PlanCache {
         }
     }
 
-    pub fn destroy(&self, login: &str, url: &str) -> u32 {
+    /// The detail read for this plan run, if any.
+    pub fn detail(&self, login: &str, url: &str, planned_at: &str) -> Option<&Detail> {
         self.reads
             .get(&Self::key(login, url))
-            .map_or(0, |read| read.destroy)
+            .filter(|read| read.planned_at == planned_at)
+            .and_then(|read| read.detail.as_ref())
     }
 }
 
@@ -595,8 +675,35 @@ mod tests {
             checks: Checks::Pending,
             review: Review::Required,
             updated_at: String::new(),
-            destroy: 0,
+            plan: None,
             head: format!("feat/{number}"),
+        }
+    }
+
+    fn plan(stage: Stage, add: u32, destroy: u32) -> Plan {
+        Plan {
+            stage,
+            add,
+            change: 0,
+            replace: 0,
+            destroy,
+            projects: 1,
+            unchanged: 0,
+            env: Some("pre-prod".into()),
+            production: false,
+            data: vec![],
+            alerts: vec![],
+            groups: vec![],
+            partial: false,
+            error: None,
+            locked_by: None,
+            comment_url: None,
+            failed: 0,
+            checks_failed: false,
+            drift: false,
+            at: "2026-11-25T10:00:00Z".into(),
+            planned_at: "2026-11-25T10:00:00Z".into(),
+            author: "atlantis-acme".into(),
         }
     }
 
@@ -608,6 +715,7 @@ mod tests {
             review_requests: vec![],
             review_requests_total: 0,
             fetched_at_ms: 0,
+            merged: vec![],
             failed_runs: vec![],
             notices: vec![],
         }
@@ -630,7 +738,7 @@ mod tests {
         let mut pending = pull("viczy-guy/cortex", 132);
         pending.review = Review::Approved;
         let mut destroys = pull("mt/infra", 482);
-        destroys.destroy = 3;
+        destroys.plan = Some(plan(Stage::Planned, 0, 3));
         s.mine = vec![failing, approved, draft, pending];
         s.review_requests = vec![destroys];
         let run = |reference: &str| FailedRun {
@@ -650,7 +758,7 @@ mod tests {
         assert_eq!(
             found,
             [
-                (NoticeKind::Critical, "infra #482 · 3 to destroy"),
+                (NoticeKind::PlanDestroys, "infra #482 · pre-prod"),
                 (NoticeKind::Failed, "cortex #128 · checks"),
                 (NoticeKind::Action, "cortex · CI (main)"),
                 (NoticeKind::Review, "infra #482 · pessoa-b"),
@@ -675,8 +783,70 @@ mod tests {
         );
         assert_eq!(
             notices[0].key,
-            "critical:https://github.com/mt/infra/pull/482:3"
+            "plan:https://github.com/mt/infra/pull/482:2026-11-25T10:00:00Z"
         );
+        assert!(
+            notices[3].plan.is_none(),
+            "the plan that destroys has its own notice"
+        );
+    }
+
+    #[test]
+    fn atlantis_runs_make_their_notices() {
+        let now = 1_795_000_000_000;
+        let mut s = summary();
+        s.fetched_at_ms = now;
+        let mut ready = pull("acme/infra", 1);
+        ready.plan = Some(plan(Stage::Planned, 3, 0));
+        let mut failed = pull("acme/infra", 2);
+        failed.plan = Some(plan(Stage::PlanFailed, 0, 0));
+        failed.checks = Checks::Failing;
+        let mut locked = pull("acme/infra", 3);
+        locked.plan = Some(plan(Stage::Locked, 0, 0));
+        locked.checks = Checks::Failing;
+        let mut planning = pull("acme/infra", 4);
+        planning.plan = Some(plan(Stage::Planning, 1, 0));
+        let mut apply_failed = pull("acme/infra", 5);
+        apply_failed.plan = Some(plan(Stage::ApplyFailed, 1, 0));
+        s.mine = vec![ready, failed, locked, planning, apply_failed];
+        let mut applied = pull("acme/infra", 6);
+        applied.plan = Some(plan(Stage::Applied, 1, 0));
+        applied.plan.as_mut().unwrap().at = iso_utc(now - 30 * 60 * 1000);
+        let mut long_ago = applied.clone();
+        long_ago.url.push('0');
+        long_ago.plan.as_mut().unwrap().at = iso_utc(now - 2 * 3600 * 1000);
+        // Merged with its plan never applied: no longer news.
+        let mut merged_unapplied = pull("acme/infra", 8);
+        merged_unapplied.plan = Some(plan(Stage::Planned, 0, 2));
+        s.merged = vec![applied, long_ago, merged_unapplied];
+        let mut review = pull("acme/infra", 7);
+        review.plan = Some(plan(Stage::Planned, 2, 0));
+        s.review_requests = vec![review];
+        let notices = notices(&s);
+        let found: Vec<_> = notices.iter().map(|n| (n.kind, n.number)).collect();
+        // Planning and a lock wait in the list; Atlantis says why the checks
+        // fail; a create-only plan on a review rides on the review's notice.
+        assert_eq!(
+            found,
+            [
+                (NoticeKind::PlanReady, 1),
+                (NoticeKind::PlanFailed, 2),
+                (NoticeKind::ApplyFailed, 5),
+                (NoticeKind::Applied, 6),
+                (NoticeKind::Review, 7),
+            ]
+        );
+        assert_eq!(notices[4].plan.as_ref().map(|p| p.add), Some(2));
+        assert!(notices
+            .iter()
+            .all(|n| n.kind == NoticeKind::Review || n.plan.is_some()));
+        // Another CI failing beside a lock still says so.
+        s.mine[2].plan.as_mut().unwrap().checks_failed = true;
+        let again: Vec<_> = super::notices(&s)
+            .iter()
+            .map(|n| (n.kind, n.number))
+            .collect();
+        assert!(again.contains(&(NoticeKind::Failed, 3)));
     }
 
     #[test]
@@ -694,82 +864,60 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_destroys_what_its_latest_atlantis_comment_says() {
-        let plan = |n: u32| {
-            format!(
-                "Ran Plan for dir: `vpn` workspace: `default`\n\n<details><summary>Show Output</summary>\n\n```diff\n- resource \"x\"\n\nPlan: 1 to add, 0 to change, {n} to destroy.\n```\n</details>\nPlan: 1 to add, 0 to change, {n} to destroy.\n"
-            )
-        };
-        let (two, zero) = (plan(2), plan(0));
-        assert_eq!(
-            destroy_count(&[&two]),
-            Some(2),
-            "the line outside the block is the same plan"
-        );
-        assert_eq!(destroy_count(&[&two, "lgtm"]), Some(2));
-        assert_eq!(
-            destroy_count(&[&two, &zero]),
-            Some(0),
-            "the latest plan wins"
-        );
-        // Applies are not read: a failed or partial one must not hide anything.
-        assert_eq!(
-            destroy_count(&[&two, "Ran Apply for dir: `vpn`\n**Apply Error**"]),
-            Some(2)
-        );
-        // A quote is not Atlantis.
-        let quoted = format!("> {}", plan(5).replace('\n', "\n> "));
-        assert_eq!(destroy_count(&[&two, &quoted]), Some(2));
-        // No plan in sight: unknown, not zero.
-        assert_eq!(
-            destroy_count(&["lgtm", "Plan: 0 to add, 0 to change, 9 to destroy."]),
-            None
-        );
-        let two_projects = "Ran Plan for 2 projects:\n```diff\nPlan: 0 to add, 0 to change, 1 to destroy.\n```\n```diff\nPlan: 0 to add, 0 to change, 1 to destroy.\n```\n";
-        assert_eq!(destroy_count(&[two_projects]), Some(2));
-        let split = [
-            "Ran Plan for dir: `big`\n```diff\n- lots of output",
-            "Continued plan output from previous comment.\n```diff\nPlan: 1 to import, 0 to add, 0 to change, 4 to destroy.\n```",
-        ];
-        assert_eq!(destroy_count(&split), Some(4));
-        let terragrunt = "Ran Plan for dir: `live/db`\n```\n16:47:01.511 STDOUT terraform: Plan: 0 to add, 1 to change, 3 to destroy.\n```";
-        assert_eq!(destroy_count(&[terragrunt]), Some(3));
-    }
-
-    #[test]
     fn plans_are_read_again_only_when_the_pull_request_changed_and_never_starve() {
         let mut cache = PlanCache::new();
-        let mut pulls: Vec<PullRequest> = (1..=3).map(|n| pull("mt/infra", n)).collect();
+        let mut pulls: Vec<PullRequest> = (1..=4).map(|n| pull("mt/infra", n)).collect();
         for p in &mut pulls {
             p.updated_at = "t1".into();
+            p.plan = Some(plan(Stage::Planned, 1, 0));
         }
+        // Still planning: nothing to read yet.
+        pulls[3].plan = Some(plan(Stage::Planning, 0, 0));
+        let detail = Detail::default();
         let due = cache.due("Me", &pulls);
         assert_eq!(due.len(), MAX_PLAN_FETCH);
-        // #1 destroys 3; reading #2 failed.
-        cache.record("me", &due[0].0, "t1", Some(Some(3)), 10);
-        cache.record("me", &due[1].0, "t1", None, 10);
-        assert_eq!(cache.destroy("ME", &pulls[0].url), 3);
+        // #1 is read; reading #2 failed.
+        assert_eq!(due[0].author, "atlantis-acme");
+        cache.record(
+            "me",
+            &due[0].url,
+            "t1",
+            &due[0].planned_at,
+            Some(Some(detail.clone())),
+            10,
+        );
+        cache.record("me", &due[1].url, "t1", &due[1].planned_at, None, 10);
+        let run = "2026-11-25T10:00:00Z";
+        assert_eq!(cache.detail("ME", &pulls[0].url, run), Some(&detail));
+        assert_eq!(cache.detail("me", &pulls[0].url, "another run"), None);
         // #3 was never tried: it goes before #2, which failed.
-        let due: Vec<_> = cache
-            .due("me", &pulls)
-            .into_iter()
-            .map(|(u, _)| u)
-            .collect();
+        let due: Vec<_> = cache.due("me", &pulls).into_iter().map(|d| d.url).collect();
         assert_eq!(due, [pulls[2].url.clone(), pulls[1].url.clone()]);
-        // A change brings #1 back; a window without the plan keeps what was known.
+        // Once #3 is read, #2 comes first, and alone.
+        cache.record("me", &pulls[2].url, "t1", run, Some(None), 15);
+        let due: Vec<_> = cache.due("me", &pulls).into_iter().map(|d| d.url).collect();
+        assert_eq!(due, [pulls[1].url.clone()]);
+        // Too long for any answer: after a few failures in a row it waits
+        // for the pull request to change.
+        cache.record("me", &pulls[1].url, "t1", run, None, 16);
+        cache.record("me", &pulls[1].url, "t1", run, None, 17);
+        assert!(!cache
+            .due("me", &pulls)
+            .iter()
+            .any(|d| d.url == pulls[1].url));
+        // A change brings #1 back; a window without the plan keeps what was
+        // known for the same run, not for another.
         pulls[0].updated_at = "t2".into();
         assert!(cache
             .due("me", &pulls)
             .iter()
-            .any(|(u, _)| *u == pulls[0].url));
-        cache.record("me", &pulls[0].url, "t2", Some(None), 20);
-        assert_eq!(cache.destroy("me", &pulls[0].url), 3);
-        assert!(!cache
-            .due("me", &pulls)
-            .iter()
-            .any(|(u, _)| *u == pulls[0].url));
+            .any(|d| d.url == pulls[0].url));
+        cache.record("me", &pulls[0].url, "t2", run, Some(None), 20);
+        assert_eq!(cache.detail("me", &pulls[0].url, run), Some(&detail));
+        cache.record("me", &pulls[0].url, "t3", "a new run", Some(None), 30);
+        assert_eq!(cache.detail("me", &pulls[0].url, "a new run"), None);
         // Another account reads for itself.
-        assert_eq!(cache.destroy("other", &pulls[0].url), 0);
+        assert_eq!(cache.detail("other", &pulls[0].url, run), None);
         assert_eq!(cache.due("other", &pulls).len(), MAX_PLAN_FETCH);
     }
 
@@ -777,28 +925,54 @@ mod tests {
     fn the_plan_cache_forgets_the_least_recently_read_first() {
         let mut cache = PlanCache::new();
         for i in 0..=MAX_PLANS as u64 {
-            cache.record("me", &format!("u{i}"), "t", Some(Some(1)), i + 1);
+            cache.record(
+                "me",
+                &format!("u{i}"),
+                "t",
+                "r",
+                Some(Some(Detail::default())),
+                i + 1,
+            );
         }
         assert_eq!(cache.reads.len(), MAX_PLANS);
-        assert_eq!(cache.destroy("me", "u0"), 0);
-        assert_eq!(cache.destroy("me", &format!("u{MAX_PLANS}")), 1);
+        assert_eq!(cache.detail("me", "u0", "r"), None);
+        assert!(cache.detail("me", &format!("u{MAX_PLANS}"), "r").is_some());
     }
 
     #[test]
     fn plan_comments_are_asked_through_variables_and_read_back_in_order() {
         assert_eq!(
             plan_query(2),
-            "query($u0: URI!, $u1: URI!) { p0: resource(url: $u0) { ... on PullRequest { comments(last: 5) { nodes { body } } } } p1: resource(url: $u1) { ... on PullRequest { comments(last: 5) { nodes { body } } } } }"
+            "query($u0: URI!, $u1: URI!) { p0: resource(url: $u0) { ... on PullRequest { comments(last: 8) { nodes { body url createdAt author { login __typename } } } } } p1: resource(url: $u1) { ... on PullRequest { comments(last: 8) { nodes { body url createdAt author { login __typename } } } } } }"
         );
+        let text = "Ran Plan for dir: `a` workspace: `default`\n```\n  # aws_s3_bucket.logs will be destroyed\n```";
+        let atlantis = json!({"login": "Atlantis-Acme[bot]", "__typename": "Bot"});
+        let other_app = json!({"login": "renovate[bot]", "__typename": "Bot"});
+        let lookalike = json!({"login": "not-atlantis", "__typename": "User"});
         let response = json!({"data": {
-            "p0": {"comments": {"nodes": [{"body": "Ran Plan for dir: `a`\n```\nPlan: 0 to add, 0 to change, 2 to destroy.\n```"}]}},
-            "p1": null
+            "p0": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/1#c1", "createdAt": "2026-11-25T10:00:00Z", "author": atlantis}]}},
+            "p1": null,
+            "p2": {"comments": {"nodes": [{"body": "lgtm", "url": "https://github.com/o/r/pull/2#c1", "author": atlantis}]}},
+            // Only the account that wrote the plan's status is Atlantis.
+            "p3": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/3#c1", "author": other_app}]}},
+            "p4": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/4#c1", "author": lookalike}]}}
         }});
+        let authors = ["atlantis-acme[bot]"; 5];
+        let read = parse_plans(&response.to_string(), &authors).unwrap();
+        let plan = read[0].as_ref().unwrap().plan.as_ref().unwrap();
         assert_eq!(
-            parse_plans(&response.to_string(), 2),
-            Some(vec![Some(2), None])
+            (plan.url.as_str(), plan.created_at.as_str()),
+            ("https://github.com/o/r/pull/1#c1", "2026-11-25T10:00:00Z")
         );
-        assert_eq!(parse_plans("{\"errors\":[]}", 1), None);
+        assert_eq!(plan.projects[0].changes.len(), 1);
+        assert_eq!(
+            (read[1].as_ref(), read[2].as_ref(), read[3].as_ref()),
+            (None, None, None)
+        );
+        assert!(read[4].is_none());
+        // Without the status's author, nothing is taken for Atlantis's.
+        assert_eq!(parse_plans(&response.to_string(), &[""]), Some(vec![None]));
+        assert_eq!(parse_plans("{\"errors\":[]}", &["a"]), None);
     }
 
     #[test]
@@ -922,6 +1096,7 @@ mod tests {
             url: String::new(),
             number: 0,
             title: String::new(),
+            plan: None,
         }
     }
 
@@ -933,6 +1108,7 @@ mod tests {
             review_requests: Vec::new(),
             review_requests_total: 0,
             fetched_at_ms: 0,
+            merged: Vec::new(),
             failed_runs: Vec::new(),
             notices: keys.iter().map(|k| keyed(k)).collect(),
         }

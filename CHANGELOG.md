@@ -6,6 +6,20 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- **Atlantis plans on the island.** For your pull requests and the ones that
+  ask for your review, the island follows each Atlantis plan to its apply:
+  red when a plan destroys or replaces something (in place of "A PR has
+  critical changes"), fails, or its apply fails; green when your plan only
+  adds or changes, and when it is applied. Opening a line in the list shows
+  the summary: the counts (`+` add, `~` change, `±` replace, `−` destroy), one
+  sentence, alerts for data at risk, production and drift, and the changes
+  grouped by project and type, with links to the pull request and the full
+  plan. Several pull requests at once each get a line, the most urgent open;
+  plans still running, or waiting on another pull request's lock, show in
+  gray without a sound. Production is a `production`, `prod`, `prd`,
+  `infraestructure` or `network` folder right before the region. (#161)
+
 ## [0.7.0] - 2026-11-25
 
 ### Added

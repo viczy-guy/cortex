@@ -74,11 +74,12 @@ are doing.
   island keeps WebKit busy until unlock (#51). Reduce motion removes the
   jumps, shakes and dizziness; the eyes still follow. Where
   the cursor cannot be read (Wayland), the eyes look ahead.
-- Each notice has a short phrase and where it happened (#131): "A PR has
-  critical changes, review it!", "A PR failed!", "An action failed!", "An
-  agent failed" (red); "An agent needs you" (amber); "A PR needs your review"
-  and "Your PR #128 (Short title) was approved!" (blue); "An agent finished"
-  (green); beside it the
+- Each notice has a short phrase and where it happened (#131): "The plan
+  destroys 3 resources" (or "replaces"), "The plan failed", "The apply
+  failed", "A PR failed!", "An action failed!", "An agent failed" (red); "An
+  agent needs you" (amber); "A PR needs your review" and "Your PR #128 (Short
+  title) was approved!" (blue); "Plan ready: 10 to add, 2 to change",
+  "Applied: 10 added", "An agent finished" (green); beside it the
   repository and number (the repository alone when the phrase names the pull
   request), the workflow and branch, or the agent and its folder. When a new one comes (an agent's state change that has a phrase, or
   a GitHub notice not there before), the folded island widens with its phrase
@@ -90,7 +91,22 @@ are doing.
   Hovering lists every standing notice, the most urgent first (not over a
   card); a click on a row clears that one, and a GitHub one also opens on
   GitHub. With two or more, "Clear all" on top of the list clears every one,
-  as a click on the island does. Each account's first GitHub answer (after
+  as a click on the island does. An Atlantis notice (#161) carries its plan:
+  its row shows the counts that are not zero (`+` add, `~` change, `±`
+  replace, `−` destroy) and a click opens its summary under it instead of
+  GitHub; the most urgent opens by itself each time the list opens, and one
+  at a time stays open. The summary: the environment (red when production),
+  the four counts, one sentence of what the plan does (the most dangerous
+  first, the commonest AWS types by name, "and N more", where or across how
+  many projects), the alerts (data at risk: an RDS database, an S3 bucket, a
+  DynamoDB table, a KMS key, a secret, a user pool, a DNS zone… destroyed or
+  replaced; production; drift, "the apply undoes it"; a long plan whose list
+  is partial), the changes grouped by project and type, the most dangerous
+  project first, "N projects without changes", and Open PR and Full plan
+  (the plan comment), which open GitHub and clear the notice. A create-only
+  plan on a review request rides on its review notice. After the notices,
+  gray rows for the runs still going, without color or sound: "Planning… 3
+  done", "Applying…", "Locked by #331" (a click opens the pull request). Each account's first GitHub answer (after
   launch, after turning GitHub on, or once the account is shown again) speaks
   nothing: what was there is not news; a notice that went and comes back
   is. In the session cards the "working" dot is gray, as on the island: blue
@@ -334,21 +350,45 @@ summary query above; GitHub's unread notices of the last day, of which only
 workflow and branch, read no sooner than GitHub's `X-Poll-Interval` (60 s
 usually, at most an hour honored) after the last read, Refresh now included;
 and, for
-up to 2 pull requests whose `updatedAt` changed since their plan was last read
-(the least recently tried first, per account), their last 5 comments, to read
-the latest Atlantis plan: the comment that starts with "Ran Plan for" (a quote
-does not) and its "Continued…" parts, summing their "Plan: … N to destroy"
-lines. Applies are not read, so a failed or partial apply never hides what is
-left; the notice goes once a new plan destroys nothing or the pull request
-closes. When the comments in sight hold no plan, what was known stands. A
-failed notices request keeps the last failed actions; a failed comments
-request is tried again after the others. From all this the account's summary
-carries its notices: a review requested, an own pull request approved (not a
-draft; with failing checks, the failing notice stands beside it), one with
-failing checks, one whose plan destroys
-something, a failed action (opening the repository's Actions page, since
+up to 2 pull requests with an Atlantis run past its plan whose `updatedAt`
+changed since their comments were last read (the least recently tried first,
+per account), their last 8 comments (#161).
+
+Atlantis (#161, `cortex_core::atlantis`): the summary query also reads the
+statuses of each pull request's last commit, and the user's last 5 merged
+pull requests. `atlantis/plan` and `atlantis/apply` tell the stage (planning,
+planned, plan failed, applying, applied, apply failed; an apply counts when
+it came after the latest plan), each `atlantis/plan: <project>` its counts
+("Plan: 2 to add, 1 to change, 0 to destroy.", or "No changes."). The
+comments add the detail: the latest "Ran Plan for…" and its "Continued…"
+parts (a quote does not count), project by project ("### 1. project: `a`
+dir: `b`…"), each resource line (`# aws_x.y will be created`, `updated
+in-place`, `must be replaced`, `will be destroyed`; reads, moves and imports
+are left out), behind Terragrunt's log prefix or not, drift ("Objects have
+changed outside of Terraform"), the first "Error: …" of a "**Plan Error**" or
+"**Apply Error**", a "**Plan Failed**:" or "**Apply Failed**:" reason, and a
+lock ("locked by … #331"). The comments' counts replace the statuses' only
+when they add up to them (replacements told apart); otherwise the statuses'
+stand and the list is partial (a plan longer than the comments read, up to 60
+groups). A detail is only shown with the plan run it was read for; while
+planning, none. A plan failed only on locks waits, without a notice. The
+environment of a project is the folder right before the region
+(`…/production/sa-east-1/…`; a generated project name joins folders with
+`_`), else, without a region, a production folder anywhere; production is
+`production`, `prod`, `prd`, `infraestructure` or `network`, as the
+maintainer set them. A failed notices request keeps the last failed actions;
+a failed comments request is tried again after the others; when the comments
+in sight hold no plan, what was known for the same run stands.
+
+From all this the account's summary carries its notices: a review requested
+(with its plan when that destroys nothing), an own pull request approved (not
+a draft; with failing checks, the failing notice stands beside it), one with
+failing checks (not when Atlantis failed: its notice says why), a plan that
+destroys or replaces something (own or review), an own plan ready that only
+adds or changes, a failed plan, an own apply done (for an hour, merged or
+not) or failed, a failed action (opening the repository's Actions page, since
 GitHub's notice names no run; one on the branch of an own pull request is left
-to that pull request's notice).
+to that pull request's notice). An Atlantis notice is new with each run.
 
 Cortex opens GitHub links from the current summaries, the fixed GitHub device
 login page, and the GitHub CLI site through the OS with the URL as one argument

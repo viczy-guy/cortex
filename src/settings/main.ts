@@ -503,10 +503,10 @@ function renderIsland(): void {
 
 // The four colors, each with its sound to try (#131).
 const TONES = [
-  ["green", "Done", "An agent is done."],
+  ["green", "Done", "An agent is done, or an Atlantis plan of yours is ready or applied."],
   ["blue", "Review", "Someone asks for your review or approves your pull request."],
   ["amber", "Needs you", "An agent waits for you."],
-  ["red", "Failed", "Something failed: an agent, a pull request or an action."],
+  ["red", "Failed", "Something failed (an agent, a pull request, an action, an Atlantis plan or apply), or a plan destroys or replaces something."],
   ["pink", "While you were away", "What came while the screen was locked, the computer slept, Cortex was closed or nobody touched it for ten minutes. It stays until See all or Dismiss."],
 ] as const;
 colorsBlock.append(el("div", "note", "The mascot and the island's border take the color of what needs you."));

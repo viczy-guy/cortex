@@ -1,6 +1,7 @@
 //! Opt-in GitHub polling through the user's CLI credentials.
 use crate::prefs::{self, Prefs};
 use cortex_core::{
+    atlantis::{with_detail, Stage},
     github::{
         account_is_shown, active_account, device_code, has_account, is_valid_login, is_valid_token,
         overall_state, parse_accounts, parse_summary, poll_due, release_notes_url, GhAccount,
@@ -408,9 +409,22 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
             .insert(login.clone(), now.saturating_add(POLL_SLOW_SECS * 1000));
     }
     summary.failed_runs = memory.runs.get(&login).cloned().unwrap_or_default();
-    let due = memory
-        .plans
-        .due(&login, summary.mine.iter().chain(&summary.review_requests));
+    // Only pull requests with an Atlantis run past its plan, changed since
+    // their comments were read (#161); merged ones once applied, which an
+    // apply merges before Cortex may have read their plan.
+    let applied = summary.merged.iter().filter(|p| {
+        p.plan
+            .as_ref()
+            .is_some_and(|plan| plan.stage == Stage::Applied)
+    });
+    let due = memory.plans.due(
+        &login,
+        summary
+            .mine
+            .iter()
+            .chain(&summary.review_requests)
+            .chain(applied),
+    );
     if !due.is_empty() {
         let mut args = vec![
             "api".to_owned(),
@@ -420,27 +434,41 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
             "-f".into(),
             format!("query={}", plan_query(due.len())),
         ];
-        for (i, (url, _)) in due.iter().enumerate() {
-            args.extend(["-f".to_owned(), format!("u{i}={url}")]);
+        for (i, entry) in due.iter().enumerate() {
+            args.extend(["-f".to_owned(), format!("u{i}={}", entry.url)]);
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let authors: Vec<&str> = due.iter().map(|entry| entry.author.as_str()).collect();
         let read = run_gh(gh, &args, Some(token))
             .ok()
-            .and_then(|text| parse_plans(&text, due.len()));
+            .and_then(|text| parse_plans(&text, &authors));
         if read.is_none() {
             eprintln!("cortex: pull request plans not read");
         }
-        for (i, (url, updated_at)) in due.iter().enumerate() {
-            let outcome = read.as_ref().map(|counts| counts[i]);
-            memory.plans.record(&login, url, updated_at, outcome, now);
+        for (i, entry) in due.iter().enumerate() {
+            let outcome = read.as_ref().map(|details| details[i].clone());
+            memory.plans.record(
+                &login,
+                &entry.url,
+                &entry.updated_at,
+                &entry.planned_at,
+                outcome,
+                now,
+            );
         }
     }
+    // Merged ones too: an apply merges its pull request at once, and its
+    // summary keeps the plan it applied (no new read for them).
     for pull in summary
         .mine
         .iter_mut()
         .chain(summary.review_requests.iter_mut())
+        .chain(summary.merged.iter_mut())
     {
-        pull.destroy = memory.plans.destroy(&login, &pull.url);
+        if let Some(plan) = pull.plan.take() {
+            let detail = memory.plans.detail(&login, &pull.url, &plan.planned_at);
+            pull.plan = Some(with_detail(plan, detail));
+        }
     }
     drop(memory);
     summary.notices = notices(summary);
