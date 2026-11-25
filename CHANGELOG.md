@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-25
+
 ### Added
 - **Atlantis plans on the island.** For your pull requests and the ones that
   ask for your review, the island follows each Atlantis plan to its apply:

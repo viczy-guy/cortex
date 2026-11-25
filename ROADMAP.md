@@ -37,7 +37,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       looking (app closed, screen locked, ten minutes idle); coming back turns
       the island pink with a summary of what happened, with See all and
       Dismiss.
-- [ ] **A2f · v0.8.0 — Atlantis plans.** The island follows an Atlantis plan
+- [x] **A2f · v0.8.0 — Atlantis plans.** The island follows an Atlantis plan
       to its apply: what it adds, changes, replaces and destroys, in one
       sentence and a list, with alerts for data, production and drift; several
       pull requests at once.
