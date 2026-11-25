@@ -751,7 +751,7 @@ function panelContent(): HTMLElement[] {
     const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
     const runs = listing ? planRuns(accounts.flatMap(({ summary }) => [...summary.mine, ...summary.review_requests])) : [];
     // A pick that left the list falls back to the most urgent plan.
-    const picked = planPicked && (planOpen === null || notices.some((n) => n.key === planOpen));
+    const picked = planPicked && (planOpen === null || notices.some((n) => n.key === planOpen && n.plan));
     planShown = picked ? planOpen : (notices.find((n) => n.plan)?.key ?? null);
     if (notices.length + runs.length === 0) return question;
     return [...question, noticeRows(notices, runs, { act: actOn, clearAll, open: planShown, toggle: togglePlan, follow })];

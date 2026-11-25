@@ -18,6 +18,8 @@ const MAX_PLANS: usize = 64;
 /// Comments read per pull request: an Atlantis plan, its continuations and
 /// the apply after it.
 const PLAN_COMMENTS: usize = 8;
+/// Failed reads in a row of one pull request before waiting for it to change.
+const MAX_READ_FAILURES: u8 = 3;
 /// An apply stays news for an hour: Atlantis merges its pull request at once,
 /// which leaves the open lists (#161).
 const APPLIED_WINDOW_MS: u64 = 60 * 60 * 1000;
@@ -470,21 +472,24 @@ pub fn plan_query(count: usize) -> String {
 
 /// Each pull request's latest plan and apply comments, in the order asked;
 /// `None` for the whole answer when it is not a GraphQL response, and for a
-/// pull request the account cannot read or with no plan in sight. Only
-/// Atlantis's own comments count (an app, or an account named for it): a
-/// person's that looks like one would mislead.
-pub fn parse_plans(json: &str, count: usize) -> Option<Vec<Option<Detail>>> {
+/// pull request the account cannot read or with no plan in sight. Only the
+/// comments of the account that wrote its plan's status count (`authors`,
+/// one per pull request): anyone else's that looks like Atlantis's would
+/// mislead.
+pub fn parse_plans(json: &str, authors: &[&str]) -> Option<Vec<Option<Detail>>> {
     let v: Value = serde_json::from_str(json).ok()?;
     let data = v.get("data")?;
-    let by_atlantis = |c: &&Value| {
-        c["author"]["__typename"].as_str() == Some("Bot")
-            || c["author"]["login"]
-                .as_str()
-                .is_some_and(|login| login.to_ascii_lowercase().contains("atlantis"))
-    };
     Some(
-        (0..count)
-            .map(|i| {
+        authors
+            .iter()
+            .enumerate()
+            .map(|(i, author)| {
+                let by_atlantis = |c: &&Value| {
+                    !author.is_empty()
+                        && c["author"]["login"]
+                            .as_str()
+                            .is_some_and(|login| login.eq_ignore_ascii_case(author))
+                };
                 let comments: Vec<Comment> = data[format!("p{i}")]["comments"]["nodes"]
                     .as_array()?
                     .iter()
@@ -512,8 +517,19 @@ struct PlanRead {
     planned_at: String,
     detail: Option<Detail>,
     tried_ms: u64,
-    /// The last read failed: it is tried again alone.
-    failed: bool,
+    /// Reads failed in a row: tried again alone, and given up after a few
+    /// until the pull request changes (one too long for any answer).
+    failures: u8,
+}
+
+/// A pull request whose comments are due: where, and what for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Due {
+    pub url: String,
+    pub updated_at: String,
+    pub planned_at: String,
+    /// The account that wrote the plan's status.
+    pub author: String,
 }
 
 /// The detail of each pull request's latest plan, per account, read again
@@ -537,12 +553,12 @@ impl PlanCache {
     /// Up to [`MAX_PLAN_FETCH`] pull requests with an Atlantis run that is
     /// not planning, changed since their comments were read, the least
     /// recently tried first, so a few busy ones never keep the others
-    /// waiting: (`url`, `updatedAt`, the plan run).
+    /// waiting.
     pub fn due<'a>(
         &self,
         login: &str,
         pulls: impl IntoIterator<Item = &'a PullRequest>,
-    ) -> Vec<(String, String, String)> {
+    ) -> Vec<Due> {
         let mut due: Vec<(u64, bool, &PullRequest, &Plan)> = pulls
             .into_iter()
             .filter_map(|p| {
@@ -554,7 +570,7 @@ impl PlanCache {
                     Some(read) if read.updated_at == p.updated_at => None,
                     read => Some((
                         read.map_or(0, |r| r.tried_ms),
-                        read.is_some_and(|r| r.failed),
+                        read.is_some_and(|r| r.failures > 0),
                         p,
                         plan,
                     )),
@@ -571,7 +587,12 @@ impl PlanCache {
         };
         due.into_iter()
             .take(take)
-            .map(|(_, _, p, plan)| (p.url.clone(), p.updated_at.clone(), plan.planned_at.clone()))
+            .map(|(_, _, p, plan)| Due {
+                url: p.url.clone(),
+                updated_at: p.updated_at.clone(),
+                planned_at: plan.planned_at.clone(),
+                author: plan.author.clone(),
+            })
             .collect()
     }
 
@@ -596,10 +617,20 @@ impl PlanCache {
                 planned_at: String::new(),
                 detail: None,
                 tried_ms: 0,
-                failed: false,
+                failures: 0,
             });
         entry.tried_ms = now_ms;
-        entry.failed = read.is_none();
+        let read = match read {
+            Some(read) => {
+                entry.failures = 0;
+                Some(read)
+            }
+            None => {
+                entry.failures = entry.failures.saturating_add(1);
+                // Given up until the pull request changes: what was known stands.
+                (entry.failures >= MAX_READ_FAILURES).then_some(None)
+            }
+        };
         if let Some(detail) = read {
             entry.updated_at = updated_at.into();
             if detail.is_some() || entry.planned_at != planned_at {
@@ -672,6 +703,7 @@ mod tests {
             drift: false,
             at: "2026-11-25T10:00:00Z".into(),
             planned_at: "2026-11-25T10:00:00Z".into(),
+            author: "atlantis-acme".into(),
         }
     }
 
@@ -845,40 +877,41 @@ mod tests {
         let due = cache.due("Me", &pulls);
         assert_eq!(due.len(), MAX_PLAN_FETCH);
         // #1 is read; reading #2 failed.
+        assert_eq!(due[0].author, "atlantis-acme");
         cache.record(
             "me",
-            &due[0].0,
+            &due[0].url,
             "t1",
-            &due[0].2,
+            &due[0].planned_at,
             Some(Some(detail.clone())),
             10,
         );
-        cache.record("me", &due[1].0, "t1", &due[1].2, None, 10);
+        cache.record("me", &due[1].url, "t1", &due[1].planned_at, None, 10);
         let run = "2026-11-25T10:00:00Z";
         assert_eq!(cache.detail("ME", &pulls[0].url, run), Some(&detail));
         assert_eq!(cache.detail("me", &pulls[0].url, "another run"), None);
         // #3 was never tried: it goes before #2, which failed.
-        let due: Vec<_> = cache
-            .due("me", &pulls)
-            .into_iter()
-            .map(|(u, _, _)| u)
-            .collect();
+        let due: Vec<_> = cache.due("me", &pulls).into_iter().map(|d| d.url).collect();
         assert_eq!(due, [pulls[2].url.clone(), pulls[1].url.clone()]);
         // Once #3 is read, #2 comes first, and alone.
         cache.record("me", &pulls[2].url, "t1", run, Some(None), 15);
-        let due: Vec<_> = cache
-            .due("me", &pulls)
-            .into_iter()
-            .map(|(u, _, _)| u)
-            .collect();
+        let due: Vec<_> = cache.due("me", &pulls).into_iter().map(|d| d.url).collect();
         assert_eq!(due, [pulls[1].url.clone()]);
+        // Too long for any answer: after a few failures in a row it waits
+        // for the pull request to change.
+        cache.record("me", &pulls[1].url, "t1", run, None, 16);
+        cache.record("me", &pulls[1].url, "t1", run, None, 17);
+        assert!(!cache
+            .due("me", &pulls)
+            .iter()
+            .any(|d| d.url == pulls[1].url));
         // A change brings #1 back; a window without the plan keeps what was
         // known for the same run, not for another.
         pulls[0].updated_at = "t2".into();
         assert!(cache
             .due("me", &pulls)
             .iter()
-            .any(|(u, _, _)| *u == pulls[0].url));
+            .any(|d| d.url == pulls[0].url));
         cache.record("me", &pulls[0].url, "t2", run, Some(None), 20);
         assert_eq!(cache.detail("me", &pulls[0].url, run), Some(&detail));
         cache.record("me", &pulls[0].url, "t3", "a new run", Some(None), 30);
@@ -913,18 +946,19 @@ mod tests {
             "query($u0: URI!, $u1: URI!) { p0: resource(url: $u0) { ... on PullRequest { comments(last: 8) { nodes { body url createdAt author { login __typename } } } } } p1: resource(url: $u1) { ... on PullRequest { comments(last: 8) { nodes { body url createdAt author { login __typename } } } } } }"
         );
         let text = "Ran Plan for dir: `a` workspace: `default`\n```\n  # aws_s3_bucket.logs will be destroyed\n```";
-        let bot = json!({"login": "acme-ops[bot]", "__typename": "Bot"});
-        let named = json!({"login": "atlantis-runner", "__typename": "User"});
-        let person = json!({"login": "someone", "__typename": "User"});
+        let atlantis = json!({"login": "Atlantis-Acme[bot]", "__typename": "Bot"});
+        let other_app = json!({"login": "renovate[bot]", "__typename": "Bot"});
+        let lookalike = json!({"login": "not-atlantis", "__typename": "User"});
         let response = json!({"data": {
-            "p0": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/1#c1", "createdAt": "2026-11-25T10:00:00Z", "author": bot}]}},
+            "p0": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/1#c1", "createdAt": "2026-11-25T10:00:00Z", "author": atlantis}]}},
             "p1": null,
-            "p2": {"comments": {"nodes": [{"body": "lgtm", "url": "https://github.com/o/r/pull/2#c1", "author": person}]}},
-            // A person's comment that looks like Atlantis's is not Atlantis.
-            "p3": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/3#c1", "author": person}]}},
-            "p4": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/4#c1", "author": named}]}}
+            "p2": {"comments": {"nodes": [{"body": "lgtm", "url": "https://github.com/o/r/pull/2#c1", "author": atlantis}]}},
+            // Only the account that wrote the plan's status is Atlantis.
+            "p3": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/3#c1", "author": other_app}]}},
+            "p4": {"comments": {"nodes": [{"body": text, "url": "https://github.com/o/r/pull/4#c1", "author": lookalike}]}}
         }});
-        let read = parse_plans(&response.to_string(), 5).unwrap();
+        let authors = ["atlantis-acme[bot]"; 5];
+        let read = parse_plans(&response.to_string(), &authors).unwrap();
         let plan = read[0].as_ref().unwrap().plan.as_ref().unwrap();
         assert_eq!(
             (plan.url.as_str(), plan.created_at.as_str()),
@@ -935,8 +969,10 @@ mod tests {
             (read[1].as_ref(), read[2].as_ref(), read[3].as_ref()),
             (None, None, None)
         );
-        assert!(read[4].is_some(), "an account named for Atlantis");
-        assert_eq!(parse_plans("{\"errors\":[]}", 1), None);
+        assert!(read[4].is_none());
+        // Without the status's author, nothing is taken for Atlantis's.
+        assert_eq!(parse_plans(&response.to_string(), &[""]), Some(vec![None]));
+        assert_eq!(parse_plans("{\"errors\":[]}", &["a"]), None);
     }
 
     #[test]

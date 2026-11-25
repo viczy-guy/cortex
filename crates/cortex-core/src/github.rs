@@ -152,16 +152,16 @@ pub const QUERY: &str = r#"query {
   mine: search(query: "is:open is:pr author:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt headRefName repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt } } } } } } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
   }
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt } } } } } } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
   }
   merged: search(query: "is:pr is:merged author:@me archived:false sort:updated-desc", type: ISSUE, first: 5) {
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { status { contexts { context state description createdAt } } } } } } }
+      commits(last: 1) { nodes { commit { status { contexts { context state description createdAt creator { login } } } } } } } }
   }
 }"#;
 
@@ -310,7 +310,20 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
                 updated_at: updated_at.into(),
                 plan: n
                     .pointer("/commits/nodes/0/commit/status/contexts")
-                    .and_then(crate::atlantis::from_statuses),
+                    .and_then(crate::atlantis::from_statuses)
+                    .map(|mut plan| {
+                        // GitHub Actions report through check suites, not statuses.
+                        let suites = n.pointer("/commits/nodes/0/commit/checkSuites/nodes");
+                        plan.checks_failed |= suites.and_then(Value::as_array).is_some_and(|all| {
+                            all.iter().any(|s| {
+                                matches!(
+                                    s["conclusion"].as_str(),
+                                    Some("FAILURE" | "TIMED_OUT" | "STARTUP_FAILURE")
+                                )
+                            })
+                        });
+                        plan
+                    }),
                 head: n["headRefName"]
                     .as_str()
                     .filter(|h| h.chars().count() <= 255)
