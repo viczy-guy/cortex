@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- **English and Portuguese.** Cortex speaks Portuguese when your system does,
+  and English otherwise; Settings → General → Language picks one for good.
+  Every window changes at once, the menu-bar item too, and the Windows
+  setup (`.exe`) follows the system's language. (#154)
+
 ## [0.8.0] - 2026-11-25
 
 ### Added
@@ -21,10 +27,6 @@ follows [Semantic Versioning](https://semver.org).
   plans still running, or waiting on another pull request's lock, show in
   gray without a sound. Production is a `production`, `prod`, `prd`,
   `infraestructure` or `network` folder right before the region. (#161)
-- **English and Portuguese.** Cortex speaks Portuguese when your system does,
-  and English otherwise; Settings → General → Language picks one for good.
-  Every window changes at once, the menu-bar item too, and the Windows
-  setup (`.exe`) follows the system's language. (#154)
 
 ## [0.7.0] - 2026-11-25
 
