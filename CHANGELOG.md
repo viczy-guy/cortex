@@ -6,16 +6,7 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-11-25
-
 ### Added
-- **While you were away.** Nothing rings or speaks while nobody is looking:
-  the screen locked, ten minutes without the mouse or the keyboard, or the
-  computer asleep. Coming back, if something came meanwhile, the island turns
-  light pink with a summary (one count per color) and plays a soft sound
-  once; it stays until **See all** (the list of notices) or **Dismiss**. A
-  card waiting for an answer comes first. Opening Cortex does the same for
-  the GitHub notices that came while it was closed. (#157)
 - **Atlantis plans on the island.** For your pull requests and the ones that
   ask for your review, the island follows each Atlantis plan to its apply:
   red when a plan destroys or replaces something (in place of "A PR has
@@ -28,6 +19,17 @@ follows [Semantic Versioning](https://semver.org).
   plans still running, or waiting on another pull request's lock, show in
   gray without a sound. Production is a `production`, `prod`, `prd`,
   `infraestructure` or `network` folder right before the region. (#161)
+
+## [0.7.0] - 2026-11-25
+
+### Added
+- **While you were away.** Nothing rings or speaks while nobody is looking:
+  the screen locked, ten minutes without the mouse or the keyboard, or the
+  computer asleep. Coming back, if something came meanwhile, the island turns
+  light pink with a summary (one count per color) and plays a soft sound
+  once; it stays until **See all** (the list of notices) or **Dismiss**. A
+  card waiting for an answer comes first. Opening Cortex does the same for
+  the GitHub notices that came while it was closed. (#157)
 
 ## [0.6.0] - 2026-11-24
 
