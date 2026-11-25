@@ -5,8 +5,9 @@
  */
 
 import { button, el } from "../shared/dom";
-import type { GithubNotice, SessionView } from "../shared/ipc";
+import type { GithubNotice, Plan, SessionView } from "../shared/ipc";
 import { sessionKey, type Tone } from "./notch";
+import { planCard, planChips, type PlanRun, planSay } from "./plans";
 
 export interface ViewNotice {
   key: string;
@@ -18,10 +19,19 @@ export interface ViewNotice {
   url?: string;
   /** A phrase around a title: only the title gives way when space runs out. */
   around?: { before: string; title: string; after: string };
+  /** An Atlantis run: its line opens a summary instead of GitHub (#161). */
+  plan?: Plan;
+  /** "#331 · Short title", heading that summary. */
+  pr?: string;
 }
 
 const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: GithubNotice) => string }> = {
-  critical: { tone: "red", say: () => "A PR has critical changes, review it!" },
+  // Atlantis (#161): red when something goes or fails, green when it only adds or changes.
+  plan_destroys: { tone: "red", say: (n) => planSay(n.kind, n.plan) },
+  plan_failed: { tone: "red", say: (n) => planSay(n.kind, n.plan) },
+  apply_failed: { tone: "red", say: (n) => planSay(n.kind, n.plan) },
+  plan_ready: { tone: "green", say: (n) => planSay(n.kind, n.plan) },
+  applied: { tone: "green", say: (n) => planSay(n.kind, n.plan) },
   failed: { tone: "red", say: () => "A PR failed!" },
   action: { tone: "red", say: () => "An action failed!" },
   review: { tone: "blue", say: () => "A PR needs your review" },
@@ -32,7 +42,8 @@ const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: 
 
 export function githubNotice(notice: GithubNotice): ViewNotice {
   const { tone, say } = GITHUB[notice.kind];
-  const view: ViewNotice = { key: `github:${notice.key}`, tone, say: say(notice), detail: notice.detail, url: notice.url };
+  const view: ViewNotice = { key: `github:${notice.key}`, tone, say: say(notice), detail: notice.detail, url: notice.url, plan: notice.plan };
+  if (notice.number > 0) view.pr = notice.title ? `#${notice.number} · ${notice.title}` : `#${notice.number}`;
   if (notice.kind === "approved") {
     view.around = { before: `Your PR #${notice.number} (`, title: notice.title, after: ") was approved!" };
   }
@@ -103,22 +114,56 @@ export function sayLine(notice: ViewNotice, more: number): HTMLElement[] {
   return more > 0 ? [text, el("span", "more", `+${more}`)] : [text];
 }
 
+export interface RowActions {
+  /** A click on a plain notice: that one goes, and GitHub's open. */
+  act: (notice: ViewNotice) => void;
+  clearAll: () => void;
+  /** The notice whose plan summary is open. */
+  open: string | null;
+  toggle: (notice: ViewNotice) => void;
+  /** A link of a summary or a run: the notice, if any, goes too. */
+  follow: (notice: ViewNotice | null, url: string) => void;
+}
+
 /**
- * One row per notice, the most urgent first; a click acts on that one only.
- * With two or more, "Clear all" on top: in sight on a long list, and never
- * sliding under the pointer as rows go.
+ * One row per notice, the most urgent first; a click acts on that one only,
+ * or opens its plan's summary below it (#161). With two or more, "Clear all"
+ * on top: in sight on a long list, and never sliding under the pointer as
+ * rows go. Atlantis runs still going come last, in gray.
  */
-export function noticeRows(notices: ViewNotice[], act: (notice: ViewNotice) => void, clearAll: () => void): HTMLElement {
+export function noticeRows(notices: ViewNotice[], runs: PlanRun[], actions: RowActions): HTMLElement {
   const list = el("div", "notice-rows");
-  if (notices.length > 1) list.append(button("btn-neutral btn-clear", "Clear all", clearAll));
+  if (notices.length > 1) list.append(button("btn-neutral btn-clear", "Clear all", actions.clearAll));
   for (const notice of notices) {
     const row = el("button", "notice-row");
     row.type = "button";
-    row.title = notice.url ? `${notice.say} · open on GitHub` : notice.say;
+    const plan = notice.plan;
+    const open = plan !== undefined && actions.open === notice.key;
+    row.title = plan ? `${notice.say} · ${open ? "hide" : "show"} the plan` : notice.url ? `${notice.say} · open on GitHub` : notice.say;
     row.append(el("span", `notice-dot tone-${notice.tone}`), phrase(notice), el("small", undefined, notice.detail));
+    if (plan) {
+      row.setAttribute("aria-expanded", String(open));
+      row.append(planChips(plan));
+    }
     row.addEventListener("click", (event) => {
       event.stopPropagation();
-      act(notice);
+      if (plan) actions.toggle(notice);
+      else actions.act(notice);
+    });
+    list.append(row);
+    if (plan && open && notice.url) {
+      const url = notice.url;
+      list.append(planCard(plan, notice.pr ?? notice.detail, (link) => actions.follow(notice, link), url));
+    }
+  }
+  for (const run of runs) {
+    const row = el("button", "notice-row notice-row--run");
+    row.type = "button";
+    row.title = `${run.say} · open on GitHub`;
+    row.append(el("span", `notice-dot run-dot${run.going ? " run-dot--going" : ""}`), el("b", undefined, run.say), el("small", undefined, run.detail));
+    row.addEventListener("click", (event) => {
+      event.stopPropagation();
+      actions.follow(null, run.url);
     });
     list.append(row);
   }

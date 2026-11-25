@@ -40,6 +40,7 @@ import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone,
 import { livelyMascot, onGaze, poke, react, setBusy, setLively } from "./lively";
 import { agentNotice, awayLine, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
+import { planRuns } from "./plans";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
 const MAX_HEIGHT = 440;
@@ -118,6 +119,14 @@ let cardWhileAway = false;
 let revealed = false;
 /** The notch was drawn once since nobody is looking; it then waits as it is. */
 let awayDrawn = false;
+/**
+ * The plan summary open in the list (#161): the most urgent one until the
+ * user picks another (or none), for as long as the list stays open.
+ */
+let planOpen: string | null = null;
+let planPicked = false;
+/** The summary open in the list as last drawn. */
+let planShown: string | null = null;
 
 /**
  * No card demanding eyes and nobody looking: the island folds into the
@@ -325,6 +334,23 @@ function clearAll(): void {
   render();
 }
 
+/** A click on a plan's line: its summary opens below it, or closes (#161). */
+function togglePlan(notice: ViewNotice): void {
+  planPicked = true;
+  planOpen = planShown === notice.key ? null : notice.key;
+  render();
+}
+
+/** A link of a plan summary or a run: it opens, and its notice, if any, goes. */
+function follow(notice: ViewNotice | null, url: string): void {
+  if (notice) {
+    if (saying?.key === notice.key) stopSaying();
+    seenNotices.add(notice.key);
+  }
+  void api.openUrl(url).catch(() => { /* The notice is cleared either way. */ });
+  render();
+}
+
 /** A click on one notice in the list: that one goes, and GitHub's open. */
 function actOn(notice: ViewNotice): void {
   if (saying?.key === notice.key) stopSaying();
@@ -415,6 +441,9 @@ function render(): void {
   if (isHidden()) {
     expanded = false;
     autoExpanded = false;
+    // A list opened again starts on its most urgent plan.
+    planPicked = false;
+    planOpen = null;
     // The phrase's seconds count from when it is drawn.
     if (saying && sayTimer === undefined) {
       sayTimer = window.setTimeout(() => {
@@ -711,9 +740,15 @@ function panelContent(): HTMLElement[] {
   }
   const question = askingUpdates(updates) ? [updatesQuestion((enabled) => void answerUpdates(enabled), updatesError)] : [];
   if (!expanded) {
-    // Hovering lists what is standing, the most urgent first (#131).
-    const notices = hovered && snapshot.approvals.length === 0 ? activeNotices() : [];
-    return notices.length > 0 ? [...question, noticeRows(notices, actOn, clearAll)] : question;
+    // Hovering lists what is standing, the most urgent first (#131), then
+    // the Atlantis runs still going (#161).
+    const listing = hovered && snapshot.approvals.length === 0;
+    const notices = listing ? activeNotices() : [];
+    const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
+    const runs = listing ? planRuns(accounts.flatMap(({ summary }) => [...summary.mine, ...summary.review_requests])) : [];
+    planShown = planPicked ? planOpen : (notices.find((n) => n.plan)?.key ?? null);
+    if (notices.length + runs.length === 0) return question;
+    return [...question, noticeRows(notices, runs, { act: actOn, clearAll, open: planShown, toggle: togglePlan, follow })];
   }
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];

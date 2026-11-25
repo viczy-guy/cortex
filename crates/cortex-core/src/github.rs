@@ -152,12 +152,16 @@ pub const QUERY: &str = r#"query {
   mine: search(query: "is:open is:pr author:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt headRefName repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt } } } } } } }
   }
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt } } } } } } }
+  }
+  merged: search(query: "is:pr is:merged author:@me archived:false sort:updated-desc", type: ISSUE, first: 5) {
+    nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
+      commits(last: 1) { nodes { commit { status { contexts { context state description createdAt } } } } } } }
   }
 }"#;
 
@@ -190,9 +194,9 @@ pub struct PullRequest {
     /// Changes with every push and comment: when unchanged, its plan is too.
     #[serde(skip)]
     pub updated_at: String,
-    /// What its latest Atlantis plan destroys; filled in by the shell (#131).
-    #[serde(skip)]
-    pub destroy: u32,
+    /// Its latest Atlantis run, from the statuses; the shell adds the
+    /// detail of the plan comment (#161).
+    pub plan: Option<crate::atlantis::Plan>,
     /// Its branch: a failed run there is this pull request failing.
     #[serde(skip)]
     pub head: String,
@@ -205,6 +209,10 @@ pub struct GithubSummary {
     pub review_requests: Vec<PullRequest>,
     pub review_requests_total: u32,
     pub fetched_at_ms: u64,
+    /// The user's last merged pull requests: an Atlantis apply merges its
+    /// pull request at once, and is news a little longer (#161).
+    #[serde(skip)]
+    pub merged: Vec<PullRequest>,
     /// Failed actions the user started; filled in by the shell (#131).
     #[serde(skip)]
     pub failed_runs: Vec<crate::notices::FailedRun>,
@@ -219,13 +227,21 @@ impl GithubSummary {
             .filter(|p| p.checks == Checks::Failing)
             .count()
     }
-    /// Whether the URL is one of the links in this summary.
+    /// Whether the URL is one of the links in this summary, a plan
+    /// comment's included.
     pub fn has_url(&self, url: &str) -> bool {
+        let comment = |plan: Option<&crate::atlantis::Plan>| {
+            plan.and_then(|p| p.comment_url.as_deref()) == Some(url)
+        };
         self.mine
             .iter()
             .chain(&self.review_requests)
-            .any(|p| p.url == url)
-            || self.notices.iter().any(|n| n.url == url)
+            .chain(&self.merged)
+            .any(|p| p.url == url || comment(p.plan.as_ref()))
+            || self
+                .notices
+                .iter()
+                .any(|n| n.url == url || comment(n.plan.as_ref()))
     }
 }
 fn count(v: &Value) -> u32 {
@@ -291,7 +307,9 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
                 checks,
                 review,
                 updated_at: updated_at.into(),
-                destroy: 0,
+                plan: n
+                    .pointer("/commits/nodes/0/commit/status/contexts")
+                    .and_then(crate::atlantis::from_statuses),
                 head: n["headRefName"]
                     .as_str()
                     .filter(|h| h.chars().count() <= 255)
@@ -320,6 +338,12 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
         review_requests: pulls(reviews),
         review_requests_total: count(reviews),
         fetched_at_ms: now_ms,
+        // Optional: an answer without it still counts.
+        merged: d
+            .get("merged")
+            .filter(|v| v.is_object())
+            .map(pulls)
+            .unwrap_or_default(),
         failed_runs: Vec::new(),
         notices: Vec::new(),
     })
@@ -482,6 +506,30 @@ mod tests {
         assert_eq!(s.failing(), 1);
         assert!(s.has_url(&p.url));
         assert!(!s.has_url("https://github.com/other"));
+    }
+    #[test]
+    fn atlantis_statuses_make_a_plan_and_merged_pull_requests_are_read() {
+        let mut n = node();
+        n["commits"]["nodes"][0]["commit"]["status"] = json!({"contexts": [
+            {"context": "atlantis/plan", "state": "SUCCESS", "description": "1/1 projects planned successfully.", "createdAt": "2026-11-25T10:00:00Z"},
+            {"context": "atlantis/plan: a", "state": "SUCCESS", "description": "Plan: 0 to add, 0 to change, 2 to destroy.", "createdAt": "2026-11-25T10:00:00Z"},
+        ]});
+        let mut v = response(vec![n, node()]);
+        v["data"]["merged"] = json!({"nodes": [node()]});
+        let s = parse_summary(&v.to_string(), 0).unwrap();
+        let plan = s.mine[0].plan.as_ref().unwrap();
+        assert_eq!(
+            (plan.stage, plan.destroy),
+            (crate::atlantis::Stage::Planned, 2)
+        );
+        assert!(s.mine[1].plan.is_none());
+        assert_eq!(s.merged.len(), 1);
+        assert!(s.has_url(&s.merged[0].url));
+        let mut with_comment = s.clone();
+        with_comment.mine[0].plan.as_mut().unwrap().comment_url =
+            Some("https://github.com/o/r/pull/42#c1".into());
+        assert!(with_comment.has_url("https://github.com/o/r/pull/42#c1"));
+        assert!(!s.has_url("https://github.com/o/r/pull/42#c1"));
     }
     #[test]
     fn an_empty_response_has_no_pulls() {

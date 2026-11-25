@@ -5,6 +5,7 @@
 //! unit-testable.
 
 pub mod approval;
+pub mod atlantis;
 pub mod autostart;
 pub mod away;
 pub mod diff;

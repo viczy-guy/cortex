@@ -770,6 +770,94 @@ body {
   flex: none;
 }
 
+/* ---- Atlantis plans (#161): a summary under a notice's line ------------ */
+
+.notice-row[aria-expanded="true"] { background: var(--btn-neutral-bg); }
+.notice-row--run { color: var(--text-dim); }
+.notice-row--run b { font-weight: 500; }
+.run-dot { background: var(--state-idle); }
+.run-dot--going { animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .run-dot--going { animation: none; }
+}
+
+.plan-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.plan-chips--mini { flex: none; flex-wrap: nowrap; gap: 4px; margin-left: 8px; }
+.plan-chip {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--btn-neutral-bg);
+  color: var(--text-faint);
+  font: 700 11px var(--font-mono);
+}
+.plan-chip--add.on { background: var(--plan-add-bg); color: var(--plan-add); }
+.plan-chip--change.on { background: var(--plan-change-bg); color: var(--plan-change); }
+.plan-chip--replace.on { background: var(--plan-replace-bg); color: var(--plan-replace); }
+.plan-chip--destroy.on { background: var(--plan-destroy-bg); color: var(--plan-destroy); }
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  font-size: 12px;
+}
+.plan-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.plan-where span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.plan-env {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--btn-neutral-bg);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.plan-env--prod { background: var(--plan-destroy-bg); color: var(--plan-destroy); }
+.plan-sum { color: var(--text); font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.plan-alert {
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--plan-change-bg);
+  color: var(--plan-change);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.plan-alert--hot { background: var(--plan-destroy-bg); color: var(--plan-destroy); }
+.plan-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font: 11.5px/1.35 var(--font-mono);
+}
+.plan-groups li { display: flex; align-items: baseline; gap: 7px; min-width: 0; color: var(--text); }
+.plan-groups .plan-project { margin-top: 4px; color: var(--text-dim); font: 11px var(--font); }
+.plan-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-op { flex: none; width: 12px; font-weight: 700; }
+.plan-op--add { color: var(--plan-add); }
+.plan-op--change { color: var(--plan-change); }
+.plan-op--replace { color: var(--plan-replace); }
+.plan-op--destroy { color: var(--plan-destroy); }
+.plan-actions { display: flex; gap: 6px; }
+.plan-actions .btn { padding: 3px 10px; font-size: 11px; }
+
 /* Beside the camera: chips sit on a row of their own under it. */
 .chip-row {
   display: flex;
