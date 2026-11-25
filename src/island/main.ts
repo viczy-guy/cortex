@@ -287,7 +287,7 @@ function showsSummary(): boolean {
 function ringSummary(): void {
   if (playSound("pink")) return;
   window.setTimeout(() => {
-    if (sound && awaySummary.size > 0) playSound("pink");
+    if (sound && !away && !saying && showsSummary() && isHidden()) playSound("pink");
   }, 2500);
 }
 
@@ -375,7 +375,7 @@ function othersStanding(): number {
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
   const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
-  const pink = saying ? "" : summaryNow.map((n) => n.tone).join();
+  const pink = !saying && showsSummary() ? summaryNow.map((n) => n.tone).join() : "";
   return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}`;
 }
 
@@ -862,6 +862,24 @@ async function installUpdate(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  let awayChanged = false;
+  await listen<boolean>(AWAY_EVENT, ({ payload }) => {
+    awayChanged = true;
+    away = payload;
+    if (away) {
+      // The notch is drawn once more without the phrase, then waits.
+      stopSaying();
+      awayDrawn = false;
+    } else if (cardWhileAway) {
+      cardWhileAway = false;
+      // Back with an agent waiting: its card comes first, and rings once (#157).
+      if (snapshot.approvals.length > 0 && soundReady && sound) playSound("amber");
+    }
+    render();
+  });
+  // Before any notice is heard: one that comes while nobody looks is kept (#157).
+  const awayAtLaunch = await api.awayNow().catch(() => false);
+  if (!awayChanged) away = awayAtLaunch;
   // The island starts hidden (index.html) and appears once this launch's
   // opening screen goes (#152); the event can come before the answer. Never
   // hidden past 12 s, whatever that screen does.
@@ -909,19 +927,6 @@ async function start(): Promise<void> {
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
   await listen<Gaze>(GAZE_EVENT, ({ payload }) => onGaze(payload));
-  let awayChanged = false;
-  await listen<boolean>(AWAY_EVENT, ({ payload }) => {
-    awayChanged = true;
-    away = payload;
-    if (away) {
-      stopSaying();
-    } else if (cardWhileAway) {
-      cardWhileAway = false;
-      // Back with an agent waiting: its card comes first, and rings once (#157).
-      if (snapshot.approvals.length > 0 && soundReady && sound) playSound("amber");
-    }
-    render();
-  });
   await listen(OUTSIDE_CLICK_EVENT, foldAway);
   // Windows / Linux: the island only learns of an outside click if it had focus.
   window.addEventListener("blur", foldAway);
@@ -933,7 +938,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ }), api.awayNow().then((value) => { if (!awayChanged) away = value; }).catch(() => { /* Somebody is looking until told otherwise. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

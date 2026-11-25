@@ -7,15 +7,15 @@ use cortex_core::{
         CLI_URL, DEVICE_URL, MAX_ACCOUNTS, POLL_SECS, POLL_SLOW_SECS, QUERY,
     },
     notices::{
-        keys_to_keep, known_from_json, known_to_json, notices, notifications_path,
-        parse_failed_runs, parse_plans, plan_query, split_poll_interval, FailedRun, LastRun,
+        known_from_json, known_to_json, notices, notifications_path, parse_failed_runs,
+        parse_plans, plan_query, remember, split_poll_interval, FailedRun, Known, LastRun,
         PlanCache, MAX_KNOWN_BYTES,
     },
     GithubSummary,
 };
 use serde::Serialize;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -928,7 +928,7 @@ pub fn github_cancel_task(app: AppHandle, state: State<'_, GithubState>) -> Resu
 const KNOWN_FILE: &str = "github-notices.json";
 
 /// The notice keys the last run saw; `None` without a readable file.
-fn load_known() -> Option<BTreeSet<String>> {
+fn load_known() -> Option<Known> {
     let path = crate::hooks::data_dir().ok()?.join(KNOWN_FILE);
     match crate::files::read_bounded(&path, MAX_KNOWN_BYTES) {
         Ok(Some(text)) => known_from_json(&text),
@@ -936,7 +936,7 @@ fn load_known() -> Option<BTreeSet<String>> {
     }
 }
 
-fn save_known(keys: &BTreeSet<String>) -> Result<(), String> {
+fn save_known(keys: &Known) -> Result<(), String> {
     crate::files::write_private(
         &crate::hooks::data_dir()?.join(KNOWN_FILE),
         known_to_json(keys).as_bytes(),
@@ -951,7 +951,7 @@ pub async fn poller(app: AppHandle) {
     // (turning GitHub on, showing an account), which is no coming back.
     let launch_revision = state.lock().revision;
     let loaded = if state.enabled() { load_known() } else { None };
-    let mut saved = loaded.clone();
+    let mut saved = loaded.clone().unwrap_or_default();
     let mut last_run = LastRun::new(loaded);
     loop {
         let request = {
@@ -1016,13 +1016,16 @@ pub async fn poller(app: AppHandle) {
                         if status.state == "error" {
                             status.message = Some("GitHub requests failed".into());
                         }
-                        seen_now = keys_to_keep(
+                        let mut known = saved.clone();
+                        remember(
+                            &mut known,
                             status
                                 .accounts
                                 .iter()
-                                .filter(|a| a.shown && a.state != "signed_out")
-                                .map(|a| a.summary.as_ref()),
+                                .filter(|a| a.shown)
+                                .filter_map(|a| Some((a.login.as_str(), a.summary.as_ref()?))),
                         );
+                        seen_now = Some(known);
                     }
                     Ok(PollResult::Missing(installer)) => {
                         status.state = "no_gh";
@@ -1045,10 +1048,10 @@ pub async fn poller(app: AppHandle) {
             state.wake.notified().await;
             continue;
         }
-        if let Some(keys) = seen_now.filter(|keys| saved.as_ref() != Some(keys)) {
-            let write = keys.clone();
+        if let Some(known) = seen_now.filter(|known| *known != saved) {
+            let write = known.clone();
             match tauri::async_runtime::spawn_blocking(move || save_known(&write)).await {
-                Ok(Ok(())) => saved = Some(keys),
+                Ok(Ok(())) => saved = known,
                 Ok(Err(err)) => {
                     eprintln!("cortex: GitHub notices not kept for the next launch: {err}")
                 }

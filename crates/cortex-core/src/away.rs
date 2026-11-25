@@ -54,12 +54,13 @@ impl Presence {
         if woke {
             self.woke_ms = Some(now_ms);
         }
-        // An answer asked for before the wake does not count; a clock set
-        // back ends the wait rather than stretching it.
+        // Only an answer asked for since the wake counts (one stamped later
+        // than now was asked before the clock went back); a clock set back
+        // also ends the wait rather than stretching it.
         let waiting = self.woke_ms.is_some_and(|at| {
             now_ms >= at
                 && now_ms - at < WAKE_WAIT_SECS * 1000
-                && github.is_some_and(|asked| asked < at)
+                && github.is_some_and(|asked| asked < at || asked > now_ms)
         });
         if !waiting {
             self.woke_ms = None;
@@ -155,6 +156,22 @@ mod tests {
             p.tick(late + 2 * S, system(false, 0), Some(0)).changed,
             Some(false)
         );
+    }
+
+    #[test]
+    fn an_answer_stamped_before_the_clock_went_back_does_not_count() {
+        let mut p = Presence::default();
+        p.tick(10 * 3600 * S, system(false, 0), Some(10 * 3600 * S));
+        // The clock goes back two hours; GitHub fails from then on.
+        p.tick(8 * 3600 * S, system(false, 0), Some(10 * 3600 * S));
+        let wake = 9 * 3600 * S;
+        assert!(p.tick(wake, system(false, 0), Some(10 * 3600 * S)).woke);
+        assert_eq!(
+            p.tick(wake + 2 * S, system(false, 0), Some(10 * 3600 * S))
+                .changed,
+            None
+        );
+        assert!(p.away());
     }
 
     #[test]
