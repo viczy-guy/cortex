@@ -41,7 +41,7 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       to its apply: what it adds, changes, replaces and destroys, in one
       sentence and a list, with alerts for data, production and drift; several
       pull requests at once.
-- [ ] **A2g · v0.9.0 — English and Portuguese.** Every text in the app in
+- [x] **A2g · v0.9.0 — English and Portuguese.** Every text in the app in
       both languages, chosen in Settings and following the system by default.
 - [ ] **A3 · v0.10.0 — Updates itself.** A stable version installs with no
       click when nothing is waiting; a test channel before the stable one; new

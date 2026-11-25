@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-25
+
 ### Added
 - **English and Portuguese.** Cortex speaks Portuguese when your system does,
   and English otherwise; Settings → General → Language picks one for good.
