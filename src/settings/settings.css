@@ -66,6 +66,7 @@ h2 {
 .status-dot.tone-blue { background: var(--tone-blue); }
 .status-dot.tone-amber { background: var(--tone-amber); }
 .status-dot.tone-red { background: var(--tone-red); }
+.status-dot.tone-pink { background: var(--tone-pink); }
 
 .overview { gap: 0; padding: 0; overflow: hidden; }
 .overview-row { gap: 10px; padding: 11px 12px; border-top: 1px solid var(--surface-border); }

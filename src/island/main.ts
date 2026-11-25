@@ -9,6 +9,7 @@ import { listen } from "@tauri-apps/api/event";
 import { button, el } from "../shared/dom";
 import {
   api,
+  AWAY_EVENT,
   HOOKS_EVENT,
   GAZE_EVENT,
   type Gaze,
@@ -37,7 +38,7 @@ import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } 
 import { githubCard, shownAccounts } from "./github";
 import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone, type Tone, topTone } from "./notch";
 import { livelyMascot, onGaze, poke, react, setBusy, setLively } from "./lively";
-import { agentNotice, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
+import { agentNotice, awayLine, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
@@ -98,6 +99,23 @@ let sayTimer: number | undefined;
 let tone: Tone = "gray";
 /** The color just rose: the next mascot drawn jumps, once. */
 let bounce = false;
+/**
+ * Nobody is looking (#157): the screen is locked, the mouse and the keyboard
+ * rested ten minutes, or the computer slept. Nothing rings or speaks then.
+ */
+let away = false;
+/** What came while nobody was looking, or while Cortex was closed. */
+const kept = new Map<string, ViewNotice>();
+/** The pink summary of what was kept, until See all or Dismiss (#157). */
+const awaySummary = new Map<string, ViewNotice>();
+/** The summary's soft sound is owed: it rings once, when the summary first shows. */
+let summaryOwed = false;
+/** A card came while nobody was looking: its sound rings once somebody is back. */
+let cardWhileAway = false;
+/** The opening screen went: the island is in sight. */
+let revealed = false;
+/** The notch was drawn once since nobody is looking; it then waits as it is. */
+let awayDrawn = false;
 
 /**
  * No card demanding eyes and nobody looking: the island folds into the
@@ -111,7 +129,8 @@ function isHidden(): boolean {
     onboarding.phase === "closed" &&
     hooksInstalled !== false &&
     !askingUpdates(updates) &&
-    !hovered
+    // The pink summary stays folded under the pointer: its buttons are there.
+    (!hovered || showsSummary())
   );
 }
 
@@ -162,11 +181,18 @@ function freshGithubNotices(): ViewNotice[] {
   for (const login of knownNotices.keys()) {
     if (!accounts.some((a) => a.login === login)) knownNotices.delete(login);
   }
-  for (const { login, summary } of accounts) {
+  for (const { login, summary, new_since_last_run: news } of accounts) {
     const keys = new Set(summary.notices.map((n) => githubNotice(n).key));
     const known = knownNotices.get(login);
     knownNotices.set(login, keys);
-    if (!known) continue;
+    if (!known) {
+      // Not news, except what came while Cortex was closed: that is kept for the summary (#157).
+      for (const notice of summary.notices) {
+        const view = githubNotice(notice);
+        if (news?.includes(notice.key) && !seenNotices.has(view.key)) kept.set(view.key, view);
+      }
+      continue;
+    }
     for (const notice of summary.notices) {
       const view = githubNotice(notice);
       if (!known.has(view.key) && !seenNotices.has(view.key) && !fresh.some((f) => f.key === view.key)) fresh.push(view);
@@ -198,10 +224,12 @@ function updateTone(): void {
   for (const key of previousTones.keys()) if (!live.has(key)) previousTones.delete(key);
   for (const key of previousStates.keys()) if (!live.has(key)) previousStates.delete(key);
   const cards = new Set(snapshot.approvals.map((a) => a.request_id));
-  for (const id of cards) if (!rungCards.has(id)) notice = topTone([notice, "amber"]);
+  const newCard = [...cards].some((id) => !rungCards.has(id));
+  if (newCard) notice = topTone([notice, "amber"]);
   for (const id of rungCards) if (!cards.has(id)) rungCards.delete(id);
   for (const id of cards) rungCards.add(id);
-  if (soundReady && sound && notice !== "gray") playSound(notice);
+  if (away) cardWhileAway ||= newCard;
+  else if (soundReady && sound && notice !== "gray") playSound(notice);
   const fromGithub = freshGithubNotices();
   const next = topTone([
     ...snapshot.sessions.map(toneOf),
@@ -210,8 +238,16 @@ function updateTone(): void {
   ]);
   if (topTone([next, tone]) !== tone && next !== tone) bounce = true;
   tone = next;
+  if (away) {
+    // Nobody is looking (#157): what came waits for the summary, without a sound or a phrase.
+    for (const view of [...spoken, ...fromGithub]) kept.set(view.key, view);
+  } else if (kept.size > 0) {
+    for (const [key, view] of kept) awaySummary.set(key, view);
+    kept.clear();
+    summaryOwed = true;
+  }
   // Only what is as urgent as the island now speaks; GitHub's ring only then.
-  const top = [...spoken, ...fromGithub].sort((a, b) => rank(b.tone) - rank(a.tone))[0];
+  const top = away ? undefined : [...spoken, ...fromGithub].sort((a, b) => rank(b.tone) - rank(a.tone))[0];
   if (soundReady && top && rank(top.tone) >= rank(tone)) {
     if (sound && fromGithub.includes(top)) playSound(top.tone);
     if (!saying || rank(top.tone) >= rank(saying.tone)) {
@@ -221,6 +257,36 @@ function updateTone(): void {
   }
   // A phrase whose notice went, or that a more urgent color now covers, stops.
   if (saying && (rank(saying.tone) < rank(tone) || !activeNotices().some((n) => n.key === saying?.key))) stopSaying();
+}
+
+/** The summary's notices still standing; one clicked away or gone leaves it (#157). */
+function summaryNotices(): ViewNotice[] {
+  if (awaySummary.size === 0) return [];
+  const standing = new Set(activeNotices().map((n) => n.key));
+  for (const key of awaySummary.keys()) if (!standing.has(key)) awaySummary.delete(key);
+  if (awaySummary.size === 0) summaryOwed = false;
+  return [...awaySummary.values()];
+}
+
+/** The island is pink with the summary: a waiting card comes first (#157). */
+function showsSummary(): boolean {
+  return snapshot.approvals.length === 0 && summaryNotices().length > 0;
+}
+
+/** "See all" on the summary: the list opens, each notice in its color, and the pink goes. */
+function seeAll(): void {
+  awaySummary.clear();
+  summaryOwed = false;
+  if (hovered) render();
+  else setHovered(true);
+}
+
+/** "Dismiss" on the summary: everything counts as seen, as a click on the island. */
+function dismissSummary(): void {
+  awaySummary.clear();
+  summaryOwed = false;
+  acknowledge();
+  render();
 }
 
 /** A click on the island: every notice goes back to gray, GitHub's included. */
@@ -287,12 +353,18 @@ function othersStanding(): number {
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
   const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
-  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}`;
+  const pink = saying ? "" : summaryNotices().map((n) => n.tone).join();
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}`;
+}
+
+/** The folded island is pink while the summary stands, unless a phrase speaks over it (#157). */
+function shownTone(open: boolean): Tone | "pink" {
+  return !open && !saying && showsSummary() ? "pink" : tone;
 }
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
 function setClass(open: boolean): void {
-  const name = `island tone-${tone}${open ? " island--open" : ""}${cutout ? " island--cutout" : ""}`;
+  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${cutout ? " island--cutout" : ""}`;
   if (root.className !== name) root.className = name;
   if (root.dataset.position !== position) root.dataset.position = position;
 }
@@ -301,7 +373,11 @@ function setClass(open: boolean): void {
 // Rendering
 
 function reveal(): void {
+  if (revealed) return;
+  revealed = true;
   document.body.classList.remove("waiting");
+  // A summary kept for this moment rings now (#157).
+  if (summaryOwed) queueMicrotask(render);
 }
 
 function render(): void {
@@ -311,7 +387,13 @@ function render(): void {
   dismissed = new Set([...dismissed].filter((id) => pending.has(id)));
   pruneSelections(pending);
   updateTone();
-  setBusy(tone !== "gray" || snapshot.sessions.some((s) => s.state === "working" || s.state === "thinking"));
+  if (summaryOwed && revealed && soundReady && !away && showsSummary()) {
+    // Back, and something came (#157): one soft sound, once, and the mascot jumps.
+    summaryOwed = false;
+    bounce = true;
+    if (sound) playSound("pink");
+  }
+  setBusy(tone !== "gray" || awaySummary.size > 0 || snapshot.sessions.some((s) => s.state === "working" || s.state === "thinking"));
 
   if (isHidden()) {
     expanded = false;
@@ -326,33 +408,46 @@ function render(): void {
     }
     // Same notch: paint nothing. Each paint with the screen locked keeps WebKit
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
+    // Nobody looking, it is drawn once more (a phrase goes) and then waits as
+    // it is until somebody is back (#157).
     const key = foldedKey();
+    if (away && folded !== null && (awayDrawn || folded === key)) {
+      awayDrawn = true;
+      return;
+    }
     if (folded === key) return;
+    awayDrawn = away;
     const before = sizeBefore();
     const fade = folded === null;
     setClass(false);
-    const node = el("div", saying ? "notch notch--say" : "notch");
+    const pink = !saying && showsSummary();
+    const node = el("div", saying || pink ? "notch notch--say" : "notch");
     const left = mascotNode();
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
-    // A new notice says what happened for a few seconds; beside the camera,
-    // on a row of its own under it.
-    const say = saying ? sayLine(saying, othersStanding()) : [];
+    // A new notice says what happened for a few seconds, and the pink summary
+    // stays until a click (#157); beside the camera, on a row under it.
+    const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNotices(), seeAll, dismissSummary) : [];
     let top: HTMLElement = node;
     if (cutout) {
       splitAtCamera(node, [left], right);
-      if (saying) {
+      if (saying || pink) {
         top = el("div");
         const below = el("div", "say-row");
         below.append(...say);
         top.append(node, below);
       }
     } else {
-      node.append(left, ...(saying ? say : right));
+      node.append(left, ...(saying || pink ? say : right));
     }
     top.addEventListener("click", (event) => {
-      acknowledge();
       pokeUnlessButton(event);
+      // On the summary, a click shows the list rather than clearing it.
+      if (pink) {
+        seeAll();
+        return;
+      }
+      acknowledge();
       setHovered(true);
     });
     folded = foldedKey();
@@ -408,7 +503,8 @@ function mascotNode(): Element {
   const node: Element = svg ?? el("span", "brand-dot");
   if (bounce) {
     bounce = false;
-    if (svg && tone !== "gray") react(tone);
+    const shown = shownTone(!isHidden());
+    if (svg && shown !== "gray") react(shown);
     else node.classList.add("bounce");
   }
   return node;
@@ -790,6 +886,17 @@ async function start(): Promise<void> {
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
   await listen<Gaze>(GAZE_EVENT, ({ payload }) => onGaze(payload));
+  await listen<boolean>(AWAY_EVENT, ({ payload }) => {
+    away = payload;
+    if (away) {
+      stopSaying();
+    } else if (cardWhileAway) {
+      cardWhileAway = false;
+      // Back with an agent waiting: its card comes first, and rings once (#157).
+      if (snapshot.approvals.length > 0 && soundReady && sound) playSound("amber");
+    }
+    render();
+  });
   await listen(OUTSIDE_CLICK_EVENT, foldAway);
   // Windows / Linux: the island only learns of an outside click if it had focus.
   window.addEventListener("blur", foldAway);
@@ -805,6 +912,8 @@ async function start(): Promise<void> {
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;
+  // What came while Cortex was closed may be in already (#157).
+  if (summaryOwed) render();
 }
 
 void start();

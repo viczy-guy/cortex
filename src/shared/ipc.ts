@@ -182,6 +182,8 @@ export interface UpdateStatus {
 
 export const UPDATES_EVENT = "cortex://updates";
 export const OPENING_CLOSED_EVENT = "cortex://opening-closed";
+/** Nobody is looking (`true`: locked, idle ten minutes, asleep) or somebody is back (#157). */
+export const AWAY_EVENT = "cortex://away";
 
 export const api = {
   updatesStatus: () => invoke<UpdateStatus>("updates_status"),
@@ -271,6 +273,8 @@ export interface AccountStatus {
   state: "ok" | "error" | "signed_out" | "hidden";
   message: string | null;
   summary: GithubSummary | null;
+  /** On the first answer after launch only: the notices that came while Cortex was closed (#157). */
+  new_since_last_run?: string[];
 }
 export type GithubTask =
   | { kind: "idle" }

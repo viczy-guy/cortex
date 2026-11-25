@@ -507,6 +507,7 @@ const TONES = [
   ["blue", "Review", "Someone asks for your review or approves your pull request."],
   ["amber", "Needs you", "An agent waits for you."],
   ["red", "Failed", "Something failed: an agent, a pull request or an action."],
+  ["pink", "While you were away", "What came while the screen was locked, the computer slept, Cortex was closed or nobody touched it for ten minutes. It stays until See all or Dismiss."],
 ] as const;
 colorsBlock.append(el("div", "note", "The mascot and the island's border take the color of what needs you."));
 for (const [tone, name, text] of TONES) {

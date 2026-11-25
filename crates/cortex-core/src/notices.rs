@@ -6,7 +6,7 @@ use crate::github::{Checks, GithubSummary, PullRequest, Review};
 use crate::session::truncate;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Pull requests whose comments are read per poll; the others wait for the
 /// next. Two keeps the answer (5 comments of up to 64 KiB each, JSON-escaped)
@@ -162,6 +162,41 @@ fn short_title(title: &str) -> String {
     }
     let cut: String = title.chars().take(MAX_TITLE_CHARS - 1).collect();
     format!("{}…", cut.trim_end())
+}
+
+/// Notice keys kept between launches, so what came while Cortex was closed is
+/// news (#157): at most this many, each at most this long.
+pub const MAX_KNOWN: usize = 1000;
+const MAX_KNOWN_KEY: usize = 512;
+
+/// The keys of `notices` that were not there when Cortex last ran.
+pub fn new_since(last_run: &BTreeSet<String>, notices: &[Notice]) -> Vec<String> {
+    notices
+        .iter()
+        .filter(|n| !last_run.contains(&n.key))
+        .map(|n| n.key.clone())
+        .collect()
+}
+
+/// The keys the last run saved; `None` when they cannot be read, and then
+/// nothing counts as news.
+pub fn known_from_json(text: &str) -> Option<BTreeSet<String>> {
+    let keys: Vec<String> = serde_json::from_str(text).ok()?;
+    Some(
+        keys.into_iter()
+            .filter(|key| key.len() <= MAX_KNOWN_KEY)
+            .take(MAX_KNOWN)
+            .collect(),
+    )
+}
+
+pub fn known_to_json(keys: &BTreeSet<String>) -> String {
+    let keys: Vec<&String> = keys
+        .iter()
+        .filter(|key| key.len() <= MAX_KNOWN_KEY)
+        .take(MAX_KNOWN)
+        .collect();
+    serde_json::to_string(&keys).unwrap_or_else(|_| "[]".into())
 }
 
 /// "owner/name", as GitHub allows them: owners are letters, digits and
@@ -806,6 +841,35 @@ mod tests {
             "cortex", "a/b/c", "../etc", "a/..", "a/", "/b", "a b/c", "a/b?x=1",
         ] {
             assert!(!is_repo_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn what_was_not_there_at_the_last_run_is_news_and_the_keys_survive_a_round_trip() {
+        let notice = |key: &str| Notice {
+            key: key.into(),
+            kind: NoticeKind::Review,
+            detail: String::new(),
+            url: String::new(),
+            number: 0,
+            title: String::new(),
+        };
+        let last: BTreeSet<String> = ["review:a".to_owned(), "action:1:t".to_owned()].into();
+        let now = [notice("review:a"), notice("approved:b"), notice("failed:c")];
+        assert_eq!(new_since(&last, &now), ["approved:b", "failed:c"]);
+        assert_eq!(known_from_json(&known_to_json(&last)), Some(last));
+    }
+
+    #[test]
+    fn saved_keys_are_capped_and_anything_else_reads_as_none() {
+        let long = "x".repeat(MAX_KNOWN_KEY + 1);
+        let many: Vec<String> = (0..MAX_KNOWN + 5).map(|i| format!("k{i}")).collect();
+        let read = known_from_json(&serde_json::to_string(&many).unwrap()).unwrap();
+        assert_eq!(read.len(), MAX_KNOWN);
+        let read = known_from_json(&serde_json::to_string(&["ok", long.as_str()]).unwrap());
+        assert_eq!(read, Some(["ok".to_owned()].into()));
+        for bad in ["", "{}", "[1]", "null", "[\"a\""] {
+            assert_eq!(known_from_json(bad), None, "{bad}");
         }
     }
 }

@@ -95,6 +95,27 @@ are doing.
   nothing: what was there is not news; a notice that went and comes back
   is. In the session cards the "working" dot is gray, as on the island: blue
   is the review's.
+- While you were away (#157): nobody is looking while the screen is locked
+  (macOS), after ten minutes without mouse or keyboard input (macOS and
+  Windows), or while the computer sleeps, seen as a jump of the wall clock
+  between two looks two seconds apart; coming back from a sleep then waits
+  up to a minute for GitHub's first answer, asked for at once. The system is
+  asked every 15 seconds, and on every look while nobody is there
+  (`cortex_core::away`). Meanwhile nothing rings or speaks, the folded island
+  is not redrawn (a locked repaint costs CPU, #51) and the notices that come
+  are kept; a card still opens the island, silently. Coming back with
+  something kept, the folded island turns light pink with "While you were
+  away", a count per color, **See all** (the list of notices; the pink goes)
+  and **Dismiss** (everything seen, as a click on the island), and plays the
+  soft "Suave" once. A waiting card comes first (its sound rings once on
+  coming back), the summary after it. A click on the pink island is See all.
+  A notice that comes after is a normal one, phrase and sound, and stays out
+  of the summary; leaving again before a click adds to it; a notice clicked
+  away or gone leaves it. Cortex closed: the GitHub notice keys of the last
+  check are kept in `github-notices.json` in the app data directory, and the
+  first good answer of each account after launch (not after turning GitHub
+  on or showing an account) names the new ones, which make the summary once
+  the opening screen goes. On Linux only a sleep and a closed Cortex count.
 - Cards come one at a time; the ones after it wait in view below, and the
   bar says "1 of N".
 - A click anywhere outside the island folds it, even over a waiting card: the
@@ -120,8 +141,10 @@ exponential fade), played once per change: a session's state turning done
 new GitHub notice at least as urgent as the island's color (the rule for its
 phrase), in its color, blue being the "Toque" (two notes up, softer than the
 alert: a request, not an emergency). If several come together, the most urgent
-plays; a lower one arriving while a higher one plays is not played. Sounds
-are on by default and can be muted or sampled in Settings → Notices & sounds.
+plays; a lower one arriving while a higher one plays is not played. Coming
+back to a pink summary plays "Suave" once (two low notes up), under any other
+sound. Sounds are on by default and can be muted or sampled in Settings →
+Notices & sounds.
 
 ## Opening screen
 
@@ -353,7 +376,9 @@ unavailable and update through the package manager.
 ## Resource budget (enforced, not aspirational)
 
 - Hidden island: 0% CPU. Cortex wakes on events, when a card or a session is
-  due to expire, and for the GitHub and update checks the user turned on.
+  due to expire, for the GitHub and update checks the user turned on, and
+  every 2 seconds to read the clock (the lock and the idle time every 15),
+  to know whether anybody is looking (#157).
 - Working set under ~120 MB on all three platforms (about 45 MB measured on
   macOS). A downloaded update waiting for its restart is held in memory, which
   on Linux adds the size of the AppImage until the restart (#72).

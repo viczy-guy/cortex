@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- **While you were away.** Nothing rings or speaks while nobody is looking:
+  the screen locked, ten minutes without the mouse or the keyboard, or the
+  computer asleep. Coming back, if something came meanwhile, the island turns
+  light pink with a summary (one count per color) and plays a soft sound
+  once; it stays until **See all** (the list of notices) or **Dismiss**. A
+  card waiting for an answer comes first. Opening Cortex does the same for
+  the GitHub notices that came while it was closed. (#157)
+
 ## [0.6.0] - 2026-11-24
 
 ### Changed

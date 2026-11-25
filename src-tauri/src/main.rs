@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod autostart;
+mod away;
 mod displays;
 mod files;
 mod gaze;
@@ -730,6 +731,7 @@ fn main() {
             tauri::async_runtime::spawn(github::poller(handle.clone()));
             tauri::async_runtime::spawn(updates::checker(handle.clone()));
             gaze::spawn(handle.clone());
+            away::spawn(handle.clone());
 
             // The janitor (sleeps whenever the board is empty).
             tauri::async_runtime::spawn(server::janitor(handle));

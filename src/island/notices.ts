@@ -66,6 +66,36 @@ export function agentNotice(session: SessionView, tone: Tone): ViewNotice | null
   return { key: sessionKey(session), tone, say, detail: folder ? `${name} · ${folder}` : name };
 }
 
+const AWAY_COUNTS: [ViewNotice["tone"], string][] = [
+  ["red", "failed"],
+  ["amber", "waiting for you"],
+  ["blue", "about reviews"],
+  ["green", "done"],
+];
+
+/**
+ * The pink summary (#157): what came while nobody was looking, one count per
+ * color, the most urgent first, and the two ways out.
+ */
+export function awayLine(notices: ViewNotice[], seeAll: () => void, dismiss: () => void): HTMLElement[] {
+  const text = el("span", "say-text");
+  text.append(el("b", undefined, "While you were away"));
+  const counts = el("span", "away-counts");
+  for (const [tone, meaning] of AWAY_COUNTS) {
+    const n = notices.filter((notice) => notice.tone === tone).length;
+    if (n === 0) continue;
+    const count = el("span", "away-count");
+    count.setAttribute("role", "img");
+    count.setAttribute("aria-label", `${n} ${meaning}`);
+    count.title = `${n} ${meaning}`;
+    count.append(el("span", `notice-dot tone-${tone}`), el("span", undefined, String(n)));
+    counts.append(count);
+  }
+  const actions = el("span", "away-buttons");
+  actions.append(button("btn-pink", "See all", seeAll), button("btn-neutral", "Dismiss", dismiss));
+  return [text, counts, actions];
+}
+
 /** The phrase, where it happened, and how many more wait behind it. */
 export function sayLine(notice: ViewNotice, more: number): HTMLElement[] {
   const text = el("span", "say-text");
