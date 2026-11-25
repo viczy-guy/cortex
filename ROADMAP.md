@@ -37,23 +37,29 @@ picture, with drawings, is in [docs/visao](docs/visao/README.md) (in Portuguese)
       looking (app closed, screen locked, ten minutes idle); coming back turns
       the island pink with a summary of what happened, with See all and
       Dismiss.
-- [ ] **A2f · v0.8.0 — English and Portuguese.** Every text in the app in
+- [ ] **A2f · v0.8.0 — Atlantis plans.** The island follows an Atlantis plan
+      to its apply: what it adds, changes, replaces and destroys, in one
+      sentence and a list, with alerts for data, production and drift; several
+      pull requests at once.
+- [ ] **A2g · v0.9.0 — English and Portuguese.** Every text in the app in
       both languages, chosen in Settings and following the system by default.
-- [ ] **A3 · v0.9.0 — Updates itself.** A stable version installs with no
+- [ ] **A3 · v0.10.0 — Updates itself.** A stable version installs with no
       click when nothing is waiting; a test channel before the stable one; new
       features ship switched off. (A new product name waits for the
       maintainer, #85.)
-- [ ] **A4 · v0.10.0 — Ask from the island.** A prompt box in the island: pick
+- [ ] **A4 · v0.11.0 — Ask from the island.** A prompt box in the island: pick
       the agent, the model and the folder. It runs through the CLIs you already
       have installed and signed in; everything the agent wants to do still goes
-      through the same approval cards.
-- [ ] **A5 · v0.11.0 — More agents.** Codex CLI and Gemini CLI; showing when one
+      through the same approval cards. With it, Claude Code explains an
+      Atlantis plan on a click (#162).
+- [ ] **A5 · v0.12.0 — More agents.** Codex CLI and Gemini CLI; showing when one
       agent calls another; Always rules per agent and per folder; a red card
       with no Always for destructive actions.
-- [ ] **A6 · v0.12.0 — Act on pull requests.** A notice when someone requests
+- [ ] **A6 · v0.13.0 — Act on pull requests.** A notice when someone requests
       your review; the agent's analysis in the card; approve or request changes
-      from the island, with your own GitHub account.
-- [ ] **A7 · v0.13.0 — Your agents.** A recipe per agent: model, folder,
+      from the island, with your own GitHub account; comment an Atlantis apply
+      after confirming the exact command (#163).
+- [ ] **A7 · v0.14.0 — Your agents.** A recipe per agent: model, folder,
       instructions, tools and knowledge sources.
 - [ ] **A8 · v1.0 — Connected app.** An optional account; notices and approvals
       for agents that run on a server; Windows and Linux installers tried on
