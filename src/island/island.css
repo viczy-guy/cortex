@@ -111,6 +111,7 @@ body {
 .island.tone-blue { --tone: var(--tone-blue); }
 .island.tone-amber { --tone: var(--tone-amber); }
 .island.tone-red { --tone: var(--tone-red); }
+.island.tone-pink { --tone: var(--tone-pink); }
 .island:not(.tone-gray) {
   border-color: var(--tone);
   box-shadow: inset var(--edge-glow) 14px -8px var(--tone);
@@ -687,11 +688,38 @@ body {
 /* Beside the camera the phrase gets a row of its own under it. */
 .say-row {
   display: flex;
+  align-items: center;
   justify-content: center;
   gap: 8px;
   max-width: 440px;
   padding: 0 12px 9px;
 }
+
+/* While you were away (#157): one count per color and the two ways out. */
+.away-counts {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+}
+.away-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.away-count .notice-dot { width: 7px; height: 7px; }
+.away-buttons {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 6px;
+  flex: none;
+}
+.away-buttons .btn { padding: 2px 10px; font-size: 11px; }
+.btn-pink { background: var(--btn-pink-bg); color: var(--tone-pink); }
 
 .notice-rows {
   display: flex;

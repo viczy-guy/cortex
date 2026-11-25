@@ -7,8 +7,9 @@ use cortex_core::{
         CLI_URL, DEVICE_URL, MAX_ACCOUNTS, POLL_SECS, POLL_SLOW_SECS, QUERY,
     },
     notices::{
-        notices, notifications_path, parse_failed_runs, parse_plans, plan_query,
-        split_poll_interval, FailedRun, PlanCache,
+        known_from_json, known_to_json, notices, notifications_path, parse_failed_runs,
+        parse_plans, plan_query, remember, split_poll_interval, FailedRun, Known, LastRun,
+        PlanCache, MAX_KNOWN_BYTES,
     },
     GithubSummary,
 };
@@ -19,7 +20,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex, MutexGuard,
     },
     time::{Duration, Instant},
@@ -41,6 +42,10 @@ pub struct AccountStatus {
     pub state: &'static str,
     pub message: Option<String>,
     pub summary: Option<GithubSummary>,
+    /// On the first answer after launch only: the keys of the notices that
+    /// came while Cortex was closed (#157).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub new_since_last_run: Vec<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -86,6 +91,9 @@ impl Inner {
 pub struct GithubState {
     inner: Mutex<Inner>,
     wake: Notify,
+    /// When the last good answer was asked for (wall clock, ms; 0 for none),
+    /// so coming back from a sleep can wait for one asked after it (#157).
+    answered_ms: AtomicU64,
 }
 
 impl GithubState {
@@ -105,11 +113,29 @@ impl GithubState {
                 running: None,
             }),
             wake: Notify::new(),
+            answered_ms: AtomicU64::new(0),
         }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().expect("github mutex poisoned")
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.lock().status.enabled
+    }
+
+    /// When the last good answer was asked for; `None` while GitHub is off.
+    pub fn answered_ms(&self) -> Option<u64> {
+        self.enabled()
+            .then(|| self.answered_ms.load(Ordering::Relaxed))
+    }
+
+    /// Poll now rather than at the next turn.
+    pub fn refresh(&self) {
+        if self.enabled() {
+            self.wake.notify_one();
+        }
     }
 }
 
@@ -439,6 +465,7 @@ fn fetch_account(gh: &Path, account: GhAccount, hidden: &[String]) -> AccountSta
         state,
         message,
         summary,
+        new_since_last_run: Vec::new(),
     }
 }
 
@@ -538,9 +565,7 @@ pub fn github_set_account_shown(
 
 #[tauri::command]
 pub fn github_refresh(state: State<'_, GithubState>) {
-    if state.lock().status.enabled {
-        state.wake.notify_one();
-    }
+    state.refresh();
 }
 
 #[tauri::command]
@@ -899,8 +924,35 @@ pub fn github_cancel_task(app: AppHandle, state: State<'_, GithubState>) -> Resu
     Ok(())
 }
 
+/// Where the notice keys of the last check are kept between launches (#157).
+const KNOWN_FILE: &str = "github-notices.json";
+
+/// The notice keys the last run saw; `None` without a readable file.
+fn load_known() -> Option<Known> {
+    let path = crate::hooks::data_dir().ok()?.join(KNOWN_FILE);
+    match crate::files::read_bounded(&path, MAX_KNOWN_BYTES) {
+        Ok(Some(text)) => known_from_json(&text),
+        _ => None,
+    }
+}
+
+fn save_known(keys: &Known) -> Result<(), String> {
+    crate::files::write_private(
+        &crate::hooks::data_dir()?.join(KNOWN_FILE),
+        known_to_json(keys).as_bytes(),
+    )
+    .map_err(|e| e.to_string())
+}
+
 pub async fn poller(app: AppHandle) {
     let state = app.state::<GithubState>();
+    // What the last run saw: the first answers after launch name what came
+    // while Cortex was closed (#157). Not once the user changed anything
+    // (turning GitHub on, showing an account), which is no coming back.
+    let launch_revision = state.lock().revision;
+    let loaded = if state.enabled() { load_known() } else { None };
+    let mut saved = loaded.clone().unwrap_or_default();
+    let mut last_run = LastRun::new(loaded);
     loop {
         let request = {
             let inner = state.lock();
@@ -917,6 +969,7 @@ pub async fn poller(app: AppHandle) {
             continue;
         };
         let handle = app.clone();
+        let asked_ms = crate::state::now_ms();
         let result = tauri::async_runtime::spawn_blocking(move || {
             poll(&hidden, || {
                 handle.state::<GithubState>().lock().revision == revision
@@ -924,6 +977,7 @@ pub async fn poller(app: AppHandle) {
         })
         .await
         .unwrap_or_else(|_| Err(GhError("gh worker failed".into())));
+        let mut seen_now = None;
         let applied = {
             let mut inner = state.lock();
             if inner.revision == revision {
@@ -942,11 +996,36 @@ pub async fn poller(app: AppHandle) {
                                 .find(|old| old.login.eq_ignore_ascii_case(&account.login))
                                 .and_then(|old| old.summary.take());
                         }
+                        if revision != launch_revision {
+                            last_run.forget();
+                        }
+                        for account in &mut accounts {
+                            if let Some(summary) = &account.summary {
+                                account.new_since_last_run = last_run.news(
+                                    &account.login,
+                                    account.state == "ok",
+                                    &summary.notices,
+                                );
+                            }
+                        }
+                        if accounts.iter().any(|a| a.state == "ok") {
+                            state.answered_ms.store(asked_ms, Ordering::Relaxed);
+                        }
                         status.state = overall_state(accounts.iter().map(|a| a.state));
                         status.accounts = accounts;
                         if status.state == "error" {
                             status.message = Some("GitHub requests failed".into());
                         }
+                        let mut known = saved.clone();
+                        remember(
+                            &mut known,
+                            status
+                                .accounts
+                                .iter()
+                                .filter(|a| a.shown)
+                                .filter_map(|a| Some((a.login.as_str(), a.summary.as_ref()?))),
+                        );
+                        seen_now = Some(known);
                     }
                     Ok(PollResult::Missing(installer)) => {
                         status.state = "no_gh";
@@ -968,6 +1047,16 @@ pub async fn poller(app: AppHandle) {
         if !applied {
             state.wake.notified().await;
             continue;
+        }
+        if let Some(known) = seen_now.filter(|known| *known != saved) {
+            let write = known.clone();
+            match tauri::async_runtime::spawn_blocking(move || save_known(&write)).await {
+                Ok(Ok(())) => saved = known,
+                Ok(Err(err)) => {
+                    eprintln!("cortex: GitHub notices not kept for the next launch: {err}")
+                }
+                Err(_) => eprintln!("cortex: GitHub notices not kept for the next launch"),
+            }
         }
         // Woken every POLL_SECS to look at the lock: unlocking is seen within 15 s.
         let failing = state.lock().status.state == "error";

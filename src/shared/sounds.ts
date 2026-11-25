@@ -1,4 +1,4 @@
-type SoundKind = "green" | "blue" | "amber" | "red";
+type SoundKind = "green" | "blue" | "amber" | "red" | "pink";
 /** Frequency (Hz), start and duration (s), waveform, peak volume (> 0: an exponential ramp cannot reach 0). */
 type Note = [frequency: number, start: number, duration: number, waveform: OscillatorType, volume: number];
 
@@ -11,6 +11,12 @@ const repeat = (notes: Note[], times: number, every: number): Note[] =>
   Array.from({ length: times }, (_, i) => notes.map(([f, at, ...rest]): Note => [f, at + i * every, ...rest])).flat();
 
 const SOUNDS: Record<SoundKind, { rank: number; notes: Note[] }> = {
+  // "Suave", once (#157): two notes up, low and short, a welcome back rather
+  // than a call; any other sound plays over it.
+  pink: {
+    rank: 0,
+    notes: [[523.25, 0, 0.34, "sine", 0.14], [783.99, 0.17, 0.75, "sine", 0.12]],
+  },
   // "Alerta", twice.
   green: {
     rank: 1,
@@ -47,10 +53,13 @@ function stop(): void {
   }
 }
 
-/** `force`: a sample the user asked for plays over anything. */
-export function playSound(kind: SoundKind, force = false): void {
+/**
+ * `force`: a sample the user asked for plays over anything. `false` when it
+ * did not play: a sound as urgent or more is playing, or there is no audio.
+ */
+export function playSound(kind: SoundKind, force = false): boolean {
   const { rank, notes } = SOUNDS[kind];
-  if (!force && active && active.rank >= rank) return;
+  if (!force && active && active.rank >= rank) return false;
   stop();
 
   try {
@@ -95,7 +104,9 @@ export function playSound(kind: SoundKind, force = false): void {
       else stop();
     };
     active.timer = window.setTimeout(fallback, (end + 0.05) * 1000 + 100);
+    return true;
   } catch {
     stop();
+    return false;
   }
 }

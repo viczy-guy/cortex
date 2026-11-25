@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "island_gaze_origin",
     "splash_done",
     "opening_shown",
+    "away_now",
     "open_settings",
     "quit",
     "rules_list",

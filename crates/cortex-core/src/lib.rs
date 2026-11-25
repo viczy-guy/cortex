@@ -6,6 +6,7 @@
 
 pub mod approval;
 pub mod autostart;
+pub mod away;
 pub mod diff;
 pub mod event;
 pub mod gaze;
