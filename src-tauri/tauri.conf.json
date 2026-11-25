@@ -48,7 +48,7 @@
     "targets": "all",
     "category": "DeveloperTool",
     "windows": {
-      "nsis": { "languages": ["English", "PortugueseBR"], "displayLanguageSelector": false }
+      "nsis": { "languages": ["English", "PortugueseBR", "Portuguese"], "displayLanguageSelector": false }
     },
     "icon": [
       "icons/32x32.png",

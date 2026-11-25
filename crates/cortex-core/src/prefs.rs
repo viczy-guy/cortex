@@ -47,6 +47,16 @@ pub fn language_of_locale(locale: &str) -> &'static str {
     }
 }
 
+/// Windows' display language, a LANGID: Portuguese is primary language 0x16
+/// (0x0416 Brazil, 0x0816 Portugal); `language_of_locale` reads the result.
+pub fn locale_of_langid(id: u16) -> &'static str {
+    if id & 0x3ff == 0x16 {
+        "pt"
+    } else {
+        "en"
+    }
+}
+
 /// The language shown: the one picked in Settings, else the system's.
 pub fn language(prefs: &Prefs, system_locale: &str) -> &'static str {
     match prefs.language.as_deref() {
@@ -173,6 +183,15 @@ mod tests {
             ("ptx", "en"),
         ] {
             assert_eq!(language_of_locale(locale), expected, "{locale}");
+        }
+        for (id, expected) in [
+            (0x0416, "pt"),
+            (0x0816, "pt"),
+            (0x0409, "en"),
+            (0x0c0a, "en"),
+            (0, "en"),
+        ] {
+            assert_eq!(locale_of_langid(id), expected, "{id:#06x}");
         }
         let picked = Prefs {
             language: Some("en".into()),

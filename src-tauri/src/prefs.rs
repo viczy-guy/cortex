@@ -47,8 +47,15 @@ pub fn island_set_mascot(app: AppHandle, mascot: String) -> Result<(), String> {
     }
     let prefs = update(|p| p.mascot = Some(mascot))?;
     crate::gaze::set_lively(&prefs);
-    let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
+    emit(&app, IslandPrefs::from(&prefs));
     Ok(())
+}
+
+/// Every window hears the preferences. What Rust draws follows the language
+/// too: on System, it may have changed since the last time (#154).
+pub fn emit(app: &AppHandle, shown: IslandPrefs) {
+    crate::show_language(app, &shown.language);
+    let _ = app.emit(ISLAND_PREFS_EVENT, shown);
 }
 /// English, Portuguese, or `None` to follow the system (#154): every window
 /// hears it at once.
@@ -58,23 +65,21 @@ pub fn language_set(app: AppHandle, language: Option<String>) -> Result<(), Stri
         return Err("Unknown language.".into());
     }
     let prefs = update(|p| p.language = language)?;
-    let shown = IslandPrefs::from(&prefs);
-    crate::show_language(&app, &shown.language);
-    let _ = app.emit(ISLAND_PREFS_EVENT, shown);
+    emit(&app, IslandPrefs::from(&prefs));
     Ok(())
 }
 
 #[tauri::command]
 pub fn island_set_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
     let prefs = update(|p| p.sound = Some(enabled))?;
-    let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
+    emit(&app, IslandPrefs::from(&prefs));
     Ok(())
 }
 #[tauri::command]
 pub fn island_set_lively(app: AppHandle, enabled: bool) -> Result<(), String> {
     let prefs = update(|p| p.lively = Some(enabled))?;
     crate::gaze::set_lively(&prefs);
-    let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
+    emit(&app, IslandPrefs::from(&prefs));
     Ok(())
 }
 

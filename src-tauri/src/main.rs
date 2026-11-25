@@ -136,9 +136,6 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     show_settings(app, false).await
 }
 
-/// Open (or bring forward) the Settings window; with `start`, a new install's,
-/// which shows what to connect first (#152). Async on purpose: creating a
-/// window from a sync command deadlocks on Windows.
 /// Another language (#154): what Rust draws follows; the webviews hear it
 /// through the island preferences.
 pub fn show_language(app: &AppHandle, lang: &str) {
@@ -149,12 +146,17 @@ pub fn show_language(app: &AppHandle, lang: &str) {
     macos::set_menu_bar_language(app, lang);
 }
 
+/// Open (or bring forward) the Settings window; with `start`, a new install's,
+/// which shows what to connect first (#152). Async on purpose: creating a
+/// window from a sync command deadlocks on Windows.
 async fn show_settings(app: AppHandle, start: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
         // Opened by hand during the first opening screen: Get started too.
         if start {
             let mut url = window.url().map_err(|e| e.to_string())?;
             url.set_query(Some("start"));
+            // Get started is on the Overview, whatever page it was left on.
+            url.set_fragment(None);
             window.navigate(url).map_err(|e| e.to_string())?;
         }
         window.unminimize().map_err(|e| e.to_string())?;
@@ -504,7 +506,7 @@ fn set_island_placement(
         placement.screen.clone_from(&island.screen);
         island
     };
-    let _ = app.emit(prefs::ISLAND_PREFS_EVENT, island);
+    prefs::emit(app, island);
     place_island(app);
     Ok(())
 }

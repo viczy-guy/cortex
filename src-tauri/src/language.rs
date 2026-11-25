@@ -72,7 +72,7 @@ fn system_locale() -> String {
     }
 }
 
-/// Windows' display language: Portuguese is primary language 0x16.
+/// Windows' display language.
 #[cfg(windows)]
 fn system_locale() -> String {
     #[link(name = "kernel32")]
@@ -81,11 +81,7 @@ fn system_locale() -> String {
     }
     // SAFETY: no arguments, a plain query.
     let id = unsafe { GetUserDefaultUILanguage() };
-    if id & 0x3ff == 0x16 {
-        "pt".into()
-    } else {
-        "en".into()
-    }
+    cortex_core::prefs::locale_of_langid(id).into()
 }
 
 /// The locale the desktop session runs in.

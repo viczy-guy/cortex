@@ -323,9 +323,10 @@ Portuguese when it is Portuguese, English otherwise (on Linux, `LC_ALL`,
 **Português** for good, or goes back to **System**. Every window changes at
 once: the island draws again in place, Settings opens again on the page it
 was on, and the menu-bar item and the Settings title follow. The opening
-screen reads the language before it draws. The Windows installer is in
-English or Portuguese, following the system. What GitHub, Atlantis and the
-agents write (titles, plans, commands) stays as they wrote it.
+screen reads the language before it draws. The Windows setup (`.exe`) is in
+English or Portuguese, following the system; the `.msi` is in English. What
+GitHub, Atlantis and the agents write (titles, plans, commands, folders)
+stays as they wrote it.
 
 ## Launch at login
 

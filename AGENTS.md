@@ -26,9 +26,11 @@ permissions and answer questions. Read `docs/SPEC.md` before changing behavior.
   with no output.
 - **Every text the user sees is in English and Portuguese** (#154): add its
   key to both tables in `src/shared/i18n.ts` and draw it with `t()`;
-  `npm run check` fails when a table misses a key. Rust draws only the
-  menu-bar item and the Settings title (`src-tauri/src/language.rs`); a fixed
-  message it sends to the UI gets its Portuguese in `FROM_RUST` there.
+  `npm run check` fails when a table misses a key. Atlantis resource names
+  are in `KINDS` (`src/island/plans.ts`), both languages too. Rust draws only
+  the menu-bar item and the Settings title (`src-tauri/src/language.rs`); a
+  fixed message it sends to the UI gets its Portuguese in `FROM_RUST` or
+  `FROM_RUST_PATTERNS` (`src/shared/i18n.ts`), shown through `fromRust()`.
 - **Hook payloads are untrusted**: validate in Rust; the UI sets dynamic data
   with `textContent` only (use `el()` from `src/shared/dom.ts`), never innerHTML
   (ESLint rejects it).

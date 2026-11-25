@@ -81,9 +81,9 @@ function plural(name: string): string {
 /** "EC2 instance", "3 EC2 instances": the type a person would say. */
 export function kindName(kind: string, n = 1): string {
   const known = KINDS[kind];
-  const bare = kind.replace(/^aws_/, "").replace(/_/g, " ");
-  if (language() === "pt") return known ? known.pt[n === 1 ? 0 : 1] : bare;
-  const name = known?.en ?? bare;
+  if (known && language() === "pt") return known.pt[n === 1 ? 0 : 1];
+  // A type not listed keeps its English name, in Portuguese too.
+  const name = known?.en ?? kind.replace(/^aws_/, "").replace(/_/g, " ");
   return n === 1 ? name : plural(name);
 }
 

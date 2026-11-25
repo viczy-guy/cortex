@@ -24,6 +24,8 @@ export interface ViewNotice {
   plan?: Plan;
   /** "#331 · Short title", heading that summary. */
   pr?: string;
+  /** The same notice made again, in the language shown now (#154). */
+  again: () => ViewNotice;
 }
 
 const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: GithubNotice) => string }> = {
@@ -43,7 +45,12 @@ const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: 
 
 export function githubNotice(notice: GithubNotice): ViewNotice {
   const { tone, say } = GITHUB[notice.kind];
-  const view: ViewNotice = { key: `github:${notice.key}`, tone, say: say(notice), detail: notice.detail, url: notice.url, plan: notice.plan };
+  const view: ViewNotice = { key: `github:${notice.key}`, tone, say: say(notice), detail: notice.detail, url: notice.url, plan: notice.plan, again: () => githubNotice(notice) };
+  // Rust names a run on several projects without an environment in English.
+  const projects = notice.plan && !notice.plan.env ? `${notice.plan.projects} projects` : null;
+  if (projects && notice.plan && notice.detail.endsWith(projects)) {
+    view.detail = notice.detail.slice(0, -projects.length) + t("notice.projects", notice.plan.projects);
+  }
   if (notice.number > 0) view.pr = notice.title ? `#${notice.number} · ${notice.title}` : `#${notice.number}`;
   if (notice.kind === "approved") {
     view.around = { before: t("notice.approvedBefore", notice.number), title: notice.title, after: t("notice.approvedAfter") };
@@ -75,7 +82,7 @@ export function agentNotice(session: SessionView, tone: Tone): ViewNotice | null
   if (!say || tone === "gray") return null;
   const folder = session.cwd?.split(/[\\/]/).filter(Boolean).at(-1);
   const name = NAMES.get(session.key.agent) ?? session.key.agent;
-  return { key: sessionKey(session), tone, say: t(say), detail: folder ? `${name} · ${folder}` : name };
+  return { key: sessionKey(session), tone, say: t(say), detail: folder ? `${name} · ${folder}` : name, again: () => agentNotice(session, tone)! };
 }
 
 const AWAY_COUNTS: [ViewNotice["tone"], "away.red" | "away.amber" | "away.blue" | "away.green"][] = [

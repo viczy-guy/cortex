@@ -33,7 +33,7 @@ import {
   type UpdateStatus,
 } from "../shared/ipc";
 import type { Mascot } from "../shared/mascots";
-import { language, setLanguage, t } from "../shared/i18n";
+import { fromRust, language, setLanguage, t } from "../shared/i18n";
 import { playSound } from "../shared/sounds";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
@@ -694,7 +694,7 @@ function onClick(top: HTMLElement, toggles: boolean): HTMLElement {
 }
 
 function sessionLabel(session: SessionView): string {
-  return session.current ?? session.ticker.at(-1)?.label ?? stateLabel(session.state);
+  return session.current ?? fromRust(session.ticker.at(-1)?.label ?? stateLabel(session.state));
 }
 
 /** Never offered over a card: restarting would drop the agent's waiting request. */
@@ -958,6 +958,11 @@ async function start(): Promise<void> {
     setLively(payload.lively);
     const relabel = payload.language !== language();
     setLanguage(payload.language);
+    if (relabel) {
+      // Notices kept from before carry their phrase: made again in this language.
+      for (const map of [unseen, kept, awaySummary]) for (const [key, view] of map) map.set(key, view.again());
+      if (saying) saying = saying.again();
+    }
     if (!relabel && mascot === payload.mascot && position === payload.position) return;
     mascot = payload.mascot;
     position = payload.position;

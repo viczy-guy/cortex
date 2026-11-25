@@ -10,7 +10,7 @@ import {
 } from "../shared/ipc";
 import { diffView } from "../shared/diff-view";
 import { button, el } from "../shared/dom";
-import { t } from "../shared/i18n";
+import { fromRust, t } from "../shared/i18n";
 import { alwaysScope } from "../shared/rules";
 
 export function stateLabel(state: SessionView["state"]): string {
@@ -37,7 +37,7 @@ export function sessionCard(session: SessionView): HTMLElement {
   if (session.ticker.length > 0) {
     const steps = el("div", "steps");
     for (const step of session.ticker.slice(-4)) {
-      steps.append(el("div", "step", step.label));
+      steps.append(el("div", "step", fromRust(step.label)));
     }
     card.append(steps);
   }

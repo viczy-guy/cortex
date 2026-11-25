@@ -70,7 +70,7 @@ const en = {
   "rules.count": (n: number) => many(n, "rule", "rules"),
   "rules.remove": "Remove",
   "rules.removeAll": "Remove all",
-  "rules.confirm": (n: number) => `Click again to remove all ${n} rules`,
+  "rules.confirm": (n: number) => (n === 1 ? "Click again to remove the rule" : `Click again to remove all ${n} rules`),
   "rules.every": (pattern: string) => `Every "${pattern}" command, without asking`,
   "rules.exact": (tool: string, pattern: string) => `${tool} on exactly ${pattern}, without asking`,
 
@@ -196,7 +196,8 @@ const en = {
   "state.error": "error",
 
   "card.needsApproval": (tool: string) => `${tool} needs approval`,
-  "card.moreLines": (n: number) => `${n} more lines not shown — answer in the terminal to see them`,
+  "card.moreLines": (n: number) =>
+    n === 1 ? "1 more line not shown — answer in the terminal to see it" : `${n} more lines not shown — answer in the terminal to see them`,
   "card.deny": "Deny",
   "card.allow": "Allow",
   "card.always": "Always",
@@ -210,6 +211,7 @@ const en = {
   "notice.review": "A PR needs your review",
   "notice.approvedBefore": (n: number) => `Your PR #${n} (`,
   "notice.approvedAfter": ") was approved!",
+  "notice.projects": (n: number) => `${n} projects`,
   "agent.finished": "An agent finished",
   "agent.failed": "An agent failed",
   "agent.needsYou": "An agent needs you",
@@ -343,7 +345,7 @@ const pt: Messages = {
   "rules.count": (n: number) => many(n, "regra", "regras"),
   "rules.remove": "Remover",
   "rules.removeAll": "Remover todas",
-  "rules.confirm": (n: number) => `Clique de novo para remover as ${n} regras`,
+  "rules.confirm": (n: number) => (n === 1 ? "Clique de novo para remover a regra" : `Clique de novo para remover as ${n} regras`),
   "rules.every": (pattern: string) => `Todo comando "${pattern}", sem perguntar`,
   "rules.exact": (tool: string, pattern: string) => `${tool} exatamente em ${pattern}, sem perguntar`,
 
@@ -468,7 +470,8 @@ const pt: Messages = {
   "state.error": "erro",
 
   "card.needsApproval": (tool: string) => `${tool} pede aprovação`,
-  "card.moreLines": (n: number) => `mais ${n} linhas não mostradas — responda no terminal para vê-las`,
+  "card.moreLines": (n: number) =>
+    n === 1 ? "mais 1 linha não mostrada — responda no terminal para vê-la" : `mais ${n} linhas não mostradas — responda no terminal para vê-las`,
   "card.deny": "Negar",
   "card.allow": "Permitir",
   "card.always": "Sempre",
@@ -482,6 +485,7 @@ const pt: Messages = {
   "notice.review": "Um PR precisa da sua revisão",
   "notice.approvedBefore": (n: number) => `Seu PR #${n} (`,
   "notice.approvedAfter": ") foi aprovado!",
+  "notice.projects": (n: number) => `${n} projetos`,
   "agent.finished": "Um agente terminou",
   "agent.failed": "Um agente falhou",
   "agent.needsYou": "Um agente precisa de você",
@@ -547,7 +551,7 @@ const pt: Messages = {
   "splash.updating": "Atualizando…",
   "splash.continue": "Continuar sem atualizar",
   "splash.retry": "Tentar novamente",
-  "splash.oops": "Ops, algo afetou a conexão.",
+  "splash.oops": "Ops, algo atrapalhou a atualização.",
   "splash.whenever": "Quando quiser tentar novamente, clique abaixo.",
 };
 
@@ -573,26 +577,67 @@ export function t<K extends Key>(key: K, ...args: Args<K>): string {
 }
 
 /**
- * Rust's own fixed messages, in Portuguese; anything else (a path, the
- * system's own words) is shown as it came.
+ * Rust's own fixed messages (src-tauri, and cortex-core's step labels), in
+ * Portuguese; anything else (a path, the system's own words) is shown as it
+ * came.
  */
 const FROM_RUST: Record<string, string> = {
   "sign in again": "entre de novo",
   "GitHub requests failed": "As consultas ao GitHub falharam",
   "GitHub CLI (gh) not found": "GitHub CLI (gh) não encontrado",
+  "GitHub CLI not found": "GitHub CLI não encontrado",
+  "GitHub CLI installer is unavailable": "O instalador do GitHub CLI não está disponível",
+  "GitHub CLI is already installed": "O GitHub CLI já está instalado",
+  "GitHub integration is off": "A integração com o GitHub está desligada",
+  "URL is not in the current GitHub summary": "O link não está no resumo atual do GitHub",
+  "a GitHub task is already running": "uma tarefa do GitHub já está em andamento",
+  "invalid GitHub login": "login do GitHub inválido",
+  "too many hidden GitHub accounts": "contas do GitHub ocultas demais",
+  "could not restore the previous active GitHub account": "não foi possível voltar à conta do GitHub que estava ativa",
   "unexpected response from gh": "resposta inesperada do gh",
   "gh returned no usable token": "o gh não devolveu um token utilizável",
+  "gh timed out": "o gh demorou demais",
+  "gh output timed out": "a saída do gh demorou demais",
+  "gh response too large": "resposta do gh grande demais",
+  "gh worker failed": "a consulta ao gh falhou",
+  "missing gh stdout": "o gh não deu saída",
+  "missing gh stderr": "o gh não deu saída de erro",
+  "The settings file changed since you reviewed it. Review it again.": "O arquivo de configurações mudou depois que você o revisou. Revise de novo.",
+  "executable has no parent directory": "o executável não tem pasta",
+  "relay path has no parent": "o caminho do relay não tem pasta",
+  "cannot determine the home directory": "não foi possível achar a pasta de início",
+  "This copy of Cortex cannot open at login.": "Esta cópia do Cortex não pode abrir ao ligar.",
+  "island window not found": "janela da ilha não encontrada",
+  "Unknown island position.": "Posição da ilha desconhecida.",
+  "Unknown screen.": "Tela desconhecida.",
   "Unknown mascot.": "Mascote desconhecido.",
   "Unknown language.": "Idioma desconhecido.",
+  "Answer the waiting cards first.": "Responda antes os cartões que estão esperando.",
+  "No update is ready.": "Nenhuma atualização está pronta.",
+  "has a question for you": "tem uma pergunta para você",
+  "subagent started": "subagente começou",
+  "subagent finished": "subagente terminou",
 };
-const FROM_RUST_PREFIX: [string, string][] = [["cannot save preferences: ", "não foi possível salvar as preferências: "]];
+/** The ones with a value inside; applied in turn, so one may wrap another. */
+const FROM_RUST_PATTERNS: [RegExp, string][] = [
+  [/^cannot save preferences: /, "não foi possível salvar as preferências: "],
+  [/^cannot save rules: /, "não foi possível salvar as regras: "],
+  [/^cannot read (.+?): /, "não foi possível ler $1: "],
+  [/^cannot write (.+?): /, "não foi possível gravar $1: "],
+  [/^cannot follow the link (.+?): /, "não foi possível seguir o link $1: "],
+  [/^relay not found at (.+?): /, "relay não encontrado em $1: "],
+  [/^backup failed: /, "o backup falhou: "],
+  [/^write failed: /, "a gravação falhou: "],
+  [/^registry error /, "erro no registro "],
+  [/^(.+) is not valid JSON \((.*)\)\. Fix it first\.$/s, "$1 não é um JSON válido ($2). Corrija antes."],
+  [/^Update check failed: /, "A busca por atualização falhou: "],
+  [/^Update failed: /, "A atualização falhou: "],
+  [/^Update (\S+) took too long to download$/, "A atualização $1 demorou demais para baixar"],
+  [/^Update (\S+) rejected: /, "A atualização $1 foi recusada: "],
+  [/\. The removed rules come back when Cortex restarts\.$/, ". As regras removidas voltam quando o Cortex reiniciar."],
+];
 
 export function fromRust(message: string): string {
   if (current === "en") return message;
-  const whole = FROM_RUST[message];
-  if (whole) return whole;
-  for (const [english, portuguese] of FROM_RUST_PREFIX) {
-    if (message.startsWith(english)) return portuguese + message.slice(english.length);
-  }
-  return message;
+  return FROM_RUST[message] ?? FROM_RUST_PATTERNS.reduce((text, [english, portuguese]) => text.replace(english, portuguese), message);
 }
