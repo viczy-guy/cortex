@@ -339,6 +339,10 @@ function togglePlan(notice: ViewNotice): void {
   planPicked = true;
   planOpen = planShown === notice.key ? null : notice.key;
   render();
+  // The list is drawn anew: the keyboard stays on the line it was on.
+  for (const row of root.querySelectorAll<HTMLElement>(".notice-row")) {
+    if (row.dataset.key === notice.key) row.focus();
+  }
 }
 
 /** A link of a plan summary or a run: it opens, and its notice, if any, goes. */
@@ -746,7 +750,9 @@ function panelContent(): HTMLElement[] {
     const notices = listing ? activeNotices() : [];
     const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
     const runs = listing ? planRuns(accounts.flatMap(({ summary }) => [...summary.mine, ...summary.review_requests])) : [];
-    planShown = planPicked ? planOpen : (notices.find((n) => n.plan)?.key ?? null);
+    // A pick that left the list falls back to the most urgent plan.
+    const picked = planPicked && (planOpen === null || notices.some((n) => n.key === planOpen));
+    planShown = picked ? planOpen : (notices.find((n) => n.plan)?.key ?? null);
     if (notices.length + runs.length === 0) return question;
     return [...question, noticeRows(notices, runs, { act: actOn, clearAll, open: planShown, toggle: togglePlan, follow })];
   }

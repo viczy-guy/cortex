@@ -137,6 +137,7 @@ export function noticeRows(notices: ViewNotice[], runs: PlanRun[], actions: RowA
   for (const notice of notices) {
     const row = el("button", "notice-row");
     row.type = "button";
+    row.dataset.key = notice.key;
     const plan = notice.plan;
     const open = plan !== undefined && actions.open === notice.key;
     row.title = plan ? `${notice.say} · ${open ? "hide" : "show"} the plan` : notice.url ? `${notice.say} · open on GitHub` : notice.say;

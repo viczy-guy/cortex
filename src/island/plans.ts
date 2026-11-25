@@ -142,20 +142,22 @@ export function sentence(plan: Plan): string {
   return `${text[0]?.toUpperCase()}${text.slice(1)}${where}.`;
 }
 
-/** What deserves care, the most serious first: lost data, production, drift. */
+/** The alerts the core found, in words; the first two are the serious ones. */
 export function alerts(plan: Plan): { hot: boolean; text: string }[] {
-  const out: { hot: boolean; text: string }[] = [];
-  if (plan.data.length > 0) {
-    const what = both(plan.data.map((kind) => `the ${kindName(kind)}`));
-    out.push({ hot: true, text: `${plan.production ? "In production, data at risk" : "Data at risk"}: ${what}.` });
-  } else if (plan.production && plan.destroy + plan.replace > 0) {
-    out.push({ hot: true, text: "In production: something is destroyed or replaced." });
-  }
-  if (plan.drift) out.push({ hot: false, text: "Changed outside Terraform: the apply undoes it." });
-  if (plan.partial && plan.stage !== "plan_failed" && plan.stage !== "locked") {
-    out.push({ hot: false, text: plan.groups.length > 0 ? "A long plan: the list shows part of it; the counts are complete." : "The counts so far; the detail is on GitHub." });
-  }
-  return out;
+  return plan.alerts.map((alert) => {
+    switch (alert) {
+      case "data":
+        return { hot: true, text: `${plan.production ? "In production, data at risk" : "Data at risk"}: ${both(plan.data.map((kind) => `the ${kindName(kind)}`))}.` };
+      case "production":
+        return { hot: true, text: "In production: something is destroyed or replaced." };
+      case "drift":
+        return { hot: false, text: "Changed outside Terraform: the apply undoes it." };
+      case "partial":
+        return { hot: false, text: "A long plan: the list shows part of it; the counts are complete." };
+      case "no_detail":
+        return { hot: false, text: "The counts so far; the detail is on GitHub." };
+    }
+  });
 }
 
 /** "+3 ~1": the counts that are not zero, on a notice's line. */

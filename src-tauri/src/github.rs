@@ -440,10 +440,13 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
                 .record(&login, url, updated_at, planned_at, outcome, now);
         }
     }
+    // Merged ones too: an apply merges its pull request at once, and its
+    // summary keeps the plan it applied (no new read for them).
     for pull in summary
         .mine
         .iter_mut()
         .chain(summary.review_requests.iter_mut())
+        .chain(summary.merged.iter_mut())
     {
         if let Some(plan) = pull.plan.take() {
             let detail = memory.plans.detail(&login, &pull.url, &plan.planned_at);

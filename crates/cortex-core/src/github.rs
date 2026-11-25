@@ -244,6 +244,13 @@ impl GithubSummary {
                 .any(|n| n.url == url || comment(n.plan.as_ref()))
     }
 }
+/// A link the island may open: on github.com, bounded, in one piece.
+pub(crate) fn is_github_url(url: &str) -> bool {
+    url.starts_with("https://github.com/")
+        && url.chars().count() <= 512
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 fn count(v: &Value) -> u32 {
     v["issueCount"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32
 }
@@ -259,13 +266,7 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
             if repo.is_empty() || repo.chars().count() > MAX_REPO_CHARS {
                 return None;
             }
-            let url = n["url"].as_str()?;
-            if !url.starts_with("https://github.com/")
-                || url.chars().count() > 512
-                || url.chars().any(|c| c.is_whitespace() || c.is_control())
-            {
-                return None;
-            }
+            let url = n["url"].as_str().filter(|u| is_github_url(u))?;
             let clean: String = title
                 .chars()
                 .map(|c| if c.is_control() { ' ' } else { c })

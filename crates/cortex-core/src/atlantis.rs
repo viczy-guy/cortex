@@ -1,7 +1,8 @@
 //! Atlantis on pull requests (#161): what the latest plan adds, changes,
 //! replaces and destroys. The commit statuses tell where the run stands and
-//! the counts, at every check; the plan comment tells the detail, read once
-//! the pull request changes. Everything here only reads what came back.
+//! the counts, at every check; Atlantis's own plan comment tells the detail,
+//! read once the pull request changes. Everything here only reads what came
+//! back.
 
 use serde::Serialize;
 use serde_json::Value;
@@ -36,8 +37,15 @@ const DATA: [&str; 21] = [
 ];
 const MAX_NAME_CHARS: usize = 300;
 const MAX_ERROR_CHARS: usize = 200;
-/// Groups kept per project, and in a whole plan; the rest is counted only.
-const MAX_GROUPS: usize = 60;
+const MAX_PROJECTS: usize = 200;
+/// Groups kept from one comment; what destroys or replaces gets room past
+/// it, so the data at risk is never the part left out.
+const MAX_GROUPS: usize = 300;
+const MAX_DANGER_GROUPS: usize = 400;
+/// Groups the island lists.
+const SHOWN_GROUPS: usize = 60;
+/// A comment belongs to a run when posted this close to its last status.
+const SAME_RUN_SECS: i64 = 120;
 
 /// Where a pull request's latest Atlantis run stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -61,6 +69,22 @@ pub enum Op {
     Replace,
     Change,
     Add,
+}
+
+/// What deserves care in a plan, the most serious first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Alert {
+    /// Data or keys destroyed or replaced: the types are in `data`.
+    Data,
+    /// Something destroyed or replaced in production.
+    Production,
+    /// Objects changed outside Terraform: the apply undoes it.
+    Drift,
+    /// The list shows part of the plan; the counts are complete.
+    Partial,
+    /// Only the statuses' counts so far.
+    NoDetail,
 }
 
 /// Changes of one kind, in one project.
@@ -93,19 +117,27 @@ pub struct Plan {
     pub production: bool,
     /// Resource types whose data a destroy or a replace loses.
     pub data: Vec<String>,
-    /// Objects changed outside Terraform: the apply undoes it.
-    pub drift: bool,
+    pub alerts: Vec<Alert>,
     pub groups: Vec<Group>,
-    /// The counts come from the statuses: the list shows part of the plan.
+    /// The list shows part of the plan, or none of it.
     pub partial: bool,
     pub error: Option<String>,
     pub locked_by: Option<u64>,
     /// The plan's comment on GitHub.
     pub comment_url: Option<String>,
+    /// Projects whose plan failed, by their statuses.
+    #[serde(skip)]
+    pub failed: u32,
+    /// A status that is not Atlantis's fails too (another CI).
+    #[serde(skip)]
+    pub checks_failed: bool,
+    #[serde(skip)]
+    pub drift: bool,
     /// When this run's stage began, as GitHub writes it: a new run, a new notice.
     #[serde(skip)]
     pub at: String,
-    /// When its plan ran: the comments read are only ever shown with it.
+    /// When its plan ran: a comment is only ever read as this plan's when
+    /// posted then.
     #[serde(skip)]
     pub planned_at: String,
 }
@@ -114,9 +146,11 @@ pub struct Plan {
 /// `None` without Atlantis.
 pub fn from_statuses(contexts: &Value) -> Option<Plan> {
     let mut plan_run: Option<(&str, &str)> = None;
-    let mut apply_run: Option<(&str, &str)> = None;
+    let mut apply_run: Option<(&str, &str, &str)> = None;
+    let mut project_applies: Vec<&str> = Vec::new();
     let (mut add, mut change, mut destroy) = (0u32, 0u32, 0u32);
     let (mut projects, mut unchanged, mut failed) = (0u32, 0u32, 0u32);
+    let mut checks_failed = false;
     let mut envs = Vec::new();
     for c in contexts.as_array().into_iter().flatten() {
         let (Some(name), Some(state)) = (c["context"].as_str(), c["state"].as_str()) else {
@@ -126,61 +160,66 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
             .as_str()
             .filter(|t| t.len() <= 25)
             .unwrap_or("");
-        match name {
-            "atlantis/plan" => plan_run = Some((state, at)),
-            "atlantis/apply" => apply_run = Some((state, at)),
-            _ => {
-                let Some(project) = name.strip_prefix("atlantis/plan: ") else {
-                    continue;
-                };
-                if project.chars().count() > MAX_NAME_CHARS {
-                    continue;
-                }
-                if let Some(env) = environment(project) {
-                    envs.push(env.to_owned());
-                }
-                match state {
-                    "SUCCESS" => {
-                        projects += 1;
-                        let description = c["description"].as_str().unwrap_or("");
-                        match plan_counts(description) {
-                            Some((a, ch, d)) if a + ch + d > 0 => {
-                                add = add.saturating_add(a);
-                                change = change.saturating_add(ch);
-                                destroy = destroy.saturating_add(d);
-                            }
-                            _ => unchanged += 1,
-                        }
-                    }
-                    "FAILURE" | "ERROR" => {
-                        projects += 1;
-                        failed += 1;
-                    }
-                    _ => {}
-                }
+        let description = c["description"].as_str().unwrap_or("");
+        if name == "atlantis/plan" {
+            plan_run = Some((state, at));
+        } else if name == "atlantis/apply" {
+            apply_run = Some((state, at, description));
+        } else if name.starts_with("atlantis/apply: ") {
+            project_applies.push(at);
+        } else if let Some(project) = name.strip_prefix("atlantis/plan: ") {
+            if project.chars().count() > MAX_NAME_CHARS {
+                continue;
             }
+            if let Some(env) = environment(project) {
+                envs.push(env.to_owned());
+            }
+            match state {
+                "SUCCESS" => {
+                    projects = projects.saturating_add(1);
+                    match plan_counts(description) {
+                        Some((a, ch, d)) if a > 0 || ch > 0 || d > 0 => {
+                            add = add.saturating_add(a);
+                            change = change.saturating_add(ch);
+                            destroy = destroy.saturating_add(d);
+                        }
+                        _ => unchanged = unchanged.saturating_add(1),
+                    }
+                }
+                "FAILURE" | "ERROR" => {
+                    projects = projects.saturating_add(1);
+                    failed = failed.saturating_add(1);
+                }
+                _ => {}
+            }
+        } else if !name.starts_with("atlantis") && matches!(state, "FAILURE" | "ERROR") {
+            checks_failed = true;
         }
     }
     let (plan_state, plan_at) = plan_run?;
+    let planned = match plan_state {
+        "PENDING" | "EXPECTED" => Stage::Planning,
+        "SUCCESS" if failed == 0 => Stage::Planned,
+        _ => Stage::PlanFailed,
+    };
+    // An apply counts once it came after the latest plan. Atlantis also
+    // marks it done when there was nothing to apply, with no project of its
+    // own; and it stays pending, done, when only some projects were applied.
     let (stage, at) = match apply_run {
-        // An apply after the latest plan; a plan run again later wins.
-        Some((state, at)) if at >= plan_at => (
+        Some((state, at, description)) if at >= plan_at => {
+            let ran = project_applies.iter().any(|p| *p >= plan_at);
             match state {
-                "PENDING" | "EXPECTED" => Stage::Applying,
-                "SUCCESS" => Stage::Applied,
-                _ => Stage::ApplyFailed,
-            },
-            at,
-        ),
-        _ => (
-            match plan_state {
-                "PENDING" | "EXPECTED" => Stage::Planning,
-                "SUCCESS" if failed == 0 => Stage::Planned,
-                "SUCCESS" => Stage::PlanFailed,
-                _ => Stage::PlanFailed,
-            },
-            plan_at,
-        ),
+                "PENDING" | "EXPECTED"
+                    if description.to_ascii_lowercase().contains("in progress") =>
+                {
+                    (Stage::Applying, at)
+                }
+                "SUCCESS" if ran => (Stage::Applied, at),
+                "FAILURE" | "ERROR" => (Stage::ApplyFailed, at),
+                _ => (planned, plan_at),
+            }
+        }
+        _ => (planned, plan_at),
     };
     let production = envs.iter().any(|e| is_production(e));
     let env = envs
@@ -188,7 +227,7 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
         .find(|e| is_production(e))
         .or(envs.first())
         .cloned();
-    Some(Plan {
+    let mut plan = Plan {
         stage,
         add,
         change,
@@ -199,15 +238,20 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
         env,
         production,
         data: Vec::new(),
-        drift: false,
+        alerts: Vec::new(),
         groups: Vec::new(),
-        partial: add + change + destroy > 0,
+        partial: add > 0 || change > 0 || destroy > 0,
         error: None,
         locked_by: None,
         comment_url: None,
+        failed,
+        checks_failed,
+        drift: false,
         at: at.into(),
         planned_at: plan_at.into(),
-    })
+    };
+    plan.alerts = alerts(&plan);
+    Some(plan)
 }
 
 /// "Plan: 1 to import, 2 to add, 0 to change, 1 to destroy." (also behind a
@@ -254,13 +298,24 @@ pub fn is_production(env: &str) -> bool {
 /// "sa-east-1", "us-gov-west-1": letters, then words, then a number.
 fn is_region(part: &str) -> bool {
     let words: Vec<&str> = part.split('-').collect();
+    let Some((number, letters)) = words.split_last() else {
+        return false;
+    };
     words.len() >= 3
         && words[0].len() == 2
-        && words[..words.len() - 1]
+        && letters
             .iter()
             .all(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_lowercase()))
-        && words[words.len() - 1].bytes().all(|b| b.is_ascii_digit())
-        && !words[words.len() - 1].is_empty()
+        && !number.is_empty()
+        && number.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// One comment of a pull request, by Atlantis: its text, link and time.
+#[derive(Debug, Clone, Copy)]
+pub struct Comment<'a> {
+    pub body: &'a str,
+    pub url: &'a str,
+    pub created_at: &'a str,
 }
 
 /// One project of a plan or an apply comment.
@@ -268,8 +323,10 @@ fn is_region(part: &str) -> bool {
 pub struct Project {
     pub name: String,
     pub dir: String,
-    /// (op, resource type) → (count, first address).
+    /// (op, resource type) → (count, first address), as far as kept.
     pub changes: BTreeMap<(Op, String), (u32, String)>,
+    /// Every resource line, kept or not, by op (destroy, replace, change, add).
+    pub ops: [u32; 4],
     pub no_changes: bool,
     pub drift: bool,
     pub error: Option<String>,
@@ -280,9 +337,13 @@ pub struct Project {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Section {
     pub url: String,
+    /// When its first part was posted.
+    pub created_at: String,
     pub projects: Vec<Project>,
-    /// Its beginning was out of the comments read, or it had too much.
+    /// Its beginning was out of the comments read.
     pub cut: bool,
+    /// Some of its changes were counted but not kept in the groups.
+    pub capped: bool,
 }
 
 /// The pull request's latest plan and apply comments, as far as they were read.
@@ -292,47 +353,49 @@ pub struct Detail {
     pub apply: Option<Section>,
 }
 
-/// Read a pull request's last comments (`body`, `url`), oldest first.
-pub fn read_comments(comments: &[(&str, &str)]) -> Detail {
+/// Read Atlantis's comments of a pull request, oldest first.
+pub fn read_comments(comments: &[Comment]) -> Detail {
     Detail {
         plan: section(comments, "Ran Plan for", "Continued plan output"),
         apply: section(comments, "Ran Apply for", "Continued apply output"),
     }
 }
 
-fn section(comments: &[(&str, &str)], start: &str, continued: &str) -> Option<Section> {
+fn section(comments: &[Comment], start: &str, continued: &str) -> Option<Section> {
     let begins = |body: &str| body.trim_start().starts_with(start);
     let continues = |body: &str| {
         let body = body.trim_start();
         body.starts_with(continued) || body.starts_with("Continued from previous comment")
     };
-    let (from, cut) = match comments.iter().rposition(|(body, _)| begins(body)) {
+    let (from, cut) = match comments.iter().rposition(|c| begins(c.body)) {
         Some(i) => (i, false),
         // The beginning went out of reach: what is left still counts.
-        None => (comments.iter().position(|(body, _)| continues(body))?, true),
+        None => (comments.iter().position(|c| continues(c.body))?, true),
     };
-    let parts: Vec<&(&str, &str)> = comments[from..]
+    let parts: Vec<&Comment> = comments[from..]
         .iter()
         .enumerate()
-        .take_while(|(i, (body, _))| *i == 0 || continues(body))
+        .take_while(|(i, c)| *i == 0 || continues(c.body))
         .map(|(_, c)| c)
         .collect();
-    let url = parts
+    let first = parts
         .first()
-        .map(|(_, url)| *url)
-        .filter(|u| is_github_url(u))?;
+        .filter(|c| crate::github::is_github_url(c.url))?;
     let mut read = Section {
-        url: url.into(),
+        url: first.url.into(),
+        created_at: first.created_at.chars().take(25).collect(),
         projects: Vec::new(),
         cut,
+        capped: false,
     };
-    'parts: for (body, _) in parts {
+    let mut groups = 0usize;
+    'parts: for comment in parts {
         // Each comment is a document of its own: its fences open and close in it.
         let mut fenced = false;
         // After "**Plan Error**": its block's first "Error: …" line, else its first line.
         let mut error_block = false;
         let mut plain_error = false;
-        for line in body.lines() {
+        for line in comment.body.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("```") {
                 fenced = !fenced;
@@ -343,7 +406,11 @@ fn section(comments: &[(&str, &str)], start: &str, continued: &str) -> Option<Se
             }
             if !fenced {
                 if let Some(project) = header(trimmed) {
-                    read.projects.push(project);
+                    if read.projects.len() < MAX_PROJECTS {
+                        read.projects.push(project);
+                    } else {
+                        read.capped = true;
+                    }
                     continue;
                 }
                 if trimmed.starts_with("### Plan Summary")
@@ -397,10 +464,23 @@ fn section(comments: &[(&str, &str)], start: &str, continued: &str) -> Option<Se
             }
             if let Some((op, address)) = change_line(words) {
                 let project = current(&mut read.projects);
-                let key = (op, resource_type(address).to_owned());
-                if !project.changes.contains_key(&key) && project.changes.len() >= MAX_GROUPS {
-                    read.cut = true;
-                    continue;
+                project.ops[op as usize] = project.ops[op as usize].saturating_add(1);
+                let kind: String = resource_type(address)
+                    .chars()
+                    .take(MAX_NAME_CHARS)
+                    .collect();
+                let key = (op, kind);
+                if !project.changes.contains_key(&key) {
+                    let room = if matches!(op, Op::Destroy | Op::Replace) {
+                        MAX_DANGER_GROUPS
+                    } else {
+                        MAX_GROUPS
+                    };
+                    if groups >= room {
+                        read.capped = true;
+                        continue;
+                    }
+                    groups += 1;
                 }
                 let (count, _) = project
                     .changes
@@ -483,22 +563,37 @@ fn change_line(line: &str) -> Option<(Op, &str)> {
     })
 }
 
-/// "module.vpc.module.x[\"a\"].aws_subnet.private[0]" → "aws_subnet".
+/// "module.vpc.module.x[\"a.b]\"].aws_subnet.private[0]" → "aws_subnet".
 fn resource_type(address: &str) -> &str {
     let mut rest = address;
     loop {
         if let Some(after) = rest.strip_prefix("module.") {
-            // A module's name, with its key in brackets, up to the next dot.
-            let mut depth = 0i32;
-            let end = after.char_indices().find_map(|(i, c)| {
+            // A module's name, with its key in brackets (quoted keys may hold
+            // dots and brackets), up to the next dot.
+            let (mut depth, mut quoted, mut escaped) = (0i32, false, false);
+            let mut end = None;
+            for (i, c) in after.char_indices() {
+                if quoted {
+                    if escaped {
+                        escaped = false;
+                    } else if c == '\\' {
+                        escaped = true;
+                    } else if c == '"' {
+                        quoted = false;
+                    }
+                    continue;
+                }
                 match c {
+                    '"' => quoted = true,
                     '[' => depth += 1,
                     ']' => depth -= 1,
-                    '.' if depth == 0 => return Some(i),
+                    '.' if depth == 0 => {
+                        end = Some(i);
+                        break;
+                    }
                     _ => {}
                 }
-                None
-            });
+            }
             match end {
                 Some(i) => rest = &after[i + 1..],
                 None => return address,
@@ -532,64 +627,120 @@ fn clip(text: &str) -> String {
     crate::session::truncate(clean.trim(), MAX_ERROR_CHARS)
 }
 
-fn is_github_url(url: &str) -> bool {
-    url.starts_with("https://github.com/")
-        && url.chars().count() <= 512
-        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+/// GitHub's "2026-11-25T10:00:00Z" in seconds since 1970; `None` for
+/// anything else (days from civil: H. Hinnant's algorithm).
+fn epoch_secs(time: &str) -> Option<i64> {
+    let b = time.as_bytes();
+    let shape = b.len() == 20
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b'T'
+        && b[13] == b':'
+        && b[16] == b':'
+        && b[19] == b'Z';
+    if !shape {
+        return None;
+    }
+    let num = |from: usize, to: usize| -> Option<i64> {
+        let text = time.get(from..to)?;
+        text.bytes()
+            .all(|c| c.is_ascii_digit())
+            .then(|| text.parse().ok())?
+    };
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (hour, minute, second) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+}
+
+/// A comment posted at `posted` belongs to the run whose last status came at
+/// `run`: Atlantis posts it seconds before; an older run's is minutes away.
+fn same_run(posted: &str, run: &str) -> bool {
+    match (epoch_secs(posted), epoch_secs(run)) {
+        (Some(posted), Some(run)) => (posted - run).abs() <= SAME_RUN_SECS,
+        _ => false,
+    }
 }
 
 /// The statuses' run with the comments' detail: the changes grouped, the
 /// data at risk, the environment by folder, the error or the lock. The
 /// counts are the comments' when they add up to the statuses' (replacements
-/// told apart); otherwise the statuses', and the list is partial.
+/// told apart) or show more going; otherwise the statuses', and the list is
+/// partial. Only comments posted for this very run count.
 pub fn with_detail(mut plan: Plan, detail: Option<&Detail>) -> Plan {
-    let Some(detail) = detail.filter(|_| plan.stage != Stage::Planning) else {
-        return plan;
-    };
-    if matches!(plan.stage, Stage::ApplyFailed) {
+    let detail = detail.filter(|_| plan.stage != Stage::Planning);
+    if plan.stage == Stage::ApplyFailed {
         plan.error = detail
-            .apply
-            .iter()
-            .flat_map(|s| &s.projects)
-            .find_map(|p| p.error.clone());
+            .and_then(|d| d.apply.as_ref())
+            .filter(|s| same_run(&s.created_at, &plan.at))
+            .and_then(|s| s.projects.iter().find_map(|p| p.error.clone()));
     }
-    let Some(section) = &detail.plan else {
-        return plan;
-    };
+    let section = detail
+        .and_then(|d| d.plan.as_ref())
+        .filter(|s| same_run(&s.created_at, &plan.planned_at));
+    if let Some(section) = section {
+        merge(&mut plan, section);
+    }
+    plan.alerts = alerts(&plan);
+    plan
+}
+
+fn merge(plan: &mut Plan, section: &Section) {
     plan.comment_url = Some(section.url.clone());
+    let mut ops = [0u64; 4];
+    for project in &section.projects {
+        for (sum, n) in ops.iter_mut().zip(project.ops) {
+            *sum += u64::from(n);
+        }
+    }
+    let [destroy, replace, change, add] = ops;
+    let adds_up = !section.cut
+        && add + replace == u64::from(plan.add)
+        && destroy + replace == u64::from(plan.destroy)
+        && change == u64::from(plan.change);
+    // The statuses read one "Plan:" line per project: a project that prints
+    // several (a run-all) may hide what goes; the comment never does.
+    let more_going = !section.cut && destroy + replace > u64::from(plan.destroy);
+    let clamp = |n: u64| u32::try_from(n).unwrap_or(u32::MAX);
+    if adds_up || more_going {
+        (plan.add, plan.change, plan.replace, plan.destroy) =
+            (clamp(add), clamp(change), clamp(replace), clamp(destroy));
+        plan.partial = section.capped;
+    }
     let changed: Vec<&Project> = section
         .projects
         .iter()
         .filter(|p| !p.changes.is_empty())
         .collect();
-    let (mut add, mut change, mut replace, mut destroy) = (0u32, 0u32, 0u32, 0u32);
-    let mut groups = Vec::new();
-    for project in &changed {
-        let label = (changed.len() > 1).then(|| project_label(project));
-        for ((op, kind), (count, address)) in &project.changes {
-            match op {
-                Op::Add => add += count,
-                Op::Change => change += count,
-                Op::Replace => replace += count,
-                Op::Destroy => destroy += count,
-            }
-            groups.push(Group {
-                project: label.clone(),
-                op: *op,
-                kind: kind.clone(),
-                count: *count,
-                address: address.clone(),
-            });
-        }
-    }
-    let adds_up = !section.cut
-        && add + replace == plan.add
-        && destroy + replace == plan.destroy
-        && change == plan.change;
-    if adds_up {
-        (plan.add, plan.change, plan.replace, plan.destroy) = (add, change, replace, destroy);
-        plan.partial = false;
-    }
+    let mut groups: Vec<Group> = changed
+        .iter()
+        .flat_map(|project| {
+            let label = (changed.len() > 1).then(|| project_label(project));
+            project
+                .changes
+                .iter()
+                .map(move |((op, kind), (count, address))| Group {
+                    project: label.clone(),
+                    op: *op,
+                    kind: kind.clone(),
+                    count: *count,
+                    address: address.clone(),
+                })
+        })
+        .collect();
     // The project with the most dangerous change first; in each, the most
     // dangerous, then the most numerous.
     let mut worst: BTreeMap<Option<String>, Op> = BTreeMap::new();
@@ -609,20 +760,18 @@ pub fn with_detail(mut plan: Plan, detail: Option<&Detail>) -> Plan {
         };
         key(a).cmp(&key(b))
     });
-    if groups.len() > MAX_GROUPS {
-        groups.truncate(MAX_GROUPS);
+    for g in &groups {
+        if matches!(g.op, Op::Destroy | Op::Replace)
+            && DATA.contains(&g.kind.as_str())
+            && !plan.data.contains(&g.kind)
+        {
+            plan.data.push(g.kind.clone());
+        }
+    }
+    if groups.len() > SHOWN_GROUPS {
+        groups.truncate(SHOWN_GROUPS);
         plan.partial = true;
     }
-    plan.data = groups
-        .iter()
-        .filter(|g| matches!(g.op, Op::Destroy | Op::Replace) && DATA.contains(&g.kind.as_str()))
-        .map(|g| g.kind.clone())
-        .fold(Vec::new(), |mut kinds, kind| {
-            if !kinds.contains(&kind) {
-                kinds.push(kind);
-            }
-            kinds
-        });
     plan.groups = groups;
     plan.drift = section.projects.iter().any(|p| p.drift);
     let envs: Vec<&str> = section
@@ -634,19 +783,53 @@ pub fn with_detail(mut plan: Plan, detail: Option<&Detail>) -> Plan {
         plan.env = Some((*env).to_owned());
         plan.production = envs.iter().any(|e| is_production(e));
     }
-    if matches!(plan.stage, Stage::PlanFailed) {
-        let failed: Vec<&Project> = section
+    if plan.stage == Stage::PlanFailed {
+        let locked: Vec<&Project> = section
             .projects
             .iter()
-            .filter(|p| p.error.is_some() || p.locked_by.is_some())
+            .filter(|p| p.locked_by.is_some())
             .collect();
-        plan.locked_by = failed.iter().find_map(|p| p.locked_by);
-        plan.error = failed.iter().find_map(|p| p.error.clone());
-        if !failed.is_empty() && failed.iter().all(|p| p.locked_by.is_some()) {
+        let errors: Vec<&Project> = section
+            .projects
+            .iter()
+            .filter(|p| p.error.is_some() && p.locked_by.is_none())
+            .collect();
+        plan.locked_by = locked.first().and_then(|p| p.locked_by);
+        plan.error = errors
+            .first()
+            .or(locked.first())
+            .and_then(|p| p.error.clone());
+        // Only when every failure the statuses count is a lock in sight.
+        if plan.failed > 0 && locked.len() >= plan.failed as usize && errors.is_empty() {
             plan.stage = Stage::Locked;
         }
     }
-    plan
+}
+
+/// What deserves care, the most serious first.
+fn alerts(plan: &Plan) -> Vec<Alert> {
+    let mut out = Vec::new();
+    let goes = plan.destroy > 0 || plan.replace > 0;
+    if !plan.data.is_empty() {
+        out.push(Alert::Data);
+    } else if plan.production && goes {
+        out.push(Alert::Production);
+    }
+    if plan.drift {
+        out.push(Alert::Drift);
+    }
+    let failed = matches!(
+        plan.stage,
+        Stage::PlanFailed | Stage::Locked | Stage::ApplyFailed
+    );
+    if plan.partial && !failed {
+        out.push(if plan.groups.is_empty() {
+            Alert::NoDetail
+        } else {
+            Alert::Partial
+        });
+    }
+    out
 }
 
 /// "production · components/compute/ec2/web": the environment and the
@@ -668,8 +851,19 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    const AT: &str = "2026-11-25T10:00:00Z";
+    const POSTED: &str = "2026-11-25T09:59:58Z";
+
     fn status(context: &str, state: &str, description: &str, at: &str) -> Value {
         json!({"context": context, "state": state, "description": description, "createdAt": at})
+    }
+
+    fn comment<'a>(body: &'a str, url: &'a str) -> Comment<'a> {
+        Comment {
+            body,
+            url,
+            created_at: POSTED,
+        }
     }
 
     #[test]
@@ -694,11 +888,8 @@ mod tests {
         // Without a region, a production folder anywhere.
         assert_eq!(environment("live/prd/vpc"), Some("prd"));
         assert_eq!(environment("live/staging/vpc"), None);
-        assert!(
-            is_production("Production")
-                && !is_production("pre-prod")
-                && !is_production("networking")
-        );
+        assert!(is_production("Production") && !is_production("pre-prod"));
+        assert!(!is_production("networking"));
         assert!(is_region("us-gov-west-1") && !is_region("pre-prod") && !is_region("sa-east-1a"));
     }
 
@@ -709,23 +900,18 @@ mod tests {
             None
         );
         let planning = json!([
-            status(
-                "atlantis/plan",
-                "PENDING",
-                "Plan in progress...",
-                "2026-11-25T10:00:00Z"
-            ),
+            status("atlantis/plan", "PENDING", "Plan in progress...", AT),
             status(
                 "atlantis/plan: a_production_sa-east-1_x",
                 "SUCCESS",
                 "Plan: 2 to add, 1 to change, 1 to destroy.",
-                "2026-11-25T10:01:00Z"
+                AT
             ),
             status(
                 "atlantis/plan: b_pre-prod_sa-east-1_y",
                 "PENDING",
                 "Plan in progress...",
-                "2026-11-25T10:01:01Z"
+                AT
             ),
         ]);
         let plan = from_statuses(&planning).unwrap();
@@ -740,72 +926,132 @@ mod tests {
             (Stage::Planning, 1, 2, 1, 1)
         );
         assert_eq!(
-            (plan.env.as_deref(), plan.production, plan.partial),
-            (Some("production"), true, true)
+            (plan.env.as_deref(), plan.production),
+            (Some("production"), true)
         );
         let planned = json!([
             status(
                 "atlantis/plan",
                 "SUCCESS",
                 "2/2 projects planned successfully.",
-                "2026-11-25T10:02:00Z"
+                AT
             ),
             status(
                 "atlantis/plan: a",
                 "SUCCESS",
                 "Plan: 1 to import, 3 to add, 0 to change, 0 to destroy.",
-                "t"
+                AT
             ),
             status(
                 "atlantis/plan: b",
                 "SUCCESS",
                 "No changes. Your infrastructure matches the configuration.",
-                "t"
+                AT
             ),
-            status("atlantis/plan: c", "SUCCESS", "", "t"),
+            status("atlantis/plan: c", "SUCCESS", "", AT),
+            status(
+                "atlantis/pre_workflow_hook: graph",
+                "FAILURE",
+                "failed.",
+                AT
+            ),
         ]);
         let plan = from_statuses(&planned).unwrap();
         assert_eq!(
             (plan.stage, plan.projects, plan.unchanged, plan.add),
             (Stage::Planned, 3, 2, 3)
         );
-        assert_eq!(plan.at, "2026-11-25T10:02:00Z");
+        assert_eq!((plan.at.as_str(), plan.checks_failed), (AT, false));
+        assert_eq!(plan.alerts, [Alert::NoDetail]);
         let failed = json!([
             status(
                 "atlantis/plan",
                 "FAILURE",
                 "1/2 projects planned successfully.",
-                "t"
+                AT
             ),
-            status("atlantis/plan: a", "FAILURE", "Plan failed.", "t")
+            status("atlantis/plan: a", "FAILURE", "Plan failed.", AT),
+            status("ci/lint", "FAILURE", "", AT),
         ]);
-        assert_eq!(from_statuses(&failed).unwrap().stage, Stage::PlanFailed);
+        let plan = from_statuses(&failed).unwrap();
+        assert_eq!(
+            (plan.stage, plan.failed, plan.checks_failed),
+            (Stage::PlanFailed, 1, true)
+        );
+        // Counts at the limit saturate, never overflow.
+        let huge = json!([
+            status("atlantis/plan", "SUCCESS", "", AT),
+            status(
+                "atlantis/plan: a",
+                "SUCCESS",
+                "Plan: 4294967295 to add, 1 to change, 0 to destroy.",
+                AT
+            ),
+            status(
+                "atlantis/plan: b",
+                "SUCCESS",
+                "Plan: 9 to add, 0 to change, 0 to destroy.",
+                AT
+            ),
+        ]);
+        assert_eq!(from_statuses(&huge).unwrap().add, u32::MAX);
     }
 
     #[test]
-    fn an_apply_after_the_plan_sets_the_stage_and_a_plan_run_again_wins() {
-        let run = |apply: &str, apply_at: &str, plan_at: &str| {
-            from_statuses(&json!([
-                status("atlantis/plan", "SUCCESS", "", plan_at),
-                status("atlantis/apply", apply, "", apply_at),
-            ]))
-            .unwrap()
-            .stage
+    fn an_apply_counts_after_the_plan_with_projects_of_its_own() {
+        let run = |apply: &str, description: &str, apply_at: &str, project: Option<&str>| {
+            let mut statuses = vec![
+                status("atlantis/plan", "SUCCESS", "", AT),
+                status("atlantis/apply", apply, description, apply_at),
+            ];
+            if let Some(at) = project {
+                statuses.push(status(
+                    "atlantis/apply: a",
+                    "SUCCESS",
+                    "Apply succeeded.",
+                    at,
+                ));
+            }
+            from_statuses(&Value::Array(statuses)).unwrap().stage
         };
+        let later = "2026-11-25T10:05:00Z";
         assert_eq!(
-            run("PENDING", "2026-11-25T10:05:00Z", "2026-11-25T10:00:00Z"),
+            run("PENDING", "Apply in progress...", later, None),
             Stage::Applying
         );
         assert_eq!(
-            run("SUCCESS", "2026-11-25T10:05:00Z", "2026-11-25T10:00:00Z"),
+            run(
+                "SUCCESS",
+                "1/1 projects applied successfully.",
+                later,
+                Some(later)
+            ),
             Stage::Applied
         );
+        assert_eq!(run("FAILURE", "", later, Some(later)), Stage::ApplyFailed);
+        // Nothing to apply: Atlantis marks it done with no project.
         assert_eq!(
-            run("FAILURE", "2026-11-25T10:05:00Z", "2026-11-25T10:00:00Z"),
-            Stage::ApplyFailed
+            run("SUCCESS", "0/0 projects applied successfully.", AT, None),
+            Stage::Planned
         );
+        // Some projects applied, the rest still planned.
         assert_eq!(
-            run("FAILURE", "2026-11-25T10:05:00Z", "2026-11-25T10:09:00Z"),
+            run(
+                "PENDING",
+                "1/3 projects applied successfully.",
+                later,
+                Some(later)
+            ),
+            Stage::Planned
+        );
+        // A plan run again later wins.
+        assert_eq!(
+            run(
+                "FAILURE",
+                "",
+                "2026-11-25T09:00:00Z",
+                Some("2026-11-25T09:00:00Z")
+            ),
             Stage::Planned
         );
     }
@@ -831,19 +1077,25 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
     #[test]
     fn a_single_project_plan_reads_its_changes_and_drift() {
         let detail = read_comments(&[
-            ("lgtm", "https://github.com/a/b/pull/1#c0"),
-            (SINGLE, "https://github.com/a/b/pull/1#c1"),
+            comment("lgtm", "https://github.com/a/b/pull/1#c0"),
+            comment(SINGLE, "https://github.com/a/b/pull/1#c1"),
         ]);
         let plan = detail.plan.unwrap();
         assert_eq!(
-            (plan.url.as_str(), plan.cut, plan.projects.len()),
-            ("https://github.com/a/b/pull/1#c1", false, 1)
+            (
+                plan.url.as_str(),
+                plan.created_at.as_str(),
+                plan.cut,
+                plan.projects.len()
+            ),
+            ("https://github.com/a/b/pull/1#c1", POSTED, false, 1)
         );
         let project = &plan.projects[0];
         assert_eq!(
             (project.name.as_str(), project.drift, project.no_changes),
             ("web", true, false)
         );
+        assert_eq!(project.ops, [4, 0, 0, 0]);
         assert_eq!(
             project.changes[&(
                 Op::Destroy,
@@ -864,9 +1116,9 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
         let second = "Continued plan output from previous comment.\n<details><summary>Show Output</summary>\n\n```diff\n10:00:00.000 STDOUT terraform:   # aws_db_parameter_group.orders will be updated in-place\n```\n</details>\n\nPlan: 1 to add, 1 to change, 1 to destroy.\n\n---\n### 2. project: `b` dir: `x/pre-prod/sa-east-1/app` workspace: `default`\n```diff\nNo changes. Your infrastructure matches the configuration.\n```\n---\n### Plan Summary\n";
         let apply = "Ran Apply for project: `a` dir: `x/production/sa-east-1/db` workspace: `default`\n\n**Apply Error**\n<details><summary>Show Output</summary>\n\n```\nrunning terragrunt\n10:00:00.000 STDERR terraform: │ Error: creating RDS DB Instance: quota exceeded\n```\n</details>";
         let detail = read_comments(&[
-            (first, "https://github.com/a/b/pull/2#c1"),
-            (second, "https://github.com/a/b/pull/2#c2"),
-            (apply, "https://github.com/a/b/pull/2#c3"),
+            comment(first, "https://github.com/a/b/pull/2#c1"),
+            comment(second, "https://github.com/a/b/pull/2#c2"),
+            comment(apply, "https://github.com/a/b/pull/2#c3"),
         ]);
         let plan = detail.plan.unwrap();
         assert_eq!(plan.projects.len(), 2);
@@ -878,34 +1130,39 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
             Some("creating RDS DB Instance: quota exceeded")
         );
         // Only the end of a long plan in reach: still read, marked cut.
-        let detail = read_comments(&[(second, "https://github.com/a/b/pull/2#c2")]);
+        let detail = read_comments(&[comment(second, "https://github.com/a/b/pull/2#c2")]);
         assert!(detail.plan.unwrap().cut);
     }
 
-    #[test]
-    fn the_detail_tells_replacements_apart_groups_by_project_and_flags_data_and_production() {
+    fn two_projects() -> (Value, Detail) {
         let statuses = json!([
             status(
                 "atlantis/plan",
                 "SUCCESS",
                 "2/2 projects planned successfully.",
-                "t"
+                AT
             ),
             status(
                 "atlantis/plan: a",
                 "SUCCESS",
                 "Plan: 1 to add, 1 to change, 1 to destroy.",
-                "t"
+                AT
             ),
             status(
                 "atlantis/plan: b",
                 "SUCCESS",
                 "Plan: 2 to add, 0 to change, 0 to destroy.",
-                "t"
+                AT
             ),
         ]);
         let text = "Ran Plan for 2 projects:\n### 1. project: `a` dir: `x/production/sa-east-1/data/rds` workspace: `default`\n```diff\n  # aws_db_instance.orders must be replaced\n  # aws_db_parameter_group.orders will be updated in-place\n```\n### 2. project: `b` dir: `x/pre-prod/sa-east-1/app` workspace: `default`\n```diff\n  # aws_instance.a will be created\n  # aws_instance.b will be created\n```\n";
-        let detail = read_comments(&[(text, "https://github.com/a/b/pull/3#c1")]);
+        let detail = read_comments(&[comment(text, "https://github.com/a/b/pull/3#c1")]);
+        (statuses, detail)
+    }
+
+    #[test]
+    fn the_detail_tells_replacements_apart_groups_by_project_and_flags_data_and_production() {
+        let (statuses, detail) = two_projects();
         let plan = with_detail(from_statuses(&statuses).unwrap(), Some(&detail));
         assert_eq!(
             (
@@ -921,7 +1178,13 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
             (plan.env.as_deref(), plan.production),
             (Some("production"), true)
         );
-        assert_eq!(plan.data, ["aws_db_instance"]);
+        assert_eq!(
+            (plan.data.as_slice(), plan.alerts.as_slice()),
+            (
+                ["aws_db_instance".to_owned()].as_slice(),
+                [Alert::Data].as_slice()
+            )
+        );
         assert_eq!(
             plan.groups[0].project.as_deref(),
             Some("production · data/rds")
@@ -943,48 +1206,76 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
             plan.comment_url.as_deref(),
             Some("https://github.com/a/b/pull/3#c1")
         );
-        // Counts that do not add up (an older comment): the statuses' stand.
-        let stale = json!([
-            status("atlantis/plan", "SUCCESS", "", "t"),
-            status(
-                "atlantis/plan: a",
-                "SUCCESS",
-                "Plan: 5 to add, 0 to change, 0 to destroy.",
-                "t"
-            )
-        ]);
-        let plan = with_detail(from_statuses(&stale).unwrap(), Some(&detail));
-        assert_eq!((plan.add, plan.replace, plan.partial), (5, 0, true));
     }
 
     #[test]
-    fn a_plan_failed_on_a_lock_waits_and_another_failure_says_why() {
-        let statuses = json!([
-            status(
-                "atlantis/plan",
-                "FAILURE",
-                "0/1 projects planned successfully.",
-                "t"
+    fn a_comment_of_another_run_or_out_of_step_counts_is_not_taken_for_this_one() {
+        let (statuses, detail) = two_projects();
+        // Posted for a run minutes before: none of it shows.
+        let mut older = detail.clone();
+        older.plan.as_mut().unwrap().created_at = "2026-11-25T09:50:00Z".into();
+        let plan = with_detail(from_statuses(&statuses).unwrap(), Some(&older));
+        assert_eq!(
+            (
+                plan.groups.len(),
+                plan.comment_url.as_deref(),
+                plan.alerts.as_slice()
             ),
-            status("atlantis/plan: a", "FAILURE", "Plan failed.", "t")
+            (0, None, [Alert::NoDetail].as_slice())
+        );
+        // Counts that do not add up: the statuses' stand, the list is partial.
+        let stale = json!([
+            status("atlantis/plan", "SUCCESS", "", AT),
+            status(
+                "atlantis/plan: a",
+                "SUCCESS",
+                "Plan: 5 to add, 0 to change, 3 to destroy.",
+                AT
+            ),
         ]);
+        let plan = with_detail(from_statuses(&stale).unwrap(), Some(&detail));
+        assert_eq!(
+            (plan.add, plan.replace, plan.destroy, plan.partial),
+            (5, 0, 3, true)
+        );
+        // More going in the comment than the statuses say: the comment wins.
+        let short = json!([
+            status("atlantis/plan", "SUCCESS", "", AT),
+            status(
+                "atlantis/plan: a",
+                "SUCCESS",
+                "Plan: 3 to add, 1 to change, 0 to destroy.",
+                AT
+            ),
+        ]);
+        let plan = with_detail(from_statuses(&short).unwrap(), Some(&detail));
+        assert_eq!((plan.replace, plan.destroy), (1, 0));
+    }
+
+    #[test]
+    fn a_plan_failed_on_locks_alone_waits_and_another_failure_says_why() {
+        let statuses = |failed: usize| {
+            let mut all = vec![status("atlantis/plan", "FAILURE", "", AT)];
+            for i in 0..failed {
+                all.push(status(
+                    &format!("atlantis/plan: p{i}"),
+                    "FAILURE",
+                    "Plan failed.",
+                    AT,
+                ));
+            }
+            Value::Array(all)
+        };
         let locked = "Ran Plan for dir: `live/prd/dns` workspace: `default`\n\n**Plan Error**\n```\nThis project is currently locked by an unapplied plan from pull #331. To continue, delete the lock from #331 or apply that plan and merge the pull request.\n```";
-        let plan = with_detail(
-            from_statuses(&statuses).unwrap(),
-            Some(&read_comments(&[(
-                locked,
-                "https://github.com/a/b/pull/4#c",
-            )])),
-        );
+        let detail = read_comments(&[comment(locked, "https://github.com/a/b/pull/4#c")]);
+        let plan = with_detail(from_statuses(&statuses(1)).unwrap(), Some(&detail));
         assert_eq!((plan.stage, plan.locked_by), (Stage::Locked, Some(331)));
+        // Two failures, one lock in sight: the other may be a real error.
+        let plan = with_detail(from_statuses(&statuses(2)).unwrap(), Some(&detail));
+        assert_eq!(plan.stage, Stage::PlanFailed);
         let failed = "Ran Plan for dir: `live/prd/dns` workspace: `default`\n\n**Plan Failed**: Can't plan your project unless you apply its dependencies";
-        let plan = with_detail(
-            from_statuses(&statuses).unwrap(),
-            Some(&read_comments(&[(
-                failed,
-                "https://github.com/a/b/pull/4#c",
-            )])),
-        );
+        let detail = read_comments(&[comment(failed, "https://github.com/a/b/pull/4#c")]);
+        let plan = with_detail(from_statuses(&statuses(1)).unwrap(), Some(&detail));
         assert_eq!(plan.stage, Stage::PlanFailed);
         assert_eq!(
             plan.error.as_deref(),
@@ -993,7 +1284,42 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
     }
 
     #[test]
-    fn odd_lines_are_left_alone() {
+    fn what_goes_keeps_its_place_when_a_comment_has_too_much() {
+        let mut text = String::from("Ran Plan for dir: `a` workspace: `default`\n```diff\n");
+        for i in 0..MAX_GROUPS + 5 {
+            text.push_str(&format!("  # aws_thing_{i}.x will be created\n"));
+        }
+        text.push_str("  # aws_s3_bucket.logs will be destroyed\n```\n");
+        let detail = read_comments(&[comment(&text, "https://github.com/a/b/pull/5#c")]);
+        let section = detail.plan.as_ref().unwrap();
+        assert!(section.capped);
+        assert_eq!(
+            section.projects[0].ops[Op::Add as usize] as usize,
+            MAX_GROUPS + 5
+        );
+        let statuses = json!([
+            status("atlantis/plan", "SUCCESS", "", AT),
+            status(
+                "atlantis/plan: a",
+                "SUCCESS",
+                &format!(
+                    "Plan: {} to add, 0 to change, 1 to destroy.",
+                    MAX_GROUPS + 5
+                ),
+                AT
+            ),
+        ]);
+        let plan = with_detail(from_statuses(&statuses).unwrap(), Some(&detail));
+        assert_eq!(
+            (plan.destroy, plan.partial, plan.data.as_slice()),
+            (1, true, ["aws_s3_bucket".to_owned()].as_slice())
+        );
+        assert_eq!(plan.groups[0].kind, "aws_s3_bucket");
+        assert_eq!(plan.groups.len(), SHOWN_GROUPS);
+    }
+
+    #[test]
+    fn odd_lines_and_times_are_left_alone() {
         assert_eq!(
             change_line("# (because aws_x.y is not in configuration) will be destroyed"),
             None
@@ -1001,6 +1327,10 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
         assert_eq!(change_line("+ #!/bin/bash will be created"), None);
         assert_eq!(
             resource_type("module.a[\"x.y\"].module.b.aws_s3_bucket.logs"),
+            "aws_s3_bucket"
+        );
+        assert_eq!(
+            resource_type("module.a[\"x]y.z\"].aws_s3_bucket.logs"),
             "aws_s3_bucket"
         );
         assert_eq!(resource_type("data.aws_ami.ubuntu"), "aws_ami");
@@ -1021,11 +1351,23 @@ Plan: 0 to add, 0 to change, 4 to destroy.";
             Some((1, 2, 3))
         );
         assert_eq!(plan_counts("Plan: lots"), None);
-        assert!(read_comments(&[(
-            "Ran Plan for dir: `a` workspace: `b`",
-            "javascript:alert(1)"
-        )])
-        .plan
-        .is_none());
+        assert_eq!(epoch_secs("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(epoch_secs(AT), Some(1_795_600_800));
+        assert_eq!(epoch_secs("2000-02-29T23:59:59Z"), Some(951_868_799));
+        for bad in [
+            "",
+            "2026-11-25 10:00:00Z",
+            "2026-13-25T10:00:00Z",
+            "2026-11-25T10:00:+0Z",
+        ] {
+            assert_eq!(epoch_secs(bad), None, "{bad}");
+        }
+        assert!(same_run(POSTED, AT) && !same_run("2026-11-25T09:55:00Z", AT) && !same_run("", AT));
+        let fake = Comment {
+            body: "Ran Plan for dir: `a` workspace: `b`",
+            url: "javascript:alert(1)",
+            created_at: POSTED,
+        };
+        assert!(read_comments(&[fake]).plan.is_none());
     }
 }

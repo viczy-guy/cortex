@@ -262,9 +262,10 @@ export interface Plan {
   production: boolean;
   /** Resource types whose data a destroy or a replace loses. */
   data: string[];
-  drift: boolean;
+  /** What deserves care, the most serious first. */
+  alerts: ("data" | "production" | "drift" | "partial" | "no_detail")[];
   groups: PlanGroup[];
-  /** The counts come from the statuses: the list shows part of the plan. */
+  /** The list shows part of the plan, or none of it. */
   partial: boolean;
   error: string | null;
   locked_by: number | null;
