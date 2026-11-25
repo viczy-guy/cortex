@@ -218,6 +218,7 @@ export const api = {
   splashDone: () => invoke<void>("splash_done"),
   /** The launch's opening screen is still up: the island waits (#152). */
   openingShown: () => invoke<boolean>("opening_shown"),
+  awayNow: () => invoke<boolean>("away_now"),
   openSettings: () => invoke<void>("open_settings"),
   quit: () => invoke<void>("quit"),
   snapshot: () => invoke<Snapshot>("snapshot"),

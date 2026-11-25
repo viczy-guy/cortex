@@ -108,6 +108,8 @@ let away = false;
 const kept = new Map<string, ViewNotice>();
 /** The pink summary of what was kept, until See all or Dismiss (#157). */
 const awaySummary = new Map<string, ViewNotice>();
+/** The summary's notices as they stand, worked out once per render. */
+let summaryNow: ViewNotice[] = [];
 /** The summary's soft sound is owed: it rings once, when the summary first shows. */
 let summaryOwed = false;
 /** A card came while nobody was looking: its sound rings once somebody is back. */
@@ -259,18 +261,34 @@ function updateTone(): void {
   if (saying && (rank(saying.tone) < rank(tone) || !activeNotices().some((n) => n.key === saying?.key))) stopSaying();
 }
 
-/** The summary's notices still standing; one clicked away or gone leaves it (#157). */
-function summaryNotices(): ViewNotice[] {
-  if (awaySummary.size === 0) return [];
-  const standing = new Set(activeNotices().map((n) => n.key));
-  for (const key of awaySummary.keys()) if (!standing.has(key)) awaySummary.delete(key);
+/**
+ * The summary as it stands (#157): a notice clicked away or gone leaves it,
+ * and each one is taken as it is now (an agent done, then failed, is red).
+ */
+function refreshSummary(): void {
+  if (awaySummary.size > 0) {
+    const standing = new Map(activeNotices().map((n) => [n.key, n]));
+    for (const key of [...awaySummary.keys()]) {
+      const now = standing.get(key);
+      if (now) awaySummary.set(key, now);
+      else awaySummary.delete(key);
+    }
+  }
   if (awaySummary.size === 0) summaryOwed = false;
-  return [...awaySummary.values()];
+  summaryNow = [...awaySummary.values()];
 }
 
 /** The island is pink with the summary: a waiting card comes first (#157). */
 function showsSummary(): boolean {
-  return snapshot.approvals.length === 0 && summaryNotices().length > 0;
+  return snapshot.approvals.length === 0 && summaryNow.length > 0;
+}
+
+/** The summary's soft sound; under a louder one it waits for that one to end. */
+function ringSummary(): void {
+  if (playSound("pink")) return;
+  window.setTimeout(() => {
+    if (sound && awaySummary.size > 0) playSound("pink");
+  }, 2500);
 }
 
 /** "See all" on the summary: the list opens, each notice in its color, and the pink goes. */
@@ -286,6 +304,10 @@ function dismissSummary(): void {
   awaySummary.clear();
   summaryOwed = false;
   acknowledge();
+  // Gone, not opened: the island stays folded until the pointer comes back.
+  window.clearTimeout(hideTimer);
+  hideTimer = undefined;
+  hovered = false;
   render();
 }
 
@@ -353,7 +375,7 @@ function othersStanding(): number {
 function foldedKey(): string {
   const { reviews, failing } = prTotals();
   const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
-  const pink = saying ? "" : summaryNotices().map((n) => n.tone).join();
+  const pink = saying ? "" : summaryNow.map((n) => n.tone).join();
   return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}`;
 }
 
@@ -387,12 +409,7 @@ function render(): void {
   dismissed = new Set([...dismissed].filter((id) => pending.has(id)));
   pruneSelections(pending);
   updateTone();
-  if (summaryOwed && revealed && soundReady && !away && showsSummary()) {
-    // Back, and something came (#157): one soft sound, once, and the mascot jumps.
-    summaryOwed = false;
-    bounce = true;
-    if (sound) playSound("pink");
-  }
+  refreshSummary();
   setBusy(tone !== "gray" || awaySummary.size > 0 || snapshot.sessions.some((s) => s.state === "working" || s.state === "thinking"));
 
   if (isHidden()) {
@@ -405,6 +422,13 @@ function render(): void {
         saying = null;
         render();
       }, SAY_MS);
+    }
+    const pink = !saying && showsSummary();
+    if (pink && summaryOwed && revealed && soundReady && !away) {
+      // Back, and something came (#157): one soft sound, once, and the mascot jumps.
+      summaryOwed = false;
+      bounce = true;
+      if (sound) ringSummary();
     }
     // Same notch: paint nothing. Each paint with the screen locked keeps WebKit
     // retrying to free its buffers, which costs ~1% CPU until unlock (#51).
@@ -420,14 +444,13 @@ function render(): void {
     const before = sizeBefore();
     const fade = folded === null;
     setClass(false);
-    const pink = !saying && showsSummary();
     const node = el("div", saying || pink ? "notch notch--say" : "notch");
     const left = mascotNode();
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
     // A new notice says what happened for a few seconds, and the pink summary
     // stays until a click (#157); beside the camera, on a row under it.
-    const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNotices(), seeAll, dismissSummary) : [];
+    const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNow, seeAll, dismissSummary) : [];
     let top: HTMLElement = node;
     if (cutout) {
       splitAtCamera(node, [left], right);
@@ -886,7 +909,9 @@ async function start(): Promise<void> {
   });
   await listen<boolean>(HOVER_EVENT, (event) => setHovered(event.payload));
   await listen<Gaze>(GAZE_EVENT, ({ payload }) => onGaze(payload));
+  let awayChanged = false;
   await listen<boolean>(AWAY_EVENT, ({ payload }) => {
+    awayChanged = true;
     away = payload;
     if (away) {
       stopSaying();
@@ -908,7 +933,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ }), api.awayNow().then((value) => { if (!awayChanged) away = value; }).catch(() => { /* Somebody is looking until told otherwise. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

@@ -6,19 +6,16 @@
 /// Ten minutes without the mouse or the keyboard: away. The lively mascot
 /// naps after the same time.
 pub const IDLE_SECS: u64 = 10 * 60;
-/// The shell looks this often: a wall clock that jumped further between two
-/// looks means the computer slept.
+/// The shell looks this often, and asks the system each time.
 pub const TICK_SECS: u64 = 2;
-/// How often the system is asked while somebody is there; while nobody is,
-/// on every tick, so coming back shows at once.
-pub const ASK_SECS: u64 = 15;
-/// More than this on the wall clock between two ticks: the computer slept.
+/// More than this on the wall clock between two looks: the computer slept.
 pub const SLEPT_SECS: u64 = 60;
-/// After a sleep, how long coming back waits for GitHub's first answer, so
-/// what came meanwhile is in the summary rather than rung one by one.
+/// After a sleep, how long coming back waits for a GitHub answer asked for
+/// after the wake, so what came meanwhile is in the summary rather than rung
+/// one by one.
 pub const WAKE_WAIT_SECS: u64 = 60;
 
-/// What the system said when last asked.
+/// What the system said at this look.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct System {
     pub locked: bool,
@@ -26,7 +23,7 @@ pub struct System {
     pub idle_secs: u64,
 }
 
-/// One tick's outcome.
+/// One look's outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tick {
     /// Away (`true`) or back (`false`), when that changed.
@@ -39,8 +36,6 @@ pub struct Tick {
 pub struct Presence {
     away: bool,
     last_tick_ms: Option<u64>,
-    asked_ms: Option<u64>,
-    system: System,
     /// When the computer woke, while coming back waits for GitHub.
     woke_ms: Option<u64>,
 }
@@ -50,36 +45,26 @@ impl Presence {
         self.away
     }
 
-    /// Whether this tick asks the system.
-    pub fn asks(&self, now_ms: u64) -> bool {
-        self.away
-            || self
-                .asked_ms
-                .is_none_or(|at| now_ms.saturating_sub(at) >= ASK_SECS * 1000)
-    }
-
-    /// One tick, every [`TICK_SECS`]: `system` is what the system said, when
-    /// [`Presence::asks`]; `answered`, whether GitHub answered since the
-    /// last wake (or is off).
-    pub fn tick(&mut self, now_ms: u64, system: Option<System>, answered: bool) -> Tick {
-        let woke = self
-            .last_tick_ms
-            .is_some_and(|last| now_ms.saturating_sub(last) > SLEPT_SECS * 1000);
-        self.last_tick_ms = Some(now_ms);
-        if let Some(system) = system {
-            self.system = system;
-            self.asked_ms = Some(now_ms);
-        }
+    /// One look, every [`TICK_SECS`]. `github`: when the last good GitHub
+    /// answer was asked for (wall clock, ms; 0 for none yet), `None` while
+    /// GitHub is off.
+    pub fn tick(&mut self, now_ms: u64, system: System, github: Option<u64>) -> Tick {
+        let last = self.last_tick_ms.replace(now_ms);
+        let woke = last.is_some_and(|last| now_ms > last.saturating_add(SLEPT_SECS * 1000));
         if woke {
             self.woke_ms = Some(now_ms);
         }
-        let waiting = self
-            .woke_ms
-            .is_some_and(|at| !answered && now_ms.saturating_sub(at) < WAKE_WAIT_SECS * 1000);
+        // An answer asked for before the wake does not count; a clock set
+        // back ends the wait rather than stretching it.
+        let waiting = self.woke_ms.is_some_and(|at| {
+            now_ms >= at
+                && now_ms - at < WAKE_WAIT_SECS * 1000
+                && github.is_some_and(|asked| asked < at)
+        });
         if !waiting {
             self.woke_ms = None;
         }
-        let away = woke || waiting || self.system.locked || self.system.idle_secs >= IDLE_SECS;
+        let away = woke || waiting || system.locked || system.idle_secs >= IDLE_SECS;
         let changed = (away != self.away).then_some(away);
         self.away = away;
         Tick { changed, woke }
@@ -92,53 +77,41 @@ mod tests {
 
     const S: u64 = 1000;
 
-    fn system(locked: bool, idle_secs: u64) -> Option<System> {
-        Some(System { locked, idle_secs })
+    fn system(locked: bool, idle_secs: u64) -> System {
+        System { locked, idle_secs }
     }
 
     #[test]
     fn somebody_at_the_mouse_is_there_from_the_first_tick() {
         let mut p = Presence::default();
-        assert!(p.asks(0));
-        assert_eq!(p.tick(0, system(false, 3), true).changed, None);
+        assert_eq!(p.tick(0, system(false, 3), Some(0)).changed, None);
         assert!(!p.away());
     }
 
     #[test]
     fn a_locked_screen_or_ten_minutes_idle_is_away_and_a_move_is_back() {
         let mut p = Presence::default();
-        p.tick(0, system(false, 0), true);
-        assert_eq!(p.tick(2 * S, system(true, 2), true).changed, Some(true));
-        assert_eq!(p.tick(4 * S, system(false, 0), true).changed, Some(false));
+        p.tick(0, system(false, 0), None);
+        assert_eq!(p.tick(2 * S, system(true, 2), None).changed, Some(true));
+        assert_eq!(p.tick(4 * S, system(false, 0), None).changed, Some(false));
         assert_eq!(
-            p.tick(6 * S, system(false, IDLE_SECS - 1), true).changed,
+            p.tick(6 * S, system(false, IDLE_SECS - 1), None).changed,
             None
         );
         assert_eq!(
-            p.tick(8 * S, system(false, IDLE_SECS), true).changed,
+            p.tick(8 * S, system(false, IDLE_SECS), None).changed,
             Some(true)
         );
-        assert_eq!(p.tick(10 * S, system(false, 1), true).changed, Some(false));
+        assert_eq!(p.tick(10 * S, system(false, 1), None).changed, Some(false));
     }
 
     #[test]
-    fn the_system_is_asked_every_15_s_while_somebody_is_there_and_on_every_tick_while_nobody_is() {
+    fn a_jump_of_the_wall_clock_is_a_sleep_and_coming_back_waits_for_an_answer_asked_after_it() {
         let mut p = Presence::default();
-        p.tick(0, system(false, 0), true);
-        assert!(!p.asks(2 * S));
-        // Not asked: what it said last stands.
-        assert_eq!(p.tick(2 * S, None, true).changed, None);
-        assert!(p.asks(ASK_SECS * S));
-        p.tick(ASK_SECS * S, system(true, 0), true);
-        assert!(p.asks((ASK_SECS + 2) * S));
-    }
-
-    #[test]
-    fn a_jump_of_the_wall_clock_is_a_sleep_and_coming_back_waits_for_github() {
-        let mut p = Presence::default();
-        p.tick(0, system(false, 0), true);
+        // GitHub answered many times before the night.
+        p.tick(0, system(false, 0), Some(0));
         let night = 8 * 3600 * S;
-        let woke = p.tick(night, system(false, 1), false);
+        let woke = p.tick(night, system(false, 1), Some(10 * S));
         assert_eq!(
             woke,
             Tick {
@@ -146,45 +119,75 @@ mod tests {
                 woke: true
             }
         );
-        // At the keyboard already, but GitHub has not answered yet.
-        assert_eq!(p.tick(night + 2 * S, system(false, 0), false).changed, None);
+        // At the keyboard already, but the answer asked for at once is not in.
         assert_eq!(
-            p.tick(night + 4 * S, system(false, 0), true).changed,
-            Some(false)
-        );
-        // Later answers no longer matter.
-        assert_eq!(p.tick(night + 6 * S, system(false, 0), false).changed, None);
-    }
-
-    #[test]
-    fn a_wake_waits_at_most_a_minute_and_a_lock_keeps_it_away_after() {
-        let mut p = Presence::default();
-        p.tick(0, system(false, 0), true);
-        let wake = 2 * 3600 * S;
-        assert!(p.tick(wake, system(true, 0), false).woke);
-        assert_eq!(
-            p.tick(wake + (WAKE_WAIT_SECS - 1) * S, system(false, 0), false)
+            p.tick(night + 2 * S, system(false, 0), Some(10 * S))
                 .changed,
             None
         );
         assert_eq!(
-            p.tick(wake + WAKE_WAIT_SECS * S, system(false, 0), false)
-                .changed,
+            p.tick(night + 4 * S, system(false, 0), Some(night)).changed,
             Some(false)
         );
-        let wake = wake + 3600 * S;
-        p.tick(wake, system(true, 0), true);
-        // GitHub answered, yet the screen is still locked.
-        assert_eq!(p.tick(wake + 2 * S, system(true, 0), true).changed, None);
-        assert!(p.away());
+        // Later answers no longer matter.
+        assert_eq!(
+            p.tick(night + 6 * S, system(false, 0), Some(10 * S))
+                .changed,
+            None
+        );
     }
 
     #[test]
-    fn a_short_gap_or_a_clock_set_back_is_no_sleep() {
+    fn without_github_or_after_a_minute_coming_back_waits_no_more() {
         let mut p = Presence::default();
-        p.tick(100 * S, system(false, 0), true);
-        assert!(!p.tick(100 * S + SLEPT_SECS * S, None, true).woke);
-        assert!(!p.tick(5 * S, None, true).woke);
+        p.tick(0, system(false, 0), None);
+        let wake = 3600 * S;
+        assert!(p.tick(wake, system(false, 0), None).woke);
+        assert_eq!(
+            p.tick(wake + 2 * S, system(false, 0), None).changed,
+            Some(false)
+        );
+        let wake = wake + 3600 * S;
+        p.tick(wake, system(false, 0), Some(0));
+        let late = wake + (WAKE_WAIT_SECS - 1) * S;
+        assert_eq!(p.tick(late, system(false, 0), Some(0)).changed, None);
+        assert_eq!(
+            p.tick(late + 2 * S, system(false, 0), Some(0)).changed,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn an_answer_does_not_end_a_lock() {
+        let mut p = Presence::default();
+        p.tick(0, system(false, 0), Some(0));
+        let wake = 3600 * S;
+        p.tick(wake, system(true, 0), Some(0));
+        assert_eq!(
+            p.tick(wake + 2 * S, system(true, 0), Some(wake)).changed,
+            None
+        );
+        assert!(p.away());
+        assert_eq!(
+            p.tick(wake + 4 * S, system(false, 0), Some(wake)).changed,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn a_short_gap_is_no_sleep_and_a_clock_set_back_ends_the_wait() {
+        let mut p = Presence::default();
+        p.tick(100 * S, system(false, 0), Some(0));
+        assert!(
+            !p.tick(100 * S + SLEPT_SECS * S, system(false, 0), Some(0))
+                .woke
+        );
         assert!(!p.away());
+        let wake = 3600 * S;
+        assert!(p.tick(wake, system(false, 0), Some(0)).woke);
+        assert_eq!(
+            p.tick(wake - 600 * S, system(false, 0), Some(0)).changed,
+            Some(false)
+        );
     }
 }

@@ -622,6 +622,7 @@ fn main() {
             gaze::island_gaze_origin,
             splash_done,
             opening_shown,
+            away::away_now,
             open_settings,
             quit,
             rules_list,

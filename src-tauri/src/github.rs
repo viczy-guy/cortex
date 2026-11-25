@@ -7,8 +7,9 @@ use cortex_core::{
         CLI_URL, DEVICE_URL, MAX_ACCOUNTS, POLL_SECS, POLL_SLOW_SECS, QUERY,
     },
     notices::{
-        known_from_json, known_to_json, new_since, notices, notifications_path, parse_failed_runs,
-        parse_plans, plan_query, split_poll_interval, FailedRun, PlanCache,
+        keys_to_keep, known_from_json, known_to_json, notices, notifications_path,
+        parse_failed_runs, parse_plans, plan_query, split_poll_interval, FailedRun, LastRun,
+        PlanCache, MAX_KNOWN_BYTES,
     },
     GithubSummary,
 };
@@ -90,8 +91,9 @@ impl Inner {
 pub struct GithubState {
     inner: Mutex<Inner>,
     wake: Notify,
-    /// Polls finished, so coming back from sleep can wait for one (#157).
-    answers: AtomicU64,
+    /// When the last good answer was asked for (wall clock, ms; 0 for none),
+    /// so coming back from a sleep can wait for one asked after it (#157).
+    answered_ms: AtomicU64,
 }
 
 impl GithubState {
@@ -111,7 +113,7 @@ impl GithubState {
                 running: None,
             }),
             wake: Notify::new(),
-            answers: AtomicU64::new(0),
+            answered_ms: AtomicU64::new(0),
         }
     }
 
@@ -123,8 +125,10 @@ impl GithubState {
         self.lock().status.enabled
     }
 
-    pub fn answers(&self) -> u64 {
-        self.answers.load(Ordering::Relaxed)
+    /// When the last good answer was asked for; `None` while GitHub is off.
+    pub fn answered_ms(&self) -> Option<u64> {
+        self.enabled()
+            .then(|| self.answered_ms.load(Ordering::Relaxed))
     }
 
     /// Poll now rather than at the next turn.
@@ -920,37 +924,13 @@ pub fn github_cancel_task(app: AppHandle, state: State<'_, GithubState>) -> Resu
     Ok(())
 }
 
-/// Each account's first good answer after launch names the notices that came
-/// while Cortex was closed (#157); `compared` holds the accounts done.
-fn mark_news(
-    accounts: &mut [AccountStatus],
-    last_run: &BTreeSet<String>,
-    compared: &mut BTreeSet<String>,
-) {
-    for account in accounts {
-        let first = account.state == "ok" && compared.insert(account.login.to_ascii_lowercase());
-        if let Some(summary) = account.summary.as_ref().filter(|_| first) {
-            account.new_since_last_run = new_since(last_run, &summary.notices);
-        }
-    }
-}
-
-/// Every notice the accounts show now, kept for the next launch.
-fn notice_keys(accounts: &[AccountStatus]) -> BTreeSet<String> {
-    accounts
-        .iter()
-        .filter_map(|a| a.summary.as_ref())
-        .flat_map(|s| s.notices.iter().map(|n| n.key.clone()))
-        .collect()
-}
-
 /// Where the notice keys of the last check are kept between launches (#157).
 const KNOWN_FILE: &str = "github-notices.json";
 
 /// The notice keys the last run saw; `None` without a readable file.
 fn load_known() -> Option<BTreeSet<String>> {
     let path = crate::hooks::data_dir().ok()?.join(KNOWN_FILE);
-    match crate::files::read_bounded(&path, 256 * 1024) {
+    match crate::files::read_bounded(&path, MAX_KNOWN_BYTES) {
         Ok(Some(text)) => known_from_json(&text),
         _ => None,
     }
@@ -970,9 +950,9 @@ pub async fn poller(app: AppHandle) {
     // while Cortex was closed (#157). Not once the user changed anything
     // (turning GitHub on, showing an account), which is no coming back.
     let launch_revision = state.lock().revision;
-    let last_run = if state.enabled() { load_known() } else { None };
-    let mut compared = BTreeSet::new();
-    let mut saved = last_run.clone();
+    let loaded = if state.enabled() { load_known() } else { None };
+    let mut saved = loaded.clone();
+    let mut last_run = LastRun::new(loaded);
     loop {
         let request = {
             let inner = state.lock();
@@ -989,6 +969,7 @@ pub async fn poller(app: AppHandle) {
             continue;
         };
         let handle = app.clone();
+        let asked_ms = crate::state::now_ms();
         let result = tauri::async_runtime::spawn_blocking(move || {
             poll(&hidden, || {
                 handle.state::<GithubState>().lock().revision == revision
@@ -1015,17 +996,33 @@ pub async fn poller(app: AppHandle) {
                                 .find(|old| old.login.eq_ignore_ascii_case(&account.login))
                                 .and_then(|old| old.summary.take());
                         }
-                        if let Some(last) =
-                            last_run.as_ref().filter(|_| revision == launch_revision)
-                        {
-                            mark_news(&mut accounts, last, &mut compared);
+                        if revision != launch_revision {
+                            last_run.forget();
+                        }
+                        for account in &mut accounts {
+                            if let Some(summary) = &account.summary {
+                                account.new_since_last_run = last_run.news(
+                                    &account.login,
+                                    account.state == "ok",
+                                    &summary.notices,
+                                );
+                            }
+                        }
+                        if accounts.iter().any(|a| a.state == "ok") {
+                            state.answered_ms.store(asked_ms, Ordering::Relaxed);
                         }
                         status.state = overall_state(accounts.iter().map(|a| a.state));
                         status.accounts = accounts;
                         if status.state == "error" {
                             status.message = Some("GitHub requests failed".into());
                         }
-                        seen_now = Some(notice_keys(&status.accounts));
+                        seen_now = keys_to_keep(
+                            status
+                                .accounts
+                                .iter()
+                                .filter(|a| a.shown && a.state != "signed_out")
+                                .map(|a| a.summary.as_ref()),
+                        );
                     }
                     Ok(PollResult::Missing(installer)) => {
                         status.state = "no_gh";
@@ -1048,11 +1045,14 @@ pub async fn poller(app: AppHandle) {
             state.wake.notified().await;
             continue;
         }
-        state.answers.fetch_add(1, Ordering::Relaxed);
         if let Some(keys) = seen_now.filter(|keys| saved.as_ref() != Some(keys)) {
-            match save_known(&keys) {
-                Ok(()) => saved = Some(keys),
-                Err(err) => eprintln!("cortex: GitHub notices not kept for the next launch: {err}"),
+            let write = keys.clone();
+            match tauri::async_runtime::spawn_blocking(move || save_known(&write)).await {
+                Ok(Ok(())) => saved = Some(keys),
+                Ok(Err(err)) => {
+                    eprintln!("cortex: GitHub notices not kept for the next launch: {err}")
+                }
+                Err(_) => eprintln!("cortex: GitHub notices not kept for the next launch"),
             }
         }
         // Woken every POLL_SECS to look at the lock: unlocking is seen within 15 s.
@@ -1113,61 +1113,5 @@ mod tests {
         assert!(!s.status.enabled);
         assert_eq!(s.status.state, "off");
         assert!(s.status.accounts.is_empty());
-    }
-
-    #[test]
-    fn only_the_first_good_answer_of_each_account_names_what_came_while_closed() {
-        use cortex_core::notices::{Notice, NoticeKind};
-        let notice = |key: &str| Notice {
-            key: key.into(),
-            kind: NoticeKind::Review,
-            detail: String::new(),
-            url: String::new(),
-            number: 0,
-            title: String::new(),
-        };
-        let account = |login: &str, state: &'static str, keys: &[&str]| AccountStatus {
-            login: login.into(),
-            active: true,
-            shown: true,
-            state,
-            message: None,
-            summary: Some(GithubSummary {
-                login: login.into(),
-                mine: Vec::new(),
-                mine_total: 0,
-                review_requests: Vec::new(),
-                review_requests_total: 0,
-                fetched_at_ms: 0,
-                failed_runs: Vec::new(),
-                notices: keys.iter().map(|k| notice(k)).collect(),
-            }),
-            new_since_last_run: Vec::new(),
-        };
-        let last: BTreeSet<String> = ["review:old".to_owned()].into();
-        let mut compared = BTreeSet::new();
-        let mut first = [
-            account("Ana", "ok", &["review:old", "approved:new"]),
-            // A failed check keeps the last summary: not an answer yet.
-            account("Bo", "error", &["failed:new"]),
-        ];
-        mark_news(&mut first, &last, &mut compared);
-        assert_eq!(first[0].new_since_last_run, ["approved:new"]);
-        assert!(first[1].new_since_last_run.is_empty());
-        let mut second = [
-            account("ana", "ok", &["approved:new", "action:1:t"]),
-            account("Bo", "ok", &["failed:new"]),
-        ];
-        mark_news(&mut second, &last, &mut compared);
-        assert!(second[0].new_since_last_run.is_empty());
-        assert_eq!(second[1].new_since_last_run, ["failed:new"]);
-        assert_eq!(
-            notice_keys(&second),
-            ["action:1:t", "approved:new", "failed:new"]
-                .map(String::from)
-                .into()
-        );
-        let json = serde_json::to_string(&second[0]).unwrap();
-        assert!(!json.contains("new_since_last_run"), "{json}");
     }
 }

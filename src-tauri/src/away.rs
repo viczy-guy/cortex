@@ -1,15 +1,24 @@
-//! Is anybody looking (#157)? A thread of its own ticks every 2 seconds: the
-//! wall clock tells it when the computer slept, and the system is asked about
-//! the lock and the last input every 15 seconds (every tick while nobody is
-//! there). The island hears only when that changes.
+//! Is anybody looking (#157)? A thread of its own looks every 2 seconds: the
+//! wall clock tells it when the computer slept, and the system says whether
+//! the screen is locked and how long the mouse and the keyboard rested. The
+//! island hears only when that changes, and asks once at launch.
 
 use cortex_core::away::{Presence, System, TICK_SECS};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::github::GithubState;
 
 pub const AWAY_EVENT: &str = "cortex://away";
+static AWAY: AtomicBool = AtomicBool::new(false);
+
+/// Whether nobody is looking now: the island asks at launch, in case the
+/// change came before it listened.
+#[tauri::command]
+pub fn away_now() -> bool {
+    AWAY.load(Ordering::Relaxed)
+}
 
 pub fn spawn(app: AppHandle) {
     let started = std::thread::Builder::new()
@@ -22,24 +31,21 @@ pub fn spawn(app: AppHandle) {
 
 fn watch(app: &AppHandle) {
     let mut presence = Presence::default();
-    // GitHub's answers counted when the computer woke.
-    let mut answers_at_wake = 0;
     loop {
         std::thread::sleep(Duration::from_secs(TICK_SECS));
-        let now = crate::state::now_ms();
-        let system = presence.asks(now).then(|| System {
+        let system = System {
             locked: crate::gaze::screen_locked(),
             idle_secs: idle_secs(),
-        });
+        };
         let github = app.state::<GithubState>();
-        let answers = github.answers();
-        let tick = presence.tick(now, system, !github.enabled() || answers != answers_at_wake);
-        if tick.woke {
-            answers_at_wake = answers;
-            github.refresh();
-        }
+        let tick = presence.tick(crate::state::now_ms(), system, github.answered_ms());
         if let Some(away) = tick.changed {
+            AWAY.store(away, Ordering::Relaxed);
             let _ = app.emit_to("island", AWAY_EVENT, away);
+        }
+        // Only once the island knows: an answer must not reach it first.
+        if tick.woke {
+            github.refresh();
         }
     }
 }

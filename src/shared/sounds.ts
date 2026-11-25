@@ -53,10 +53,13 @@ function stop(): void {
   }
 }
 
-/** `force`: a sample the user asked for plays over anything. */
-export function playSound(kind: SoundKind, force = false): void {
+/**
+ * `force`: a sample the user asked for plays over anything. `false` when it
+ * did not play: a sound as urgent or more is playing, or there is no audio.
+ */
+export function playSound(kind: SoundKind, force = false): boolean {
   const { rank, notes } = SOUNDS[kind];
-  if (!force && active && active.rank >= rank) return;
+  if (!force && active && active.rank >= rank) return false;
   stop();
 
   try {
@@ -101,7 +104,9 @@ export function playSound(kind: SoundKind, force = false): void {
       else stop();
     };
     active.timer = window.setTimeout(fallback, (end + 0.05) * 1000 + 100);
+    return true;
   } catch {
     stop();
+    return false;
   }
 }

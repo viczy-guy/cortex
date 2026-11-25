@@ -99,9 +99,10 @@ are doing.
   (macOS), after ten minutes without mouse or keyboard input (macOS and
   Windows), or while the computer sleeps, seen as a jump of the wall clock
   between two looks two seconds apart; coming back from a sleep then waits
-  up to a minute for GitHub's first answer, asked for at once. The system is
-  asked every 15 seconds, and on every look while nobody is there
-  (`cortex_core::away`). Meanwhile nothing rings or speaks, the folded island
+  up to a minute for a good GitHub answer asked for after the wake (asked for
+  at once). Each look asks the system for the lock and the idle time
+  (`cortex_core::away`); the island hears only of a change, and asks at
+  launch. Meanwhile nothing rings or speaks, the folded island
   is not redrawn (a locked repaint costs CPU, #51) and the notices that come
   are kept; a card still opens the island, silently. Coming back with
   something kept, the folded island turns light pink with "While you were
@@ -111,11 +112,13 @@ are doing.
   coming back), the summary after it. A click on the pink island is See all.
   A notice that comes after is a normal one, phrase and sound, and stays out
   of the summary; leaving again before a click adds to it; a notice clicked
-  away or gone leaves it. Cortex closed: the GitHub notice keys of the last
-  check are kept in `github-notices.json` in the app data directory, and the
-  first good answer of each account after launch (not after turning GitHub
-  on or showing an account) names the new ones, which make the summary once
-  the opening screen goes. On Linux only a sleep and a closed Cortex count.
+  away or gone leaves it, and each counts in its color of now. Cortex
+  closed: the GitHub notice keys of the last check are kept in
+  `github-notices.json` in the app data directory (not while a shown account
+  has no answer yet), and the first good answer of each account after launch
+  (not after turning GitHub on or showing an account) names the new ones,
+  which make the summary once the opening screen goes. Dismiss leaves the
+  island folded until the pointer comes back. On Linux only a sleep and a closed Cortex count.
 - Cards come one at a time; the ones after it wait in view below, and the
   bar says "1 of N".
 - A click anywhere outside the island folds it, even over a waiting card: the
@@ -377,8 +380,8 @@ unavailable and update through the package manager.
 
 - Hidden island: 0% CPU. Cortex wakes on events, when a card or a session is
   due to expire, for the GitHub and update checks the user turned on, and
-  every 2 seconds to read the clock (the lock and the idle time every 15),
-  to know whether anybody is looking (#157).
+  every 2 seconds to read the clock, the lock and the idle time, to know
+  whether anybody is looking (#157).
 - Working set under ~120 MB on all three platforms (about 45 MB measured on
   macOS). A downloaded update waiting for its restart is held in memory, which
   on Linux adds the size of the AppImage until the restart (#72).

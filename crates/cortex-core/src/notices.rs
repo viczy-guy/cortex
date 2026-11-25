@@ -165,17 +165,62 @@ fn short_title(title: &str) -> String {
 }
 
 /// Notice keys kept between launches, so what came while Cortex was closed is
-/// news (#157): at most this many, each at most this long.
+/// news (#157): at most this many, each at most this long (a longer one is
+/// never news, since it could not be kept).
 pub const MAX_KNOWN: usize = 1000;
-const MAX_KNOWN_KEY: usize = 512;
+pub const MAX_KNOWN_KEY: usize = 300;
+/// The most a kept list takes as JSON, every character escaped at worst.
+pub const MAX_KNOWN_BYTES: u64 = (MAX_KNOWN * (2 * MAX_KNOWN_KEY + 3) + 2) as u64;
 
-/// The keys of `notices` that were not there when Cortex last ran.
-pub fn new_since(last_run: &BTreeSet<String>, notices: &[Notice]) -> Vec<String> {
-    notices
-        .iter()
-        .filter(|n| !last_run.contains(&n.key))
-        .map(|n| n.key.clone())
-        .collect()
+/// What the last run saw, compared once per account: only its first good
+/// answer after launch tells what came while Cortex was closed (#157).
+#[derive(Debug, Default)]
+pub struct LastRun {
+    keys: Option<BTreeSet<String>>,
+    compared: BTreeSet<String>,
+}
+
+impl LastRun {
+    pub fn new(keys: Option<BTreeSet<String>>) -> Self {
+        Self {
+            keys,
+            compared: BTreeSet::new(),
+        }
+    }
+
+    /// Nothing is news any more: the user changed something (turned GitHub
+    /// on, showed an account), which is no coming back.
+    pub fn forget(&mut self) {
+        self.keys = None;
+    }
+
+    /// The keys in `login`'s answer the last run did not see; nothing for a
+    /// failed answer, or after the account's first good one.
+    pub fn news(&mut self, login: &str, good: bool, notices: &[Notice]) -> Vec<String> {
+        let Some(keys) = &self.keys else {
+            return Vec::new();
+        };
+        if !good || !self.compared.insert(login.to_ascii_lowercase()) {
+            return Vec::new();
+        }
+        notices
+            .iter()
+            .filter(|n| n.key.len() <= MAX_KNOWN_KEY && !keys.contains(&n.key))
+            .map(|n| n.key.clone())
+            .collect()
+    }
+}
+
+/// The keys to keep for the next launch, or `None` while an account has no
+/// answer yet: a partial list would make its old notices news next time.
+pub fn keys_to_keep<'a>(
+    answers: impl IntoIterator<Item = Option<&'a GithubSummary>>,
+) -> Option<BTreeSet<String>> {
+    let mut keys = BTreeSet::new();
+    for summary in answers {
+        keys.extend(summary?.notices.iter().map(|n| n.key.clone()));
+    }
+    Some(keys)
 }
 
 /// The keys the last run saved; `None` when they cannot be read, and then
@@ -844,20 +889,52 @@ mod tests {
         }
     }
 
-    #[test]
-    fn what_was_not_there_at_the_last_run_is_news_and_the_keys_survive_a_round_trip() {
-        let notice = |key: &str| Notice {
+    fn keyed(key: &str) -> Notice {
+        Notice {
             key: key.into(),
             kind: NoticeKind::Review,
             detail: String::new(),
             url: String::new(),
             number: 0,
             title: String::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn only_each_accounts_first_good_answer_names_what_came_while_closed() {
         let last: BTreeSet<String> = ["review:a".to_owned(), "action:1:t".to_owned()].into();
-        let now = [notice("review:a"), notice("approved:b"), notice("failed:c")];
-        assert_eq!(new_since(&last, &now), ["approved:b", "failed:c"]);
+        let mut run = LastRun::new(Some(last.clone()));
+        let long = format!("review:{}", "x".repeat(MAX_KNOWN_KEY));
+        let now = [keyed("review:a"), keyed("approved:b"), keyed(&long)];
+        // A failed answer is no answer: the account is compared later.
+        assert!(run.news("Ana", false, &now).is_empty());
+        assert_eq!(run.news("Ana", true, &now), ["approved:b"]);
+        assert!(run.news("ana", true, &[keyed("failed:c")]).is_empty());
+        run.forget();
+        assert!(run.news("Bo", true, &now).is_empty());
+        assert!(LastRun::new(None).news("Ana", true, &now).is_empty());
         assert_eq!(known_from_json(&known_to_json(&last)), Some(last));
+    }
+
+    #[test]
+    fn nothing_is_kept_while_an_account_has_no_answer() {
+        let summary = |keys: &[&str]| GithubSummary {
+            login: "ana".into(),
+            mine: Vec::new(),
+            mine_total: 0,
+            review_requests: Vec::new(),
+            review_requests_total: 0,
+            fetched_at_ms: 0,
+            failed_runs: Vec::new(),
+            notices: keys.iter().map(|k| keyed(k)).collect(),
+        };
+        let (a, b) = (summary(&["review:a"]), summary(&["failed:b", "review:a"]));
+        assert_eq!(
+            keys_to_keep([Some(&a), Some(&b)]),
+            Some(["failed:b".to_owned(), "review:a".to_owned()].into())
+        );
+        assert_eq!(keys_to_keep([Some(&a), None]), None);
+        assert_eq!(keys_to_keep([]), Some(BTreeSet::new()));
     }
 
     #[test]
@@ -866,6 +943,11 @@ mod tests {
         let many: Vec<String> = (0..MAX_KNOWN + 5).map(|i| format!("k{i}")).collect();
         let read = known_from_json(&serde_json::to_string(&many).unwrap()).unwrap();
         assert_eq!(read.len(), MAX_KNOWN);
+        // The most that can be written can be read back.
+        let widest: BTreeSet<String> = (0..MAX_KNOWN)
+            .map(|i| format!("{i:04}{}", "\"".repeat(MAX_KNOWN_KEY - 4)))
+            .collect();
+        assert!(known_to_json(&widest).len() as u64 <= MAX_KNOWN_BYTES);
         let read = known_from_json(&serde_json::to_string(&["ok", long.as_str()]).unwrap());
         assert_eq!(read, Some(["ok".to_owned()].into()));
         for bad in ["", "{}", "[1]", "null", "[\"a\""] {
