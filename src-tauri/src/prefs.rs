@@ -1,6 +1,8 @@
 //! Private preferences storage.
 pub use cortex_core::prefs::Prefs;
-use cortex_core::prefs::{checked_prefs_from_json, is_mascot, prefs_to_json, DEFAULT_MASCOT};
+use cortex_core::prefs::{
+    checked_prefs_from_json, is_language, is_mascot, prefs_to_json, DEFAULT_MASCOT,
+};
 use tauri::{AppHandle, Emitter};
 
 /// Island preferences shared by the webviews.
@@ -13,6 +15,10 @@ pub struct IslandPrefs {
     pub screen: Option<String>,
     pub sound: bool,
     pub lively: bool,
+    /// The language shown, "en" or "pt" (#154).
+    pub language: String,
+    /// The one picked in Settings; `None` follows the system.
+    pub language_choice: Option<String>,
 }
 
 impl From<&Prefs> for IslandPrefs {
@@ -23,6 +29,8 @@ impl From<&Prefs> for IslandPrefs {
             screen: prefs.island_screen.clone(),
             sound: prefs.sound.unwrap_or(true),
             lively: prefs.lively.unwrap_or(true),
+            language: crate::language::current(prefs).into(),
+            language_choice: prefs.language.clone(),
         }
     }
 }
@@ -42,6 +50,20 @@ pub fn island_set_mascot(app: AppHandle, mascot: String) -> Result<(), String> {
     let _ = app.emit(ISLAND_PREFS_EVENT, IslandPrefs::from(&prefs));
     Ok(())
 }
+/// English, Portuguese, or `None` to follow the system (#154): every window
+/// hears it at once.
+#[tauri::command]
+pub fn language_set(app: AppHandle, language: Option<String>) -> Result<(), String> {
+    if language.as_deref().is_some_and(|code| !is_language(code)) {
+        return Err("Unknown language.".into());
+    }
+    let prefs = update(|p| p.language = language)?;
+    let shown = IslandPrefs::from(&prefs);
+    crate::show_language(&app, &shown.language);
+    let _ = app.emit(ISLAND_PREFS_EVENT, shown);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn island_set_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
     let prefs = update(|p| p.sound = Some(enabled))?;

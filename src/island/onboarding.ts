@@ -7,6 +7,7 @@
 import { diffView } from "../shared/diff-view";
 import type { HooksPreview } from "../shared/ipc";
 import { button, el } from "../shared/dom";
+import { fromRust, t } from "../shared/i18n";
 
 export type Onboarding =
   | { phase: "closed" }
@@ -25,7 +26,7 @@ export function onboardingCard(
 ): HTMLElement {
   const card = el("div", "card");
   const head = el("div", "card-head");
-  head.append(el("span", "title", "Connect Claude Code"));
+  head.append(el("span", "title", t("island.connect")));
   card.append(head);
 
   const footer = el("div", "actions");
@@ -34,34 +35,30 @@ export function onboardingCard(
     case "review": {
       const { preview } = state;
       if (!preview.changes) {
-        card.append(el("div", "note", "Hooks are already installed. Nothing to change."));
-        footer.append(button("btn-neutral", "Close", actions.close));
+        card.append(el("div", "note", t("hooks.already")));
+        footer.append(button("btn-neutral", t("common.close"), actions.close));
         break;
       }
       card.append(
-        el(
-          "div",
-          "note",
-          `Cortex will add its hooks to ${preview.settings_path}. A dated backup is saved first; nothing else in the file changes.`,
-        ),
+        el("div", "note", t("hooks.willAddTo", preview.settings_path)),
       );
       card.append(diffView(preview.diff));
-      footer.append(button("btn-neutral", "Cancel", actions.close));
-      footer.append(button("btn-allow", "Install hooks", () => actions.install(preview.token)));
+      footer.append(button("btn-neutral", t("common.cancel"), actions.close));
+      footer.append(button("btn-allow", t("hooks.install"), () => actions.install(preview.token)));
       break;
     }
     case "done":
       card.append(
-        el("div", "note", "Hooks installed. New Claude Code sessions will show up here."),
+        el("div", "note", t("hooks.installed")),
       );
       if (state.backupPath) {
-        card.append(el("div", "note note-dim", `Backup: ${state.backupPath}`));
+        card.append(el("div", "note note-dim", t("hooks.backup", state.backupPath)));
       }
-      footer.append(button("btn-neutral", "Close", actions.close));
+      footer.append(button("btn-neutral", t("common.close"), actions.close));
       break;
     case "error":
-      card.append(el("div", "note note-error", state.message));
-      footer.append(button("btn-neutral", "Close", actions.close));
+      card.append(el("div", "note note-error", fromRust(state.message)));
+      footer.append(button("btn-neutral", t("common.close"), actions.close));
       break;
   }
 

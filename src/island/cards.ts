@@ -10,17 +10,18 @@ import {
 } from "../shared/ipc";
 import { diffView } from "../shared/diff-view";
 import { button, el } from "../shared/dom";
+import { t } from "../shared/i18n";
 import { alwaysScope } from "../shared/rules";
 
 export function stateLabel(state: SessionView["state"]): string {
   switch (state) {
-    case "idle": return "idle";
-    case "thinking": return "thinking…";
-    case "working": return "working";
-    case "waiting_approval": return "needs you";
-    case "waiting_input": return "needs you";
-    case "finished": return "done";
-    case "error": return "error";
+    case "idle": return t("state.idle");
+    case "thinking": return t("state.thinking");
+    case "working": return t("state.working");
+    case "waiting_approval": return t("state.needsYou");
+    case "waiting_input": return t("state.needsYou");
+    case "finished": return t("state.done");
+    case "error": return t("state.error");
   }
 }
 
@@ -61,7 +62,7 @@ export function approvalCard(approval: PendingApproval): HTMLElement {
 
   const head = el("div", "card-head");
   head.append(el("span", "state-dot state-waiting_approval"));
-  head.append(el("span", "title", `${approval.tool_name} needs approval`));
+  head.append(el("span", "title", t("card.needsApproval", approval.tool_name)));
   head.append(el("span", "meta", approval.session.agent));
   card.append(head);
 
@@ -73,14 +74,14 @@ export function approvalCard(approval: PendingApproval): HTMLElement {
     diff.dataset.scroll = `diff:${approval.request_id}`;
     card.append(diff);
     if (approval.diff_hidden > 0) {
-      card.append(el("div", "meta", `${approval.diff_hidden} more lines not shown — answer in the terminal to see them`));
+      card.append(el("div", "meta", t("card.moreLines", approval.diff_hidden)));
     }
   }
 
   const id = approval.request_id;
   const actions = el("div", "actions");
-  actions.append(button("btn-deny", "Deny", () => void api.respond(id, "deny")));
-  actions.append(button("btn-allow", "Allow", () => void api.respond(id, "allow")));
+  actions.append(button("btn-deny", t("card.deny"), () => void api.respond(id, "deny")));
+  actions.append(button("btn-allow", t("card.allow"), () => void api.respond(id, "allow")));
   if (approval.always_rule) {
     const always = button("btn-neutral", alwaysLabel(approval.always_rule), () =>
       void api.respond(id, "always"),
@@ -96,9 +97,9 @@ export function approvalCard(approval: PendingApproval): HTMLElement {
 
 /** Bash rules cover a whole program, so the button names it. */
 function alwaysLabel(rule: AlwaysRule): string {
-  if (rule.tool_name !== "Bash") return "Always";
+  if (rule.tool_name !== "Bash") return t("card.always");
   const program = rule.pattern.length > 18 ? `${rule.pattern.slice(0, 17)}…` : rule.pattern;
-  return `Always allow ${program}`;
+  return t("card.alwaysAllow", program);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +125,7 @@ export function questionCard(approval: PendingApproval, rerender: () => void): H
 
   const head = el("div", "card-head");
   head.append(el("span", "state-dot state-waiting_approval"));
-  head.append(el("span", "title", "Question"));
+  head.append(el("span", "title", t("card.question")));
   head.append(el("span", "meta", approval.session.agent));
   card.append(head);
 
@@ -167,7 +168,7 @@ export function questionCard(approval: PendingApproval, rerender: () => void): H
     const complete = approval.questions.every(
       (q) => (selection.get(q.question)?.size ?? 0) > 0,
     );
-    const send = button("btn-allow", "Send answer", submit);
+    const send = button("btn-allow", t("card.send"), submit);
     send.disabled = !complete;
     actions.append(send);
   }
@@ -191,7 +192,7 @@ function toAnswers(questions: Question[], selection: Selection): Answers {
 }
 
 function terminalLink(requestId: string): HTMLElement {
-  const link = el("span", "terminal-link", "answer in terminal");
+  const link = el("span", "terminal-link", t("card.terminal"));
   link.addEventListener("click", (event) => {
     event.stopPropagation();
     void api.respond(requestId, "ask");

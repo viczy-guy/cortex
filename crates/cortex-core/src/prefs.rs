@@ -20,6 +20,40 @@ pub struct Prefs {
     pub island_screen: Option<String>,
     /// The version of the last launch: another one now means an update (#127).
     pub last_version: Option<String>,
+    /// The language of every text (#154), one of [`LANGUAGES`]; `None`
+    /// follows the system.
+    pub language: Option<String>,
+}
+
+/// English and Portuguese, for now (#154).
+pub const LANGUAGES: [&str; 2] = ["en", "pt"];
+
+pub fn is_language(code: &str) -> bool {
+    LANGUAGES.contains(&code)
+}
+
+/// The language for a system locale ("pt-BR", "pt_PT.UTF-8", "en-US"):
+/// Portuguese for any Portuguese, English for anything else.
+pub fn language_of_locale(locale: &str) -> &'static str {
+    let lang = locale
+        .trim()
+        .split(['-', '_', '.', '@'])
+        .next()
+        .unwrap_or("");
+    if lang.eq_ignore_ascii_case("pt") {
+        "pt"
+    } else {
+        "en"
+    }
+}
+
+/// The language shown: the one picked in Settings, else the system's.
+pub fn language(prefs: &Prefs, system_locale: &str) -> &'static str {
+    match prefs.language.as_deref() {
+        Some("pt") => "pt",
+        Some("en") => "en",
+        _ => language_of_locale(system_locale),
+    }
 }
 
 /// The mascot gallery; "none" hides the mascot.
@@ -102,16 +136,51 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
             .as_str()
             .filter(|s| is_version(s))
             .map(str::to_owned),
+        language: v["language"]
+            .as_str()
+            .filter(|s| is_language(s))
+            .map(str::to_owned),
     })
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"lively":prefs.lively,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen,"last_version":prefs.last_version})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"lively":prefs.lively,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen,"last_version":prefs.last_version,"language":prefs.language})
         .to_string()
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_language_round_trips_and_follows_the_system_until_picked() {
+        for language in [None, Some("en".to_owned()), Some("pt".to_owned())] {
+            let p = Prefs {
+                language,
+                ..Prefs::default()
+            };
+            assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        }
+        // An unknown one keeps the other preferences, and follows the system.
+        let odd = prefs_from_json(r#"{"version":1,"github":true,"language":"fr"}"#);
+        assert!(odd.github && odd.language.is_none());
+        for (locale, expected) in [
+            ("pt-BR", "pt"),
+            ("pt_PT.UTF-8", "pt"),
+            ("PT", "pt"),
+            ("en-US", "en"),
+            ("fr-FR", "en"),
+            ("", "en"),
+            ("ptx", "en"),
+        ] {
+            assert_eq!(language_of_locale(locale), expected, "{locale}");
+        }
+        let picked = Prefs {
+            language: Some("en".into()),
+            ..Prefs::default()
+        };
+        assert_eq!(language(&picked, "pt-BR"), "en");
+        assert_eq!(language(&Prefs::default(), "pt-BR"), "pt");
+    }
     #[test]
     fn preferences_round_trip_and_ignore_unknown_keys() {
         let p = Prefs {

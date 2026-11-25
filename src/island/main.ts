@@ -33,6 +33,7 @@ import {
   type UpdateStatus,
 } from "../shared/ipc";
 import type { Mascot } from "../shared/mascots";
+import { language, setLanguage, t } from "../shared/i18n";
 import { playSound } from "../shared/sounds";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
@@ -406,7 +407,7 @@ function foldedKey(): string {
   const { reviews, failing } = prTotals();
   const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
   const pink = !saying && showsSummary() ? summaryNow.map((n) => n.tone).join() : "";
-  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}`;
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}|${language()}`;
 }
 
 /** The folded island is pink while the summary stands, unless a phrase speaks over it (#157). */
@@ -573,12 +574,12 @@ function pokeUnlessButton(event: Event): void {
 
 function prCount({ reviews, failing }: { reviews: number; failing: number }): HTMLElement {
   const node = el("span", "pr-count");
-  const notes = [`${reviews} pull request${reviews === 1 ? "" : "s"} waiting for your review`];
+  const notes = [t("island.prs", reviews)];
   node.append(prIcon());
   if (reviews > 0 || failing === 0) node.append(el("span", undefined, String(reviews)));
   if (failing > 0) {
     node.append(el("span", "pr-failing"));
-    notes.push(`${failing} of yours failing checks`);
+    notes.push(t("island.failing", failing));
   }
   node.title = notes.join(" · ");
   return node;
@@ -649,7 +650,7 @@ function bar(): HTMLElement {
   const tags = sessions.slice(0, room).map((session) => agentTag(session, toneOf(session), sessionLabel(session)));
   const center = el("span", "bar-center");
   center.append(mascotNode());
-  if (snapshot.approvals.length > 1) center.append(el("span", "queue", `1 of ${snapshot.approvals.length}`));
+  if (snapshot.approvals.length > 1) center.append(el("span", "queue", t("island.queue", snapshot.approvals.length)));
   const right = tags.slice(2);
   if (sessions.length > room) right.push(el("span", "more", `+${sessions.length - room}`));
 
@@ -660,7 +661,7 @@ function bar(): HTMLElement {
     right.push(pr);
   }
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
-    chips.unshift(button("btn-chip", "Connect Claude Code", () => void openOnboarding()));
+    chips.unshift(button("btn-chip", t("island.connect"), () => void openOnboarding()));
   }
   // Beside the camera the chips get a row of their own below it.
   if (!cutout) right.push(...chips);
@@ -704,7 +705,7 @@ function updateChips(): HTMLElement[] {
 
 function settingsButton(): HTMLButtonElement {
   const node = button("btn-icon", "\u2699\uFE0E", () => void api.openSettings());
-  node.title = "Settings";
+  node.title = t("island.settings");
   return node;
 }
 
@@ -722,11 +723,11 @@ function nextUp(rest: PendingApproval[]): HTMLElement {
     const row = el("div", "next-row");
     row.append(
       el("span", "tag-short", agentShort(approval.session.agent)),
-      el("span", "next-text", approval.questions.length > 0 ? "has a question" : `wants ${approval.tool_name} ${approval.detail}`),
+      el("span", "next-text", approval.questions.length > 0 ? t("island.asks") : t("island.wants", approval.tool_name, approval.detail)),
     );
     node.append(row);
   }
-  if (rest.length > 3) node.append(el("div", "next-row next-more", `+${rest.length - 3} more`));
+  if (rest.length > 3) node.append(el("div", "next-row next-more", t("island.more", rest.length - 3)));
   return node;
 }
 
@@ -955,7 +956,9 @@ async function start(): Promise<void> {
     islandChanged = true;
     sound = payload.sound;
     setLively(payload.lively);
-    if (mascot === payload.mascot && position === payload.position) return;
+    const relabel = payload.language !== language();
+    setLanguage(payload.language);
+    if (!relabel && mascot === payload.mascot && position === payload.position) return;
     mascot = payload.mascot;
     position = payload.position;
     render();
@@ -979,7 +982,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); setLanguage(value.language); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

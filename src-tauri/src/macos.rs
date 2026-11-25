@@ -134,15 +134,10 @@ pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
 /// A menu-bar item with Settings and Quit. Cortex is a background app, so it
 /// is not in the Force Quit window; this menu is native and still works when
 /// the island's web view does not respond (#76).
-pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::MenuBuilder;
+pub fn add_menu_bar_item(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     use tauri::tray::TrayIconBuilder;
 
-    let menu = MenuBuilder::new(app)
-        .text("menu-bar-settings", "Settings…")
-        .separator()
-        .text("menu-bar-quit", "Quit Cortex")
-        .build()?;
+    let menu = menu_bar_menu(app, lang)?;
     TrayIconBuilder::with_id("cortex")
         .icon(menu_bar_icon())
         .icon_as_template(true)
@@ -164,6 +159,22 @@ pub fn add_menu_bar_item(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+fn menu_bar_menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    let (settings, quit) = crate::language::menu_texts(lang);
+    tauri::menu::MenuBuilder::new(app)
+        .text("menu-bar-settings", settings)
+        .separator()
+        .text("menu-bar-quit", quit)
+        .build()
+}
+
+/// The menu-bar item in another language (#154).
+pub fn set_menu_bar_language(app: &AppHandle, lang: &str) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("cortex"), menu_bar_menu(app, lang)) {
+        let _ = tray.set_menu(Some(menu));
+    }
 }
 
 /// Whether WebKit still draws the island. A GPU process that stops answering
