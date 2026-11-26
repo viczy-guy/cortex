@@ -131,6 +131,8 @@ let focus: string | null = null;
 let scrollToFocus = false;
 /** The Atlantis tab's pull requests, worked out once per render. */
 let atlantisNow: Watched[] = [];
+/** How many of them run now: the sign's number. */
+let atlantisRuns = 0;
 /** Ticks the running clocks while they are in sight (#173). */
 let clockTimer: number | undefined;
 
@@ -147,7 +149,8 @@ function isHidden(): boolean {
     hooksInstalled !== false &&
     !askingUpdates(updates) &&
     // The pink summary stays folded under the pointer: its buttons are there.
-    (!(hovered || pinned) || showsSummary())
+    // Opened by a click, the island opens over it; folded again, it is back.
+    (!(hovered || pinned) || (showsSummary() && !pinned))
   );
 }
 
@@ -345,7 +348,11 @@ function setPinned(on: boolean): void {
   if (pinned === on) return;
   pinned = on;
   // Unpinned in Rust, an outside click would never come: fold on hover out instead.
-  void api.islandPin(on).catch(() => { if (on) pinned = false; });
+  void api.islandPin(on).catch(() => {
+    if (!on || !pinned) return;
+    pinned = false;
+    if (isHidden()) render();
+  });
 }
 
 /** The Atlantis tab on a pull request's card, open until a click outside (#173). */
@@ -469,8 +476,7 @@ function foldedKey(): string {
   const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
   const pink = !saying && showsSummary() ? summaryNow.map((n) => n.tone).join() : "";
   // The Atlantis sign turns until nobody looks (#173): then it is drawn once more, still.
-  const runs = atlantisNow.filter((w) => running(w.pull.plan)).length;
-  const atlantis = runs > 0 ? `${runs}${away ? " still" : ""}` : "";
+  const atlantis = atlantisRuns > 0 ? `${atlantisRuns}${away ? " still" : ""}` : "";
   return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}|${language()}|${atlantis}`;
 }
 
@@ -508,6 +514,7 @@ function render(): void {
   refreshSummary();
   setBusy(tone !== "gray" || awaySummary.size > 0 || snapshot.sessions.some((s) => s.state === "working" || s.state === "thinking"));
   atlantisNow = watchedNow();
+  atlantisRuns = atlantisNow.filter((w) => running(w.pull.plan)).length;
 
   if (isHidden()) {
     expanded = false;
@@ -551,8 +558,7 @@ function render(): void {
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
     // Atlantis running (#173): its sign beside the pull requests, a click opens its tab.
-    const runs = atlantisNow.filter((w) => running(w.pull.plan)).length;
-    if (runs > 0) right.push(atlantisSign(runs, openFirstRun));
+    if (atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
     // A new notice says what happened for a few seconds, and the pink summary
     // stays until a click (#157); beside the camera, on a row under it.
     const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNow, seeAll, dismissSummary) : [];
@@ -741,8 +747,7 @@ function bar(): HTMLElement {
     pr.append(prCount(prTotals()));
     right.push(pr);
   }
-  const runs = atlantisNow.filter((w) => running(w.pull.plan)).length;
-  if (runs > 0) right.push(atlantisSign(runs, openFirstRun));
+  if (atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
     chips.unshift(button("btn-chip", t("island.connect"), () => void openOnboarding()));
   }

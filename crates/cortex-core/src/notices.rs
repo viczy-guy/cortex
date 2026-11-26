@@ -217,10 +217,10 @@ pub struct Watched {
     pub at: String,
 }
 
-/// The Atlantis tab (#173): runs going first, then locked plans, then the
-/// rest that moved in the last hour, the latest first. What has not moved
-/// for an hour stays only on the GitHub card; a merged pull request shows
-/// only for its apply.
+/// The Atlantis tab (#173): runs going first, then locked plans (they still
+/// wait, however long), then the rest that moved in the last hour, the
+/// latest first. What has not moved for an hour stays only on the GitHub
+/// card; a merged pull request shows only for its apply.
 pub fn watched(summary: &GithubSummary) -> Vec<Watched> {
     let recent = iso_utc(summary.fetched_at_ms.saturating_sub(APPLIED_WINDOW_MS));
     let all = summary
@@ -237,8 +237,8 @@ pub fn watched(summary: &GithubSummary) -> Vec<Watched> {
         let order = match plan.stage {
             _ if merged && plan.stage != Stage::Applied => continue,
             Stage::Planning | Stage::Applying => 0,
-            _ if plan.at < recent => continue,
             Stage::Locked => 1,
+            _ if plan.at < recent => continue,
             _ => 2,
         };
         if out.iter().any(|w| w.pull.url == pull.url) {
@@ -873,7 +873,8 @@ mod tests {
             with(1, Stage::Planned, ago(10)),
             // Running for long is still running.
             with(2, Stage::Planning, ago(300)),
-            with(3, Stage::Locked, ago(20)),
+            // A lock still waits, however long.
+            with(3, Stage::Locked, ago(300)),
             // Not moved for an hour: only on the GitHub card.
             with(4, Stage::Planned, ago(61)),
             pull("acme/infra", 5),

@@ -411,15 +411,9 @@ fn runs(
     link: &dyn Fn(&Entry) -> Option<String>,
 ) -> (Option<Live>, Vec<Run>, [u32; 3]) {
     let applying = matches!(stage, Stage::Applying | Stage::Applied | Stage::ApplyFailed);
-    // This apply's projects: since it began while it runs; once done, all
-    // after the plan (an earlier failed try's are superseded project by project).
-    let this_apply = |e: &Entry| {
-        if stage == Stage::Applying {
-            e.at >= at
-        } else {
-            e.at > plan_at
-        }
-    };
+    // Every apply after the plan: one project at a time (`-p`) applies it in
+    // parts, and a try again supersedes a failure project by project.
+    let this_apply = |e: &Entry| e.at > plan_at;
     let make = |name: &str, state: RunState, plan: Option<&Entry>, log: Option<&Entry>| {
         let (add, change, destroy) = plan
             .and_then(|e| plan_counts(e.description))
@@ -479,10 +473,13 @@ fn runs(
     }
     let live = matches!(stage, Stage::Planning | Stage::Applying).then(|| {
         // A hook left pending by an interrupted run is not this run's.
-        let started = epoch_secs(at).unwrap_or(i64::MIN);
+        let fresh = |h: &Entry| match (epoch_secs(at), epoch_secs(h.at)) {
+            (Some(run), Some(hook)) => hook >= run.saturating_sub(30),
+            _ => true,
+        };
         let hook = hooks
             .iter()
-            .filter(|h| h.pending() && epoch_secs(h.at).is_some_and(|t| t >= started - 30))
+            .filter(|h| h.pending() && fresh(h))
             .max_by_key(|h| h.at);
         let list = if stage == Stage::Applying {
             applies
@@ -545,12 +542,18 @@ fn run_label(name: &str) -> String {
 
 /// A log on the Atlantis server: https, bounded, in one piece.
 fn is_job_url(url: &str) -> bool {
+    // A host alone: no `user@` before it, which would send the browser elsewhere.
+    let host = |h: &str| {
+        !h.is_empty()
+            && h.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':'))
+    };
     url.len() <= MAX_URL_CHARS
         && !url.chars().any(|c| c.is_whitespace() || c.is_control())
         && url
             .strip_prefix("https://")
             .and_then(|rest| rest.split_once('/'))
-            .is_some_and(|(host, path)| !host.is_empty() && format!("/{path}").contains("/jobs/"))
+            .is_some_and(|(h, path)| host(h) && format!("/{path}").contains("/jobs/"))
 }
 
 impl Plan {
@@ -1476,8 +1479,11 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(plan.runs[0].url, None);
-        assert!(is_job_url("https://ci.acme.dev/atlantis/jobs/7"));
+        assert!(is_job_url("https://ci.acme.dev:8443/atlantis/jobs/7"));
         assert!(!is_job_url("https:///jobs/7") && !is_job_url("https://jobs.acme.dev"));
+        assert!(!is_job_url(
+            "https://atlantis.acme.dev@elsewhere.dev/jobs/1"
+        ));
     }
 
     #[test]
@@ -1516,6 +1522,69 @@ mod tests {
             (live.preparing, live.project.as_deref()),
             (false, Some("a"))
         );
+        // A time not in GitHub's form: no panic, the hook counts.
+        let odd = json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", ""),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "PENDING",
+                "in progress...",
+                "2026-11-25T10:00:02+00:00"
+            ),
+        ]);
+        assert!(from_statuses(&odd).unwrap().live.unwrap().preparing);
+    }
+
+    #[test]
+    fn an_apply_in_parts_keeps_what_an_earlier_part_applied() {
+        let plan = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "2/2 projects planned successfully.",
+                "2026-11-25T10:05:00Z"
+            ),
+            job(
+                "atlantis/plan: a",
+                "SUCCESS",
+                "Plan: 1 to add, 0 to change, 0 to destroy.",
+                "2026-11-25T10:04:00Z"
+            ),
+            job(
+                "atlantis/plan: b",
+                "SUCCESS",
+                "Plan: 0 to add, 2 to change, 0 to destroy.",
+                "2026-11-25T10:04:30Z"
+            ),
+            // `atlantis apply -p a`, then `-p b`, running now.
+            job(
+                "atlantis/apply: a",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:20:30Z"
+            ),
+            status(
+                "atlantis/apply",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:30:00Z"
+            ),
+            job(
+                "atlantis/apply: b",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:32:40Z"
+            ),
+        ]))
+        .unwrap();
+        let states: Vec<(&str, RunState)> = plan
+            .runs
+            .iter()
+            .map(|r| (r.name.as_str(), r.state))
+            .collect();
+        assert_eq!(states, [("b", RunState::Running), ("a", RunState::Done)]);
+        assert_eq!((plan.runs_done, plan.runs_total), (1, 2));
+        assert_eq!(plan.live.unwrap().project.as_deref(), Some("b"));
     }
 
     #[test]
