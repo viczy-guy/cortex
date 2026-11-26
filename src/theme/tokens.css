@@ -10,6 +10,8 @@
   --surface-solid: #111318;
   --surface: rgba(17, 19, 24, 0.88);
   --surface-raised: rgba(28, 31, 38, 0.92);
+  /* The same over the notch's black, opaque: what hides a line behind it. */
+  --surface-raised-solid: #1a1c23;
   --surface-border: rgba(255, 255, 255, 0.09);
 
   /* The island: the camera notch's black, and the mascot at rest. */
@@ -25,6 +27,11 @@
   --tone-red: #f87171;
   /* What came while nobody was looking (#157): light, never taken for red. */
   --tone-pink: #f9a8d4;
+  /* Atlantis (#173): its logo's turquoise, for a plan ready or applied. */
+  --tone-atlantis: #3fc1dc;
+  /* A ring turning while Atlantis runs: its track and its head. */
+  --ring-track: rgba(235, 238, 245, 0.16);
+  --ring-head: rgba(235, 238, 245, 0.92);
 
   /* Atlantis plans (#161): what a plan does, sign by sign. */
   --plan-add: #6ee7b7;

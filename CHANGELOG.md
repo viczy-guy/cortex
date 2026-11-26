@@ -6,6 +6,25 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- **Atlantis, live.** While Atlantis runs on your pull requests, or on those
+  that ask for your review, the island shows Atlantis's sign beside the pull
+  request count: a round icon, a ring turning around it, and how many run.
+  - **The Atlantis tab.** A click on the sign, or on an Atlantis notice,
+    opens the Atlantis tab, and the island stays open until you click
+    outside it.
+  - **One card per pull request.** Each card shows the accounts it touches
+    (production in red) and the five steps, Prepare → Plan → Approval →
+    Apply → Merge, with the current one turning and its time.
+  - **What runs now.** An open card says what runs now, with its live log,
+    or what it waits for. It also shows the plan's summary, and each project
+    with its log.
+  - **A turquoise of its own.** A plan of yours ready, or applied, now turns
+    the island Atlantis's turquoise, a sixth color in Settings → Notices &
+    sounds. It plays the green's sound until its own is picked.
+  - **No more gray rows.** Runs still going no longer show as gray rows at
+    the end of the list. (#173)
+
 ### Fixed
 - The island no longer stutters while it opens or folds, as right after a
   click on a notice: a redraw on the way (every agent event is one) stopped

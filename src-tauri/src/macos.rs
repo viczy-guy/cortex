@@ -114,8 +114,9 @@ pub fn make_island_panel(app: &AppHandle) -> Result<(), String> {
     // clicks on Cortex's own windows never reach a global monitor.
     let outside = app.clone();
     let on_click = RcBlock::new(move |_: NonNull<NSEvent>| {
-        // Wake the web view only when there is a card to fold away.
-        if outside.state::<AppState>().has_pending() {
+        // Wake the web view only when there is a card to fold away, or an
+        // island opened by a click (#173).
+        if outside.state::<AppState>().has_pending() || crate::island_pinned() {
             let _ = outside.emit_to("island", OUTSIDE_CLICK_EVENT, ());
         }
     });

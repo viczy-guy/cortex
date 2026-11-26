@@ -208,6 +208,8 @@ export const api = {
   ruleRemove: (rule: AlwaysRule) => invoke<void>("rule_remove", { rule }),
   rulesClear: () => invoke<void>("rules_clear"),
   islandFit: (width: number, height: number) => invoke<void>("island_fit", { width, height }),
+  /** Opened by a click, the island stays open until a click outside (#173). */
+  islandPin: (pinned: boolean) => invoke<void>("island_pin", { pinned }),
   islandCutout: () => invoke<IslandCutout | null>("island_cutout"),
   islandPrefs: () => invoke<IslandPrefs>("island_prefs"),
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
@@ -253,6 +255,29 @@ export interface PlanGroup {
   /** The first resource's address, shown when it is alone. */
   address: string;
 }
+/** A project of the run shown (#173): the plan's, or the apply's once it applies. */
+export interface AtlantisRun {
+  name: string;
+  /** The folders after the region: "data/rds", else the name. */
+  label: string;
+  env: string | null;
+  state: "running" | "failed" | "queued" | "done" | "skipped";
+  /** Its plan's counts, once planned. */
+  add: number;
+  change: number;
+  destroy: number;
+  /** Its log on the Atlantis server, live while it runs. */
+  url: string | null;
+}
+/** What runs now in a plan or an apply (#173). */
+export interface AtlantisLive {
+  /** Atlantis prepares (its pre-workflow hooks), before the first project. */
+  preparing: boolean;
+  project: string | null;
+  /** Since when, as GitHub writes it (ISO 8601). */
+  since: string;
+  url: string | null;
+}
 /** A pull request's latest Atlantis run (#161), from `cortex_core::atlantis`. */
 export interface Plan {
   stage: "planning" | "planned" | "plan_failed" | "locked" | "applying" | "applied" | "apply_failed";
@@ -275,6 +300,17 @@ export interface Plan {
   error: string | null;
   locked_by: number | null;
   comment_url: string | null;
+  /** Every account its projects are in (the folder before the region), production first (#173). */
+  envs: { name: string; production: boolean }[];
+  /** While a plan or an apply runs: what runs now. */
+  live: AtlantisLive | null;
+  /** The projects of the run shown: running, failed, queued, done, skipped. */
+  runs: AtlantisRun[];
+  /** Projects left out of `runs` for size. */
+  runs_hidden: number;
+  /** Of the run shown, the projects done and those it runs, counted before `runs` is cut. */
+  runs_done: number;
+  runs_total: number;
 }
 export interface PullRequest {
   repo: string;
@@ -301,6 +337,16 @@ export interface GithubNotice {
   /** The Atlantis run it tells about; on a review request, its plan when that destroys nothing. */
   plan?: Plan;
 }
+/** A pull request in the island's Atlantis tab (#173). */
+export interface Watched {
+  pull: PullRequest;
+  /** The user's own; else it asks for their review. */
+  own: boolean;
+  merged: boolean;
+  /** 0 while its run goes, 1 locked, 2 moved in the last hour; `at`, when it moved (ISO 8601). */
+  order: number;
+  at: string;
+}
 export interface GithubSummary {
   login: string;
   mine: PullRequest[];
@@ -309,6 +355,8 @@ export interface GithubSummary {
   review_requests_total: number;
   fetched_at_ms: number;
   notices: GithubNotice[];
+  /** Runs going first, then locked plans, then what moved in the last hour (#173). */
+  atlantis: Watched[];
 }
 export interface AccountStatus {
   login: string;

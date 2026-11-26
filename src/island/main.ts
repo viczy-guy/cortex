@@ -31,17 +31,18 @@ import {
   STATE_EVENT,
   UPDATES_EVENT,
   type UpdateStatus,
+  type Watched,
 } from "../shared/ipc";
 import type { Mascot } from "../shared/mascots";
 import { fromRust, language, setLanguage, t } from "../shared/i18n";
 import { playSound } from "../shared/sounds";
+import { atlantisCard, atlantisSign, atlantisTabs, running, type Tab, tick } from "./atlantis";
 import { approvalCard, pruneSelections, questionCard, sessionCard, stateLabel } from "./cards";
 import { githubCard, shownAccounts } from "./github";
 import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone, type Tone, topTone } from "./notch";
 import { livelyMascot, onGaze, poke, react, setBusy, setLively } from "./lively";
 import { agentNotice, awayLine, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
-import { planRuns } from "./plans";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
 const MAX_HEIGHT = 440;
@@ -120,14 +121,20 @@ let cardWhileAway = false;
 let revealed = false;
 /** The notch was drawn once since nobody is looking; it then waits as it is. */
 let awayDrawn = false;
-/**
- * The plan summary open in the list (#161): the most urgent one until the
- * user picks another (or none), for as long as the list stays open.
- */
-let planOpen: string | null = null;
-let planPicked = false;
-/** The summary open in the list as last drawn. */
-let planShown: string | null = null;
+/** Opened by a click (the Atlantis sign, an Atlantis notice): open until a click outside (#173). */
+let pinned = false;
+/** The list's tab, once Atlantis has something to show; `null` until the user picks one. */
+let tab: Tab | null = null;
+/** The Atlantis card open: its pull request's URL; "" once the user closed it. */
+let focus: string | null = null;
+/** The card just picked comes into view once drawn. */
+let scrollToFocus = false;
+/** The Atlantis tab's pull requests, worked out once per render. */
+let atlantisNow: Watched[] = [];
+/** How many of them run now: the sign's number. */
+let atlantisRuns = 0;
+/** Ticks the running clocks while they are in sight (#173). */
+let clockTimer: number | undefined;
 
 /**
  * No card demanding eyes and nobody looking: the island folds into the
@@ -142,7 +149,8 @@ function isHidden(): boolean {
     hooksInstalled !== false &&
     !askingUpdates(updates) &&
     // The pink summary stays folded under the pointer: its buttons are there.
-    (!hovered || showsSummary())
+    // Opened by a click, the island opens over it; folded again, it is back.
+    (!(hovered || pinned) || (showsSummary() && !pinned))
   );
 }
 
@@ -335,25 +343,86 @@ function clearAll(): void {
   render();
 }
 
-/** A click on a plan's line: its summary opens below it, or closes (#161). */
-function togglePlan(notice: ViewNotice): void {
-  planPicked = true;
-  planOpen = planShown === notice.key ? null : notice.key;
-  render();
-  // The list is drawn anew: the keyboard stays on the line it was on.
-  for (const row of root.querySelectorAll<HTMLElement>(".notice-row")) {
-    if (row.dataset.key === notice.key) row.focus();
-  }
+/** Opened by a click, the island stays open until a click outside; Rust reports that click (#173). */
+function setPinned(on: boolean): void {
+  if (pinned === on) return;
+  pinned = on;
+  // Unpinned in Rust, an outside click would never come: fold on hover out instead.
+  void api.islandPin(on).catch(() => {
+    if (!on || !pinned) return;
+    pinned = false;
+    if (isHidden()) render();
+  });
 }
 
-/** A link of a plan summary or a run: it opens, and its notice, if any, goes. */
-function follow(notice: ViewNotice | null, url: string): void {
-  if (notice) {
-    if (saying?.key === notice.key) stopSaying();
-    seenNotices.add(notice.key);
+/** The Atlantis tab on a pull request's card, open until a click outside (#173). */
+function openAtlantis(url: string | null): void {
+  setPinned(true);
+  // Out of the session cards; a waiting card still comes first.
+  if (snapshot.approvals.length === 0) {
+    expanded = false;
+    autoExpanded = false;
   }
-  void api.openUrl(url).catch(() => { /* The notice is cleared either way. */ });
+  tab = "atlantis";
+  focus = url;
+  scrollToFocus = true;
   render();
+}
+
+/** A click on an Atlantis notice: that one goes, and its pull request's card opens (#173); without a card, GitHub. */
+function goToCard(notice: ViewNotice): void {
+  const url = notice.url ?? null;
+  if (!atlantisCards(url).some((w) => w.pull.url === url)) {
+    actOn(notice);
+    return;
+  }
+  if (saying?.key === notice.key) stopSaying();
+  seenNotices.add(notice.key);
+  openAtlantis(url);
+}
+
+/** At most this many cards in the Atlantis tab, as each account sends them. */
+const MAX_CARDS = 8;
+
+/** The Atlantis tab's pull requests, of every account shown, each once, in the core's order. */
+function watchedNow(): Watched[] {
+  if (!github?.enabled) return [];
+  const byUrl = new Map<string, Watched>();
+  for (const { summary } of shownAccounts(github.accounts)) {
+    for (const watched of summary.atlantis) if (!byUrl.has(watched.pull.url)) byUrl.set(watched.pull.url, watched);
+  }
+  return [...byUrl.values()].sort((a, b) => a.order - b.order || b.at.localeCompare(a.at)).slice(0, MAX_CARDS);
+}
+
+/** The sign's click: the first run going now, read at the click, not when drawn. */
+function openFirstRun(): void {
+  openAtlantis(atlantisNow.find((w) => running(w.pull.plan))?.pull.url ?? null);
+}
+
+/** The pull requests in the Atlantis tab, with the one a notice opened even when it moved over an hour ago. */
+function atlantisCards(pick = focus): Watched[] {
+  if (!pick || atlantisNow.some((w) => w.pull.url === pick)) return atlantisNow;
+  for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) {
+    const own = summary.mine.find((p) => p.url === pick);
+    const pull = own ?? summary.review_requests.find((p) => p.url === pick);
+    // In the cap too: the last card gives way.
+    if (pull?.plan) return [{ pull, own: own !== undefined, merged: false, order: 2, at: "" }, ...atlantisNow].slice(0, MAX_CARDS);
+  }
+  return atlantisNow;
+}
+
+/** A link in an Atlantis card: the pull request, its plan's comment, a live log. */
+function openLink(url: string): void {
+  void api.openUrl(url).catch(() => { /* Nothing to undo. */ });
+}
+
+/** The running clocks tick only while in sight and somebody looks (#51). */
+function setClock(on: boolean): void {
+  if (on && clockTimer === undefined) clockTimer = window.setInterval(() => tick(root), 1000);
+  if (!on && clockTimer !== undefined) {
+    window.clearInterval(clockTimer);
+    clockTimer = undefined;
+  }
 }
 
 /** A click on one notice in the list: that one goes, and GitHub's open. */
@@ -407,7 +476,9 @@ function foldedKey(): string {
   const { reviews, failing } = prTotals();
   const say = saying ? `${saying.key}|${saying.detail}|${othersStanding()}` : "";
   const pink = !saying && showsSummary() ? summaryNow.map((n) => n.tone).join() : "";
-  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}|${language()}`;
+  // The Atlantis sign turns until nobody looks (#173): then it is drawn once more, still.
+  const atlantis = atlantisRuns > 0 ? `${atlantisRuns}${away ? " still" : ""}` : "";
+  return `${tone}|${mascot}|${position}|${reviews}|${failing}|${bounce}|${cutout?.width}|${cutout?.height}|${say}|${pink}|${language()}|${atlantis}`;
 }
 
 /** The folded island is pink while the summary stands, unless a phrase speaks over it (#157). */
@@ -417,7 +488,8 @@ function shownTone(open: boolean): Tone | "pink" {
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
 function setClass(open: boolean): void {
-  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${cutout ? " island--cutout" : ""}`;
+  // Away, nothing turns (#51, #173): a turning ring repaints on every frame.
+  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${cutout ? " island--cutout" : ""}${away ? " island--away" : ""}`;
   if (root.className !== name) root.className = name;
   if (root.dataset.position !== position) root.dataset.position = position;
 }
@@ -442,13 +514,17 @@ function render(): void {
   updateTone();
   refreshSummary();
   setBusy(tone !== "gray" || awaySummary.size > 0 || snapshot.sessions.some((s) => s.state === "working" || s.state === "thinking"));
+  atlantisNow = watchedNow();
+  atlantisRuns = atlantisNow.filter((w) => running(w.pull.plan)).length;
 
   if (isHidden()) {
     expanded = false;
     autoExpanded = false;
-    // A list opened again starts on its most urgent plan.
-    planPicked = false;
-    planOpen = null;
+    // A list opened again starts on its notices and its first card (#173).
+    tab = null;
+    focus = null;
+    setPinned(false);
+    setClock(false);
     // The phrase's seconds count from when it is drawn.
     if (saying && sayTimer === undefined) {
       sayTimer = window.setTimeout(() => {
@@ -482,6 +558,8 @@ function render(): void {
     const left = mascotNode();
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
+    // Atlantis running (#173): its sign beside the pull requests, a click opens its tab.
+    if (atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
     // A new notice says what happened for a few seconds, and the pink summary
     // stays until a click (#157); beside the camera, on a row under it.
     const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNow, seeAll, dismissSummary) : [];
@@ -546,6 +624,12 @@ function render(): void {
     const top = scrolled.get(n.dataset.scroll ?? "");
     if (top) n.scrollTop = top;
   });
+  // A card just picked (the sign, a notice) comes into view.
+  if (scrollToFocus) {
+    scrollToFocus = false;
+    for (const card of root.querySelectorAll<HTMLElement>(".atl-card")) if (card.dataset.url === focus) card.scrollIntoView({ block: "nearest" });
+  }
+  setClock(!away && root.querySelector("[data-since]") !== null);
   void fitWindowToContent(before, fade);
 }
 
@@ -585,10 +669,14 @@ function prCount({ reviews, failing }: { reviews: number; failing: number }): HT
   return node;
 }
 
-/** A click outside folds the island, cards included; the notch stays amber while they wait. */
+/**
+ * A click outside folds the island, cards included (the notch stays amber
+ * while they wait), and an island opened by a click (#173).
+ */
 function foldAway(): void {
-  if (snapshot.approvals.length === 0) return;
+  if (snapshot.approvals.length === 0 && !pinned) return;
   for (const approval of snapshot.approvals) dismissed.add(approval.request_id);
+  setPinned(false);
   window.clearTimeout(hideTimer);
   hideTimer = undefined;
   hovered = false;
@@ -660,6 +748,7 @@ function bar(): HTMLElement {
     pr.append(prCount(prTotals()));
     right.push(pr);
   }
+  if (atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
     chips.unshift(button("btn-chip", t("island.connect"), () => void openOnboarding()));
   }
@@ -684,6 +773,8 @@ function bar(): HTMLElement {
  */
 function onClick(top: HTMLElement, toggles: boolean): HTMLElement {
   top.addEventListener("click", (event) => {
+    // The Atlantis sign opens its tab and clears nothing (#173).
+    if (event.target instanceof Element && event.target.closest(".atl-sign")) return;
     acknowledge();
     pokeUnlessButton(event);
     // A button stops the click and may not redraw: the cleared colors still must.
@@ -745,17 +836,33 @@ function panelContent(): HTMLElement[] {
   }
   const question = askingUpdates(updates) ? [updatesQuestion((enabled) => void answerUpdates(enabled), updatesError)] : [];
   if (!expanded) {
-    // Hovering lists what is standing, the most urgent first (#131), then
-    // the Atlantis runs still going (#161).
-    const listing = hovered && snapshot.approvals.length === 0;
+    // Hovering, or opened by a click (#173), lists what is standing, the most
+    // urgent first (#131); with Atlantis to follow, in two tabs.
+    const listing = (hovered || pinned) && snapshot.approvals.length === 0;
     const notices = listing ? activeNotices() : [];
-    const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
-    const runs = listing ? planRuns(accounts.flatMap(({ summary }) => [...summary.mine, ...summary.review_requests])) : [];
-    // A pick that left the list falls back to the most urgent plan.
-    const picked = planPicked && (planOpen === null || notices.some((n) => n.key === planOpen && n.plan));
-    planShown = picked ? planOpen : (notices.find((n) => n.plan)?.key ?? null);
-    if (notices.length + runs.length === 0) return question;
-    return [...question, noticeRows(notices, runs, { act: actOn, clearAll, open: planShown, toggle: togglePlan, follow })];
+    const cards = listing ? atlantisCards() : [];
+    if (notices.length + cards.length === 0) return question;
+    const rows = noticeRows(notices, { act: actOn, clearAll, plan: goToCard });
+    if (cards.length === 0) return [...question, rows];
+    const shown: Tab = tab ?? (notices.length > 0 ? "notices" : "atlantis");
+    const runs = cards.filter((w) => running(w.pull.plan)).length;
+    const tabs = atlantisTabs(shown, notices.length, runs, (picked) => {
+      tab = picked;
+      render();
+    });
+    if (shown === "notices") return [...question, tabs, notices.length > 0 ? rows : el("div", "atl-empty", t("atl.empty"))];
+    // A pick that left the list falls back to the first card; "" keeps them all closed.
+    const open = focus === "" ? null : cards.some((w) => w.pull.url === focus) ? focus : (cards[0]?.pull.url ?? null);
+    const list = el("div", "atl-cards");
+    const actions = {
+      open: openLink,
+      toggle: (url: string) => {
+        focus = url === open ? "" : url;
+        render();
+      },
+    };
+    for (const watched of cards) list.append(atlantisCard(watched, watched.pull.url === open, actions));
+    return [...question, tabs, list];
   }
 
   const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
@@ -938,9 +1045,16 @@ async function start(): Promise<void> {
     awayChanged = true;
     away = payload;
     if (away) {
-      // The notch is drawn once more without the phrase, then waits.
+      // The notch is drawn once more without the phrase, then waits. An
+      // island left open by a click folds: open, every event redraws it (#51).
       stopSaying();
       awayDrawn = false;
+      if (pinned) {
+        setPinned(false);
+        window.clearTimeout(hideTimer);
+        hideTimer = undefined;
+        hovered = false;
+      }
     } else if (cardWhileAway) {
       cardWhileAway = false;
       // Back with an agent waiting: its card comes first, and rings once (#157).

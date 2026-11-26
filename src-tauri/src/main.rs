@@ -393,9 +393,9 @@ const ISLAND_MAX_HEIGHT: f64 = 600.0;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const HOVER_EVENT: &str = "cortex://hover";
 
-/// The user clicked in another app while a card was waiting. Emitted on
-/// macOS, where the island is never key and so never sees a blur; elsewhere
-/// the UI uses the window's own blur.
+/// The user clicked in another app while a card was waiting, or while the
+/// island was pinned open (#173). Emitted on macOS, where the island is never
+/// key and so never sees a blur; elsewhere the UI uses the window's own blur.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const OUTSIDE_CLICK_EVENT: &str = "cortex://outside-click";
 
@@ -423,6 +423,21 @@ fn island_cutout(app: AppHandle) -> Option<IslandCutout> {
         .lock()
         .expect("island placement lock")
         .cutout
+}
+
+/// Opened by a click, the island stays open until a click outside (#173).
+static ISLAND_PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The island was opened by a click, or folded again: macOS reports the
+/// next click outside it only while it stays open.
+#[tauri::command]
+fn island_pin(pinned: bool) {
+    ISLAND_PINNED.store(pinned, std::sync::atomic::Ordering::Release);
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn island_pinned() -> bool {
+    ISLAND_PINNED.load(std::sync::atomic::Ordering::Acquire)
 }
 
 /// Size the island to what it draws at the selected edge. The window is
@@ -622,6 +637,7 @@ fn main() {
             github::open_url,
             snapshot,
             island_fit,
+            island_pin,
             island_cutout,
             prefs::island_prefs,
             autostart::autostart_status,

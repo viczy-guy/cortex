@@ -49,6 +49,12 @@ const SHOWN_GROUPS: usize = 60;
 /// takes longer than that, so its predecessor's comment is never taken.
 const BEFORE_RUN_SECS: i64 = 30;
 const AFTER_RUN_SECS: i64 = 10;
+/// Accounts named on a pull request's card (#173), production first.
+const MAX_ENVS: usize = 6;
+/// Projects listed in the Atlantis tab (#173); the counts stay complete.
+const MAX_RUNS: usize = 40;
+/// A live log's link, at most this long.
+const MAX_URL_CHARS: usize = 512;
 
 /// Where a pull request's latest Atlantis run stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -103,6 +109,56 @@ pub struct Group {
     pub address: String,
 }
 
+/// What a project of the run shown is doing (#173).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunState {
+    Running,
+    Failed,
+    /// Waiting for its turn in an apply.
+    Queued,
+    Done,
+    /// Nothing to apply: its plan changes nothing.
+    Skipped,
+}
+
+/// One project of the run shown (#173): the plan's while it plans and once
+/// planned, the apply's once it applies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Run {
+    pub name: String,
+    /// The folders after the region: "data/rds", else the name.
+    pub label: String,
+    pub env: Option<String>,
+    pub state: RunState,
+    /// Its plan's counts, once planned.
+    pub add: u32,
+    pub change: u32,
+    pub destroy: u32,
+    /// Its log on the Atlantis server, live while it runs.
+    pub url: Option<String>,
+}
+
+/// An account a run's projects are in (#173): the folder before the region.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Env {
+    pub name: String,
+    pub production: bool,
+}
+
+/// What runs now in a plan or an apply (#173).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Live {
+    /// Atlantis prepares (its pre-workflow hooks), before the first project.
+    pub preparing: bool,
+    /// The project running, once one is.
+    pub project: Option<String>,
+    /// Since when, as GitHub writes it.
+    pub since: String,
+    /// The live log of what runs.
+    pub url: Option<String>,
+}
+
 /// A pull request's latest Atlantis run, as the island shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Plan {
@@ -128,6 +184,18 @@ pub struct Plan {
     pub locked_by: Option<u64>,
     /// The plan's comment on GitHub.
     pub comment_url: Option<String>,
+    /// Every account its projects are in, production first (#173).
+    pub envs: Vec<Env>,
+    /// While a plan or an apply runs: what runs now.
+    pub live: Option<Live>,
+    /// The projects of the run shown: running, failed, queued, done, skipped.
+    pub runs: Vec<Run>,
+    /// Projects left out of `runs` for size.
+    pub runs_hidden: u32,
+    /// Of the run shown, the projects done and those it runs (an apply
+    /// skips the ones without changes), counted before `runs` is cut.
+    pub runs_done: u32,
+    pub runs_total: u32,
     /// Projects whose plan failed, by their statuses.
     #[serde(skip)]
     pub failed: u32,
@@ -148,66 +216,73 @@ pub struct Plan {
     pub author: String,
 }
 
+/// One commit status, as far as it is read.
+#[derive(Clone, Copy)]
+struct Entry<'a> {
+    state: &'a str,
+    at: &'a str,
+    description: &'a str,
+    url: &'a str,
+    creator: &'a str,
+}
+
+impl Entry<'_> {
+    fn pending(&self) -> bool {
+        matches!(self.state, "PENDING" | "EXPECTED")
+    }
+}
+
 /// The run as the statuses of the pull request's last commit tell it;
 /// `None` without Atlantis.
 pub fn from_statuses(contexts: &Value) -> Option<Plan> {
-    let mut plan_run: Option<(&str, &str, &str)> = None;
-    let mut apply_run: Option<(&str, &str, &str)> = None;
-    let mut project_applies: Vec<&str> = Vec::new();
-    let (mut add, mut change, mut destroy) = (0u32, 0u32, 0u32);
-    let (mut projects, mut unchanged, mut failed) = (0u32, 0u32, 0u32);
+    let mut plan_run: Option<Entry> = None;
+    let mut apply_run: Option<Entry> = None;
+    // Atlantis runs its pre-workflow hooks before a plan's first project and
+    // before an apply's (#173).
+    let mut hooks: Vec<Entry> = Vec::new();
+    let mut planned: Vec<(&str, Entry)> = Vec::new();
+    let mut applies: Vec<(&str, Entry)> = Vec::new();
     let mut checks_failed = false;
-    let mut envs = Vec::new();
     for c in contexts.as_array().into_iter().flatten() {
         let (Some(name), Some(state)) = (c["context"].as_str(), c["state"].as_str()) else {
             continue;
         };
-        let at = c["createdAt"]
-            .as_str()
-            .filter(|t| t.len() <= 25)
-            .unwrap_or("");
-        let description = c["description"].as_str().unwrap_or("");
-        if name == "atlantis/plan" {
-            let author = c["creator"]["login"]
+        let entry = Entry {
+            state,
+            at: c["createdAt"]
+                .as_str()
+                .filter(|t| t.len() <= 25)
+                .unwrap_or(""),
+            description: c["description"].as_str().unwrap_or(""),
+            url: c["targetUrl"].as_str().unwrap_or(""),
+            creator: c["creator"]["login"]
                 .as_str()
                 .filter(|l| l.len() <= 64)
-                .unwrap_or("");
-            plan_run = Some((state, at, author));
+                .unwrap_or(""),
+        };
+        if name == "atlantis/plan" {
+            plan_run = Some(entry);
         } else if name == "atlantis/apply" {
-            apply_run = Some((state, at, description));
-        } else if name.starts_with("atlantis/apply: ") {
-            project_applies.push(at);
+            apply_run = Some(entry);
+        } else if name.starts_with("atlantis/pre_workflow_hook") {
+            hooks.push(entry);
         } else if let Some(project) = name.strip_prefix("atlantis/plan: ") {
-            if project.chars().count() > MAX_NAME_CHARS {
-                continue;
+            if project.chars().count() <= MAX_NAME_CHARS {
+                planned.push((project, entry));
             }
-            if let Some(env) = environment(project) {
-                envs.push(env.to_owned());
-            }
-            match state {
-                "SUCCESS" => {
-                    projects = projects.saturating_add(1);
-                    match plan_counts(description) {
-                        Some((a, ch, d)) if a > 0 || ch > 0 || d > 0 => {
-                            add = add.saturating_add(a);
-                            change = change.saturating_add(ch);
-                            destroy = destroy.saturating_add(d);
-                        }
-                        _ => unchanged = unchanged.saturating_add(1),
-                    }
-                }
-                "FAILURE" | "ERROR" => {
-                    projects = projects.saturating_add(1);
-                    failed = failed.saturating_add(1);
-                }
-                _ => {}
+        } else if let Some(project) = name.strip_prefix("atlantis/apply: ") {
+            if project.chars().count() <= MAX_NAME_CHARS {
+                applies.push((project, entry));
             }
         } else if !name.starts_with("atlantis") && matches!(state, "FAILURE" | "ERROR") {
             checks_failed = true;
         }
     }
-    let (plan_state, plan_at, author) = plan_run?;
-    let planned = match plan_state {
+    let (add, change, destroy, projects, unchanged, failed) = plan_totals(&planned);
+    let envs = accounts(planned.iter().filter_map(|(name, _)| environment(name)));
+    let plan_run = plan_run?;
+    let (plan_at, author) = (plan_run.at, plan_run.creator);
+    let planned_stage = match plan_run.state {
         "PENDING" | "EXPECTED" => Stage::Planning,
         "SUCCESS" if failed == 0 => Stage::Planned,
         _ => Stage::PlanFailed,
@@ -216,27 +291,33 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
     // marks it done when there was nothing to apply, with no project of its
     // own; and it stays pending, done, when only some projects were applied.
     let (stage, at) = match apply_run {
-        Some((state, at, description)) if at > plan_at => {
-            let ran = project_applies.iter().any(|p| *p > plan_at);
-            match state {
+        Some(apply) if apply.at > plan_at => {
+            let ran = applies.iter().any(|(_, p)| p.at > plan_at);
+            match apply.state {
                 "PENDING" | "EXPECTED"
-                    if description.to_ascii_lowercase().contains("in progress") =>
+                    if apply
+                        .description
+                        .to_ascii_lowercase()
+                        .contains("in progress") =>
                 {
-                    (Stage::Applying, at)
+                    (Stage::Applying, apply.at)
                 }
-                "SUCCESS" if ran => (Stage::Applied, at),
-                "FAILURE" | "ERROR" => (Stage::ApplyFailed, at),
-                _ => (planned, plan_at),
+                "SUCCESS" if ran => (Stage::Applied, apply.at),
+                "FAILURE" | "ERROR" => (Stage::ApplyFailed, apply.at),
+                _ => (planned_stage, plan_at),
             }
         }
-        _ => (planned, plan_at),
+        _ => (planned_stage, plan_at),
     };
-    let production = envs.iter().any(|e| is_production(e));
-    let env = envs
-        .iter()
-        .find(|e| is_production(e))
-        .or(envs.first())
-        .cloned();
+    // A live log only from the account that writes Atlantis's own plan
+    // status, and only one named for Atlantis: anyone who may push can post
+    // a status with any link, even one named "atlantis/plan".
+    let trusted = author.to_ascii_lowercase().contains("atlantis");
+    let link =
+        |e: &Entry| (trusted && e.creator == author && is_job_url(e.url)).then(|| e.url.to_owned());
+    let (live, runs, [runs_hidden, runs_done, runs_total]) =
+        runs(stage, at, plan_at, &hooks, &planned, &applies, &link);
+    let production = envs.iter().any(|e| e.production);
     let mut plan = Plan {
         stage,
         add,
@@ -245,7 +326,7 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
         destroy,
         projects,
         unchanged,
-        env,
+        env: envs.first().map(|e| e.name.clone()),
         production,
         data: Vec::new(),
         alerts: Vec::new(),
@@ -254,6 +335,12 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
         error: None,
         locked_by: None,
         comment_url: None,
+        envs,
+        live,
+        runs,
+        runs_hidden,
+        runs_done,
+        runs_total,
         failed,
         checks_failed,
         drift: false,
@@ -263,6 +350,227 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
     };
     plan.alerts = alerts(&plan);
     Some(plan)
+}
+
+/// The plan's counts by its projects' statuses: (add, change, destroy,
+/// projects planned, of them without changes, failed).
+fn plan_totals(planned: &[(&str, Entry)]) -> (u32, u32, u32, u32, u32, u32) {
+    let (mut add, mut change, mut destroy) = (0u32, 0u32, 0u32);
+    let (mut projects, mut unchanged, mut failed) = (0u32, 0u32, 0u32);
+    for (_, e) in planned {
+        match e.state {
+            "SUCCESS" => {
+                projects = projects.saturating_add(1);
+                match plan_counts(e.description) {
+                    Some((a, ch, d)) if a > 0 || ch > 0 || d > 0 => {
+                        add = add.saturating_add(a);
+                        change = change.saturating_add(ch);
+                        destroy = destroy.saturating_add(d);
+                    }
+                    _ => unchanged = unchanged.saturating_add(1),
+                }
+            }
+            "FAILURE" | "ERROR" => {
+                projects = projects.saturating_add(1);
+                failed = failed.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+    (add, change, destroy, projects, unchanged, failed)
+}
+
+/// Each account once, production first, as many as a card names.
+fn accounts<'a>(found: impl Iterator<Item = &'a str>) -> Vec<Env> {
+    let mut envs: Vec<&str> = Vec::new();
+    for env in found {
+        if !envs.contains(&env) {
+            envs.push(env);
+        }
+    }
+    envs.sort_by_key(|e| !is_production(e));
+    envs.into_iter()
+        .take(MAX_ENVS)
+        .map(|name| Env {
+            name: name.into(),
+            production: is_production(name),
+        })
+        .collect()
+}
+
+/// What runs now and the projects of the run shown (#173): the plan's while
+/// planning and once planned, each plan project in the apply once it
+/// applies. A running plan lists only its own projects so far.
+fn runs(
+    stage: Stage,
+    at: &str,
+    plan_at: &str,
+    hooks: &[Entry],
+    planned: &[(&str, Entry)],
+    applies: &[(&str, Entry)],
+    link: &dyn Fn(&Entry) -> Option<String>,
+) -> (Option<Live>, Vec<Run>, [u32; 3]) {
+    let applying = matches!(stage, Stage::Applying | Stage::Applied | Stage::ApplyFailed);
+    // Every apply after the plan: one project at a time (`-p`) applies it in
+    // parts, and a try again supersedes a failure project by project.
+    let this_apply = |e: &Entry| e.at > plan_at;
+    let make = |name: &str, state: RunState, plan: Option<&Entry>, log: Option<&Entry>| {
+        let (add, change, destroy) = plan
+            .and_then(|e| plan_counts(e.description))
+            .unwrap_or_default();
+        Run {
+            name: name.into(),
+            label: run_label(name),
+            env: environment(name).map(str::to_owned),
+            state,
+            add,
+            change,
+            destroy,
+            url: log.and_then(link),
+        }
+    };
+    let state_of = |e: &Entry| match e.state {
+        "PENDING" | "EXPECTED" => RunState::Running,
+        "SUCCESS" => RunState::Done,
+        _ => RunState::Failed,
+    };
+    // (state, when it ran, the run), sorted below.
+    let mut all: Vec<(RunState, &str, Run)> = Vec::new();
+    if applying {
+        for (name, e) in planned.iter().filter(|(_, e)| e.state == "SUCCESS") {
+            let apply = applies
+                .iter()
+                .find(|(n, a)| n == name && this_apply(a))
+                .map(|(_, a)| a);
+            let counts = plan_counts(e.description);
+            let no_changes = e.description.contains("No changes") || counts == Some((0, 0, 0));
+            let (state, when) = match apply {
+                // Left pending by an apply that stopped: it did not finish.
+                Some(a) if a.pending() && !(stage == Stage::Applying && a.at >= at) => {
+                    (RunState::Queued, a.at)
+                }
+                Some(a) => (state_of(a), a.at),
+                None if no_changes => (RunState::Skipped, e.at),
+                // Changes not applied: waiting, or left out of a partial apply.
+                None if counts.is_some() => (RunState::Queued, e.at),
+                // An empty description may hide changes: queued until the apply ends.
+                None if stage == Stage::Applying => (RunState::Queued, e.at),
+                None => (RunState::Skipped, e.at),
+            };
+            all.push((state, when, make(name, state, Some(e), apply.or(Some(e)))));
+        }
+        for (name, a) in applies.iter().filter(|(_, a)| this_apply(a)) {
+            if !planned
+                .iter()
+                .any(|(n, e)| n == name && e.state == "SUCCESS")
+            {
+                all.push((state_of(a), a.at, make(name, state_of(a), None, Some(a))));
+            }
+        }
+    } else {
+        for (name, e) in planned {
+            if stage == Stage::Planning && e.at < plan_at {
+                continue;
+            }
+            all.push((state_of(e), e.at, make(name, state_of(e), Some(e), Some(e))));
+        }
+    }
+    let live = matches!(stage, Stage::Planning | Stage::Applying).then(|| {
+        // A hook left pending by an interrupted run is not this run's.
+        let fresh = |h: &Entry| match (epoch_secs(at), epoch_secs(h.at)) {
+            (Some(run), Some(hook)) => hook >= run.saturating_sub(30),
+            _ => true,
+        };
+        let hook = hooks
+            .iter()
+            .filter(|h| h.pending() && fresh(h))
+            .max_by_key(|h| h.at);
+        let list = if stage == Stage::Applying {
+            applies
+        } else {
+            planned
+        };
+        let project = list
+            .iter()
+            .filter(|(_, e)| e.pending() && e.at >= at)
+            .max_by_key(|(_, e)| e.at);
+        // A project that began after the hook: the preparation is over.
+        let hook = hook.filter(|h| project.is_none_or(|(_, e)| e.at < h.at));
+        match (hook, project) {
+            (Some(hook), _) => Live {
+                preparing: true,
+                project: None,
+                since: hook.at.into(),
+                url: link(hook),
+            },
+            (None, Some((name, e))) => Live {
+                preparing: false,
+                project: Some((*name).into()),
+                since: e.at.into(),
+                url: link(e),
+            },
+            (None, None) => Live {
+                preparing: false,
+                project: None,
+                since: at.into(),
+                url: None,
+            },
+        }
+    });
+    all.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    let count = |keep: &dyn Fn(RunState) -> bool| {
+        let n = all.iter().filter(|(state, _, _)| keep(*state)).count();
+        u32::try_from(n).unwrap_or(u32::MAX)
+    };
+    let done = count(&|s| s == RunState::Done);
+    let total = count(&|s| s != RunState::Skipped);
+    let hidden = u32::try_from(all.len().saturating_sub(MAX_RUNS)).unwrap_or(u32::MAX);
+    let runs = all
+        .into_iter()
+        .take(MAX_RUNS)
+        .map(|(_, _, run)| run)
+        .collect();
+    (live, runs, [hidden, done, total])
+}
+
+/// "data/rds" for "infraestructure/aws/production/sa-east-1/data/rds" (or
+/// joined with `_`, as Atlantis names a project by its folders).
+fn run_label(name: &str) -> String {
+    let sep = if name.contains('/') { '/' } else { '_' };
+    let parts: Vec<&str> = name.split(sep).collect();
+    match parts.iter().position(|p| is_region(p)) {
+        Some(i) if i + 1 < parts.len() => parts[i + 1..].join(&sep.to_string()),
+        _ => name.into(),
+    }
+}
+
+/// A log on the Atlantis server: https, bounded, in one piece.
+fn is_job_url(url: &str) -> bool {
+    // A host alone: no `user@` before it, which would send the browser elsewhere.
+    let host = |h: &str| {
+        !h.is_empty()
+            && h.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':'))
+    };
+    url.len() <= MAX_URL_CHARS
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+        && url
+            .strip_prefix("https://")
+            .and_then(|rest| rest.split_once('/'))
+            .is_some_and(|(h, rest)| {
+                let path = rest.split(['?', '#']).next().unwrap_or("");
+                host(h) && format!("/{path}").contains("/jobs/")
+            })
+}
+
+impl Plan {
+    /// Whether the URL is one of this run's links: its plan comment, or the
+    /// live log of its preparation or of a project (#173).
+    pub fn has_link(&self, url: &str) -> bool {
+        self.comment_url.as_deref() == Some(url)
+            || self.live.as_ref().and_then(|l| l.url.as_deref()) == Some(url)
+            || self.runs.iter().any(|r| r.url.as_deref() == Some(url))
+    }
 }
 
 /// "Plan: 1 to import, 2 to add, 0 to change, 1 to destroy." (also behind a
@@ -795,6 +1103,28 @@ fn merge(plan: &mut Plan, section: &Section) {
     if let Some(env) = envs.iter().find(|e| is_production(e)).or(envs.first()) {
         plan.env = Some((*env).to_owned());
         plan.production = envs.iter().any(|e| is_production(e));
+        // The folders tell the accounts, whatever the projects are named.
+        plan.envs = accounts(envs.into_iter());
+    }
+    // A plan status without a description may hide changes the comment shows.
+    for run in plan
+        .runs
+        .iter_mut()
+        .filter(|r| r.state == RunState::Skipped)
+    {
+        let Some(project) = section.projects.iter().find(|p| p.name == run.name) else {
+            continue;
+        };
+        if !project.changes.is_empty() {
+            let [destroy, replace, change, add] = project.ops;
+            run.state = RunState::Queued;
+            (run.add, run.change, run.destroy) = (
+                add.saturating_add(replace),
+                change,
+                destroy.saturating_add(replace),
+            );
+            plan.runs_total = plan.runs_total.saturating_add(1);
+        }
     }
     if plan.stage == Stage::PlanFailed {
         let locked: Vec<&Project> = section
@@ -905,6 +1235,579 @@ mod tests {
         assert!(is_production("Production") && !is_production("pre-prod"));
         assert!(!is_production("networking"));
         assert!(is_region("us-gov-west-1") && !is_region("pre-prod") && !is_region("sa-east-1a"));
+    }
+
+    fn names(envs: &[Env]) -> Vec<&str> {
+        envs.iter().map(|e| e.name.as_str()).collect()
+    }
+
+    /// A status with its live log, by the account that runs Atlantis.
+    fn job(context: &str, state: &str, description: &str, at: &str) -> Value {
+        let mut s = status(context, state, description, at);
+        s["targetUrl"] = json!(format!("https://atlantis.acme.dev/jobs/{}", context.len()));
+        s
+    }
+
+    #[test]
+    fn a_running_plan_tells_what_runs_now_and_only_its_own_projects() {
+        const START: &str = "2026-11-25T10:00:00Z";
+        const EARLIER: &str = "2026-11-25T09:00:00Z";
+        let preparing = json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", START),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "PENDING",
+                "in progress...",
+                "2026-11-25T10:00:02Z"
+            ),
+            // The previous run's, not yet planned again.
+            job(
+                "atlantis/plan: live_pre-prod_sa-east-1_data_rds",
+                "SUCCESS",
+                "Plan: 1 to add, 0 to change, 0 to destroy.",
+                EARLIER
+            ),
+        ]);
+        let plan = from_statuses(&preparing).unwrap();
+        let live = plan.live.as_ref().unwrap();
+        assert!(live.preparing && live.project.is_none());
+        assert_eq!(live.since, "2026-11-25T10:00:02Z");
+        assert!(live
+            .url
+            .as_deref()
+            .unwrap()
+            .starts_with("https://atlantis.acme.dev/jobs/"));
+        assert!(plan.runs.is_empty());
+        assert_eq!(names(&plan.envs), ["pre-prod"]);
+
+        let planning = json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", START),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "SUCCESS",
+                "succeeded.",
+                "2026-11-25T10:02:30Z"
+            ),
+            job(
+                "atlantis/plan: live_pre-prod_sa-east-1_data_rds",
+                "SUCCESS",
+                "Plan: 1 to add, 2 to change, 0 to destroy.",
+                "2026-11-25T10:02:50Z"
+            ),
+            job(
+                "atlantis/plan: live_production_sa-east-1_web",
+                "SUCCESS",
+                "No changes. Your infrastructure matches the configuration.",
+                "2026-11-25T10:03:05Z"
+            ),
+            job(
+                "atlantis/plan: live_network_us-east-1_vpc",
+                "PENDING",
+                "Plan in progress...",
+                "2026-11-25T10:03:06Z"
+            ),
+            job(
+                "atlantis/plan: live_staging_sa-east-1_old",
+                "SUCCESS",
+                "Plan: 9 to add, 0 to change, 0 to destroy.",
+                EARLIER
+            ),
+        ]);
+        let plan = from_statuses(&planning).unwrap();
+        let live = plan.live.as_ref().unwrap();
+        assert!(!live.preparing);
+        assert_eq!(live.project.as_deref(), Some("live_network_us-east-1_vpc"));
+        assert_eq!(live.since, "2026-11-25T10:03:06Z");
+        assert!(live.url.is_some());
+        let runs: Vec<(&str, RunState, u32, u32)> = plan
+            .runs
+            .iter()
+            .map(|r| (r.label.as_str(), r.state, r.add, r.change))
+            .collect();
+        // Running first, then what is done in the order it ran; the earlier
+        // run's project is not part of this one.
+        assert_eq!(
+            runs,
+            [
+                ("vpc", RunState::Running, 0, 0),
+                ("data_rds", RunState::Done, 1, 2),
+                ("web", RunState::Done, 0, 0),
+            ]
+        );
+        // Every account, production first.
+        assert_eq!(
+            names(&plan.envs),
+            ["production", "network", "pre-prod", "staging"]
+        );
+        let production: Vec<bool> = plan.envs.iter().map(|e| e.production).collect();
+        assert_eq!(production, [true, true, false, false]);
+        assert_eq!(plan.env.as_deref(), Some("production"));
+        assert!(plan.runs.iter().all(|r| r.url.is_some()));
+    }
+
+    #[test]
+    fn an_apply_lists_each_planned_project_queued_running_done_or_skipped() {
+        const PLANNED: &str = "2026-11-25T10:05:00Z";
+        let applying = json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "3/3 projects planned successfully.",
+                PLANNED
+            ),
+            job(
+                "atlantis/plan: a/production/sa-east-1/rds",
+                "SUCCESS",
+                "Plan: 1 to add, 0 to change, 0 to destroy.",
+                "2026-11-25T10:04:00Z"
+            ),
+            job(
+                "atlantis/plan: a/production/sa-east-1/web",
+                "SUCCESS",
+                "",
+                "2026-11-25T10:04:20Z"
+            ),
+            job(
+                "atlantis/plan: a/production/sa-east-1/dns",
+                "SUCCESS",
+                "No changes. Your infrastructure matches the configuration.",
+                "2026-11-25T10:04:40Z"
+            ),
+            job(
+                "atlantis/plan: a/production/sa-east-1/iam",
+                "SUCCESS",
+                "Plan: 0 to add, 1 to change, 0 to destroy.",
+                "2026-11-25T10:04:50Z"
+            ),
+            status(
+                "atlantis/apply",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:20:00Z"
+            ),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "SUCCESS",
+                "succeeded.",
+                "2026-11-25T10:22:30Z"
+            ),
+            job(
+                "atlantis/apply: a/production/sa-east-1/rds",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:22:50Z"
+            ),
+            job(
+                "atlantis/apply: a/production/sa-east-1/iam",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:22:51Z"
+            ),
+        ]);
+        let plan = from_statuses(&applying).unwrap();
+        assert_eq!(plan.stage, Stage::Applying);
+        assert_eq!(
+            plan.live.as_ref().unwrap().project.as_deref(),
+            Some("a/production/sa-east-1/iam")
+        );
+        let runs: Vec<(&str, RunState)> = plan
+            .runs
+            .iter()
+            .map(|r| (r.label.as_str(), r.state))
+            .collect();
+        // A plan without a description may still have changes: queued until the apply ends.
+        assert_eq!(
+            runs,
+            [
+                ("iam", RunState::Running),
+                ("web", RunState::Queued),
+                ("rds", RunState::Done),
+                ("dns", RunState::Skipped),
+            ]
+        );
+        let mut applied = applying.as_array().unwrap().clone();
+        applied[5] = status(
+            "atlantis/apply",
+            "SUCCESS",
+            "2/2 projects applied successfully.",
+            "2026-11-25T10:23:10Z",
+        );
+        applied[8] = job(
+            "atlantis/apply: a/production/sa-east-1/iam",
+            "SUCCESS",
+            "Apply succeeded.",
+            "2026-11-25T10:23:05Z",
+        );
+        let plan = from_statuses(&Value::Array(applied)).unwrap();
+        assert_eq!((plan.stage, plan.live.is_none()), (Stage::Applied, true));
+        let states: Vec<RunState> = plan.runs.iter().map(|r| r.state).collect();
+        assert_eq!(
+            states,
+            [
+                RunState::Done,
+                RunState::Done,
+                RunState::Skipped,
+                RunState::Skipped
+            ]
+        );
+    }
+
+    #[test]
+    fn a_live_log_is_kept_only_from_the_account_that_runs_atlantis_and_over_https() {
+        let mut forged = job("atlantis/plan: a", "PENDING", "Plan in progress...", AT);
+        forged["creator"]["login"] = json!("someone-else");
+        let mut plain = job("atlantis/plan: b", "SUCCESS", "", AT);
+        plain["targetUrl"] = json!("http://atlantis.acme.dev/jobs/1");
+        let mut spaced = job("atlantis/plan: c", "SUCCESS", "", AT);
+        spaced["targetUrl"] = json!("https://atlantis.acme.dev/jobs/1 x");
+        let plan = from_statuses(&json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", AT),
+            forged,
+            plain,
+            spaced,
+        ]))
+        .unwrap();
+        assert_eq!(plan.runs.len(), 3);
+        assert!(plan.runs.iter().all(|r| r.url.is_none()));
+        assert_eq!(plan.live.as_ref().unwrap().url, None);
+        assert!(!plan.has_link("https://atlantis.acme.dev/jobs/1"));
+        let plan = from_statuses(&json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", AT),
+            job("atlantis/plan: a", "PENDING", "Plan in progress...", AT),
+        ]))
+        .unwrap();
+        let url = plan.runs[0].url.clone().unwrap();
+        assert!(plan.has_link(&url) && !plan.has_link("https://atlantis.acme.dev/jobs/0"));
+    }
+
+    #[test]
+    fn a_live_log_needs_an_account_named_for_atlantis_and_a_job_path() {
+        let by = |login: &str, mut s: Value| {
+            s["creator"]["login"] = json!(login);
+            s
+        };
+        let plan = from_statuses(&json!([
+            by(
+                "deploy-bot",
+                status("atlantis/plan", "PENDING", "Plan in progress...", AT)
+            ),
+            by(
+                "deploy-bot",
+                job("atlantis/plan: a", "PENDING", "Plan in progress...", AT)
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(plan.runs[0].url, None);
+        let mut elsewhere = job("atlantis/plan: a", "PENDING", "Plan in progress...", AT);
+        elsewhere["targetUrl"] = json!("https://atlantis.acme.dev/login");
+        let plan = from_statuses(&json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", AT),
+            elsewhere,
+        ]))
+        .unwrap();
+        assert_eq!(plan.runs[0].url, None);
+        assert!(is_job_url("https://ci.acme.dev:8443/atlantis/jobs/7"));
+        assert!(!is_job_url("https:///jobs/7") && !is_job_url("https://jobs.acme.dev"));
+        assert!(!is_job_url(
+            "https://atlantis.acme.dev@elsewhere.dev/jobs/1"
+        ));
+        assert!(!is_job_url("https://atlantis.acme.dev/login?next=/jobs/1"));
+    }
+
+    #[test]
+    fn a_hook_left_pending_by_an_earlier_run_is_not_this_runs_preparation() {
+        const START: &str = "2026-11-25T10:00:00Z";
+        let stale = json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", START),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "PENDING",
+                "in progress...",
+                "2026-11-25T09:00:00Z"
+            ),
+        ]);
+        let live = from_statuses(&stale).unwrap().live.unwrap();
+        assert!(!live.preparing);
+        assert_eq!(live.since, START);
+        // A project that began after the hook: the preparation is over.
+        let moved_on = json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", START),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "PENDING",
+                "in progress...",
+                "2026-11-25T10:00:02Z"
+            ),
+            job(
+                "atlantis/plan: a",
+                "PENDING",
+                "Plan in progress...",
+                "2026-11-25T10:02:40Z"
+            ),
+        ]);
+        let live = from_statuses(&moved_on).unwrap().live.unwrap();
+        assert_eq!(
+            (live.preparing, live.project.as_deref()),
+            (false, Some("a"))
+        );
+        // A time not in GitHub's form: no panic, the hook counts.
+        let odd = json!([
+            status("atlantis/plan", "PENDING", "Plan in progress...", ""),
+            job(
+                "atlantis/pre_workflow_hook: graph",
+                "PENDING",
+                "in progress...",
+                "2026-11-25T10:00:02+00:00"
+            ),
+        ]);
+        assert!(from_statuses(&odd).unwrap().live.unwrap().preparing);
+    }
+
+    #[test]
+    fn an_apply_in_parts_keeps_what_an_earlier_part_applied() {
+        let plan = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "2/2 projects planned successfully.",
+                "2026-11-25T10:05:00Z"
+            ),
+            job(
+                "atlantis/plan: a",
+                "SUCCESS",
+                "Plan: 1 to add, 0 to change, 0 to destroy.",
+                "2026-11-25T10:04:00Z"
+            ),
+            job(
+                "atlantis/plan: b",
+                "SUCCESS",
+                "Plan: 0 to add, 2 to change, 0 to destroy.",
+                "2026-11-25T10:04:30Z"
+            ),
+            // `atlantis apply -p a`, then `-p b`, running now.
+            job(
+                "atlantis/apply: a",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:20:30Z"
+            ),
+            status(
+                "atlantis/apply",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:30:00Z"
+            ),
+            job(
+                "atlantis/apply: b",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:32:40Z"
+            ),
+        ]))
+        .unwrap();
+        let states: Vec<(&str, RunState)> = plan
+            .runs
+            .iter()
+            .map(|r| (r.name.as_str(), r.state))
+            .collect();
+        assert_eq!(states, [("b", RunState::Running), ("a", RunState::Done)]);
+        assert_eq!((plan.runs_done, plan.runs_total), (1, 2));
+        assert_eq!(plan.live.unwrap().project.as_deref(), Some("b"));
+        // The apply stopped with b left pending, then ended: b did not finish.
+        let ended = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "2/2 projects planned successfully.",
+                "2026-11-25T10:05:00Z"
+            ),
+            job(
+                "atlantis/plan: b",
+                "SUCCESS",
+                "Plan: 0 to add, 2 to change, 0 to destroy.",
+                "2026-11-25T10:04:30Z"
+            ),
+            job(
+                "atlantis/apply: b",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:32:40Z"
+            ),
+            job(
+                "atlantis/apply: c",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:40:00Z"
+            ),
+            status(
+                "atlantis/apply",
+                "SUCCESS",
+                "1/1 projects applied successfully.",
+                "2026-11-25T10:41:00Z"
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(ended.stage, Stage::Applied);
+        let b = ended.runs.iter().find(|r| r.name == "b").unwrap();
+        assert_eq!(b.state, RunState::Queued);
+    }
+
+    #[test]
+    fn a_partial_apply_leaves_the_changes_it_skipped_queued_not_without_changes() {
+        let plan = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "2/2 projects planned successfully.",
+                "2026-11-25T10:05:00Z"
+            ),
+            job(
+                "atlantis/plan: a",
+                "SUCCESS",
+                "Plan: 1 to add, 0 to change, 0 to destroy.",
+                "2026-11-25T10:04:00Z"
+            ),
+            job(
+                "atlantis/plan: b",
+                "SUCCESS",
+                "Plan: 0 to add, 2 to change, 0 to destroy.",
+                "2026-11-25T10:04:30Z"
+            ),
+            status(
+                "atlantis/apply",
+                "SUCCESS",
+                "1/1 projects applied successfully.",
+                "2026-11-25T10:21:00Z"
+            ),
+            job(
+                "atlantis/apply: a",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:20:30Z"
+            ),
+        ]))
+        .unwrap();
+        let states: Vec<(&str, RunState)> = plan
+            .runs
+            .iter()
+            .map(|r| (r.name.as_str(), r.state))
+            .collect();
+        assert_eq!(states, [("b", RunState::Queued), ("a", RunState::Done)]);
+        assert_eq!((plan.runs_done, plan.runs_total), (1, 2));
+    }
+
+    #[test]
+    fn the_comments_folders_tell_the_accounts_of_projects_named_by_hand() {
+        let plan = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "1/1 projects planned successfully.",
+                AT
+            ),
+            job(
+                "atlantis/plan: dns",
+                "SUCCESS",
+                "Plan: 1 to add, 0 to change, 0 to destroy.",
+                AT
+            ),
+        ]))
+        .unwrap();
+        assert!(plan.envs.is_empty());
+        let section = Section {
+            url: "https://github.com/o/r/pull/1#c1".into(),
+            created_at: POSTED.into(),
+            projects: vec![
+                Project {
+                    name: "dns".into(),
+                    dir: "live/production/sa-east-1/dns".into(),
+                    ..Project::default()
+                },
+                Project {
+                    name: "cdn".into(),
+                    dir: "live/staging/sa-east-1/cdn".into(),
+                    ..Project::default()
+                },
+            ],
+            ..Section::default()
+        };
+        let detail = Detail {
+            plan: Some(section),
+            apply: None,
+        };
+        let plan = with_detail(plan, Some(&detail));
+        assert_eq!(names(&plan.envs), ["production", "staging"]);
+        assert!(plan.envs[0].production && !plan.envs[1].production);
+    }
+
+    #[test]
+    fn a_plan_status_without_a_description_takes_its_changes_from_the_comment() {
+        let plan = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "1/1 projects planned successfully.",
+                AT
+            ),
+            job("atlantis/plan: web", "SUCCESS", "", AT),
+            status(
+                "atlantis/apply",
+                "SUCCESS",
+                "0/0 projects applied.",
+                "2026-11-25T10:20:00Z"
+            ),
+            job(
+                "atlantis/apply: other",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:19:00Z"
+            ),
+        ]))
+        .unwrap();
+        let web = plan.runs.iter().find(|r| r.name == "web").unwrap();
+        assert_eq!(web.state, RunState::Skipped);
+        let mut project = Project {
+            name: "web".into(),
+            dir: "live/staging/sa-east-1/web".into(),
+            ops: [0, 1, 0, 2],
+            ..Project::default()
+        };
+        project.changes.insert(
+            (Op::Add, "aws_instance".into()),
+            (2, "aws_instance.web".into()),
+        );
+        let detail = Detail {
+            plan: Some(Section {
+                url: "https://github.com/o/r/pull/1#c1".into(),
+                created_at: POSTED.into(),
+                projects: vec![project],
+                ..Section::default()
+            }),
+            apply: None,
+        };
+        let total = plan.runs_total;
+        let plan = with_detail(plan, Some(&detail));
+        let web = plan.runs.iter().find(|r| r.name == "web").unwrap();
+        assert_eq!((web.state, web.add, web.destroy), (RunState::Queued, 3, 1));
+        assert_eq!(plan.runs_total, total + 1);
+    }
+
+    #[test]
+    fn a_long_run_lists_its_first_projects_and_counts_the_rest() {
+        let mut statuses = vec![status("atlantis/plan", "SUCCESS", "", AT)];
+        for i in 0..MAX_RUNS + 5 {
+            statuses.push(job(&format!("atlantis/plan: p{i}"), "SUCCESS", "", AT));
+        }
+        let plan = from_statuses(&Value::Array(statuses)).unwrap();
+        assert_eq!((plan.runs.len(), plan.runs_hidden), (MAX_RUNS, 5));
+        assert_eq!(plan.projects as usize, MAX_RUNS + 5);
+        // Progress counts every project, the ones cut out of the list too.
+        assert_eq!(
+            (plan.runs_done as usize, plan.runs_total as usize),
+            (MAX_RUNS + 5, MAX_RUNS + 5)
+        );
+        assert_eq!(run_label("x_prod_sa-east-1_my_service"), "my_service");
+        assert_eq!(run_label("live/staging/vpc"), "live/staging/vpc");
     }
 
     #[test]

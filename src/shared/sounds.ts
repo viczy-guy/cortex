@@ -1,4 +1,4 @@
-type SoundKind = "green" | "blue" | "amber" | "red" | "pink";
+type SoundKind = "green" | "atlantis" | "blue" | "amber" | "red" | "pink";
 /** Frequency (Hz), start and duration (s), waveform, peak volume (> 0: an exponential ramp cannot reach 0). */
 type Note = [frequency: number, start: number, duration: number, waveform: OscillatorType, volume: number];
 
@@ -20,6 +20,12 @@ const SOUNDS: Record<SoundKind, { rank: number; notes: Note[] }> = {
   // "Alerta", twice.
   green: {
     rank: 1,
+    notes: repeat([[587, 0, 0.16, "triangle", 0.32], [740, 0.16, 0.16, "triangle", 0.32], [988, 0.32, 0.34, "triangle", 0.32]], 2, 0.95),
+  },
+  // Atlantis's turquoise (#173): "Alerta" as before, until the maintainer
+  // picks its own by ear (Onda, Gota or Sino).
+  atlantis: {
+    rank: 1.5,
     notes: repeat([[587, 0, 0.16, "triangle", 0.32], [740, 0.16, 0.16, "triangle", 0.32], [988, 0.32, 0.34, "triangle", 0.32]], 2, 0.95),
   },
   // "Toque", twice: two notes up, softer than the alert; a request, not an emergency (#131).

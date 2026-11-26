@@ -9,7 +9,7 @@ use cortex_core::{
     },
     notices::{
         known_from_json, known_to_json, notices, notifications_path, parse_failed_runs,
-        parse_plans, plan_query, remember, split_poll_interval, FailedRun, Known, LastRun,
+        parse_plans, plan_query, remember, split_poll_interval, watched, FailedRun, Known, LastRun,
         PlanCache, MAX_KNOWN_BYTES,
     },
     GithubSummary,
@@ -472,6 +472,7 @@ fn add_notices(gh: &Path, token: &str, summary: &mut GithubSummary) {
     }
     drop(memory);
     summary.notices = notices(summary);
+    summary.atlantis = watched(summary);
 }
 
 fn fetch_account(gh: &Path, account: GhAccount, hidden: &[String]) -> AccountStatus {
