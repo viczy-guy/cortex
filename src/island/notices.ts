@@ -8,7 +8,7 @@ import { button, el } from "../shared/dom";
 import { t } from "../shared/i18n";
 import type { GithubNotice, Plan, SessionView } from "../shared/ipc";
 import { sessionKey, type Tone } from "./notch";
-import { planCard, planChips, type PlanRun, planSay } from "./plans";
+import { planChips, planSay } from "./plans";
 
 export interface ViewNotice {
   key: string;
@@ -20,21 +20,20 @@ export interface ViewNotice {
   url?: string;
   /** A phrase around a title: only the title gives way when space runs out. */
   around?: { before: string; title: string; after: string };
-  /** An Atlantis run: its line opens a summary instead of GitHub (#161). */
+  /** An Atlantis run: its line opens its pull request's Atlantis card (#173). */
   plan?: Plan;
-  /** "#331 · Short title", heading that summary. */
-  pr?: string;
   /** The same notice made again, in the language shown now (#154). */
   again: () => ViewNotice;
 }
 
 const GITHUB: Record<GithubNotice["kind"], { tone: ViewNotice["tone"]; say: (n: GithubNotice) => string }> = {
-  // Atlantis (#161): red when something goes or fails, green when it only adds or changes.
+  // Atlantis (#161): red when something goes or fails; its own turquoise
+  // when it only adds or changes, and when it is applied (#173).
   plan_destroys: { tone: "red", say: (n) => planSay(n.kind, n.plan) },
   plan_failed: { tone: "red", say: (n) => planSay(n.kind, n.plan) },
   apply_failed: { tone: "red", say: (n) => planSay(n.kind, n.plan) },
-  plan_ready: { tone: "green", say: (n) => planSay(n.kind, n.plan) },
-  applied: { tone: "green", say: (n) => planSay(n.kind, n.plan) },
+  plan_ready: { tone: "atlantis", say: (n) => planSay(n.kind, n.plan) },
+  applied: { tone: "atlantis", say: (n) => planSay(n.kind, n.plan) },
   failed: { tone: "red", say: () => t("notice.prFailed") },
   action: { tone: "red", say: () => t("notice.actionFailed") },
   review: { tone: "blue", say: () => t("notice.review") },
@@ -51,7 +50,6 @@ export function githubNotice(notice: GithubNotice): ViewNotice {
   if (projects && notice.plan && notice.detail.endsWith(projects)) {
     view.detail = notice.detail.slice(0, -projects.length) + t("notice.projects", notice.plan.projects);
   }
-  if (notice.number > 0) view.pr = notice.title ? `#${notice.number} · ${notice.title}` : `#${notice.number}`;
   if (notice.kind === "approved") {
     view.around = { before: t("notice.approvedBefore", notice.number), title: notice.title, after: t("notice.approvedAfter") };
   }
@@ -85,10 +83,11 @@ export function agentNotice(session: SessionView, tone: Tone): ViewNotice | null
   return { key: sessionKey(session), tone, say: t(say), detail: folder ? `${name} · ${folder}` : name, again: () => agentNotice(session, tone)! };
 }
 
-const AWAY_COUNTS: [ViewNotice["tone"], "away.red" | "away.amber" | "away.blue" | "away.green"][] = [
+const AWAY_COUNTS: [ViewNotice["tone"], "away.red" | "away.amber" | "away.blue" | "away.atlantis" | "away.green"][] = [
   ["red", "away.red"],
   ["amber", "away.amber"],
   ["blue", "away.blue"],
+  ["atlantis", "away.atlantis"],
   ["green", "away.green"],
 ];
 
@@ -126,20 +125,17 @@ export interface RowActions {
   /** A click on a plain notice: that one goes, and GitHub's open. */
   act: (notice: ViewNotice) => void;
   clearAll: () => void;
-  /** The notice whose plan summary is open. */
-  open: string | null;
-  toggle: (notice: ViewNotice) => void;
-  /** A link of a summary or a run: the notice, if any, goes too. */
-  follow: (notice: ViewNotice | null, url: string) => void;
+  /** A click on an Atlantis notice: its pull request's card (#173). */
+  plan: (notice: ViewNotice) => void;
 }
 
 /**
  * One row per notice, the most urgent first; a click acts on that one only,
- * or opens its plan's summary below it (#161). With two or more, "Clear all"
- * on top: in sight on a long list, and never sliding under the pointer as
- * rows go. Atlantis runs still going come last, in gray.
+ * or opens its pull request's Atlantis card (#173). With two or more, "Clear
+ * all" on top: in sight on a long list, and never sliding under the pointer
+ * as rows go.
  */
-export function noticeRows(notices: ViewNotice[], runs: PlanRun[], actions: RowActions): HTMLElement {
+export function noticeRows(notices: ViewNotice[], actions: RowActions): HTMLElement {
   const list = el("div", "notice-rows");
   if (notices.length > 1) list.append(button("btn-neutral btn-clear", t("rows.clearAll"), actions.clearAll));
   for (const notice of notices) {
@@ -147,32 +143,13 @@ export function noticeRows(notices: ViewNotice[], runs: PlanRun[], actions: RowA
     row.type = "button";
     row.dataset.key = notice.key;
     const plan = notice.plan;
-    const open = plan !== undefined && actions.open === notice.key;
-    row.title = plan ? t(open ? "rows.hidePlan" : "rows.showPlan", notice.say) : notice.url ? t("rows.open", notice.say) : notice.say;
+    row.title = plan ? t("rows.showSteps", notice.say) : notice.url ? t("rows.open", notice.say) : notice.say;
     row.append(el("span", `notice-dot tone-${notice.tone}`), phrase(notice), el("small", undefined, notice.detail));
-    if (plan) {
-      row.setAttribute("aria-expanded", String(open));
-      row.append(planChips(plan));
-    }
+    if (plan) row.append(planChips(plan));
     row.addEventListener("click", (event) => {
       event.stopPropagation();
-      if (plan) actions.toggle(notice);
+      if (plan) actions.plan(notice);
       else actions.act(notice);
-    });
-    list.append(row);
-    if (plan && open && notice.url) {
-      const url = notice.url;
-      list.append(planCard(plan, notice.pr ?? notice.detail, (link) => actions.follow(notice, link), url));
-    }
-  }
-  for (const run of runs) {
-    const row = el("button", "notice-row notice-row--run");
-    row.type = "button";
-    row.title = t("rows.open", run.say);
-    row.append(el("span", `notice-dot run-dot${run.going ? " run-dot--going" : ""}`), el("b", undefined, run.say), el("small", undefined, run.detail));
-    row.addEventListener("click", (event) => {
-      event.stopPropagation();
-      actions.follow(null, run.url);
     });
     list.append(row);
   }

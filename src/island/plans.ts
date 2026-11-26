@@ -1,13 +1,13 @@
 /**
- * Atlantis plans on the island (#161): the phrase of a plan, its summary
- * when its line is opened, and the runs still going. The facts come from
+ * Atlantis plans on the island (#161): the phrase of a plan and its summary,
+ * shown in its Atlantis card (#173). The facts come from
  * `cortex_core::atlantis`; only the words are made here, in the language
  * shown (#154).
  */
 
-import { button, el } from "../shared/dom";
+import { el } from "../shared/dom";
 import { language, t } from "../shared/i18n";
-import type { GithubNotice, Plan, PlanOp, PullRequest } from "../shared/ipc";
+import type { GithubNotice, Plan, PlanOp } from "../shared/ipc";
 
 const SIGNS: Record<PlanOp, string> = { destroy: "−", replace: "±", change: "~", add: "+" };
 /** The most dangerous first, as the sentence tells it; the chips read the other way. */
@@ -159,27 +159,17 @@ export function alerts(plan: Plan): { hot: boolean; text: string }[] {
   });
 }
 
-/** "+3 ~1": the counts that are not zero, on a notice's line. */
-export function planChips(plan: Plan): HTMLElement {
+/** "+3 ~1": the counts that are not zero, on a notice's line or a project's. */
+export function planChips(plan: Pick<Plan, PlanOp>): HTMLElement {
   const chips = el("span", "plan-chips plan-chips--mini");
   for (const op of CHIPS) if (plan[op] > 0) chips.append(el("span", `plan-chip plan-chip--${op} on`, `${SIGNS[op]}${plan[op]}`));
   return chips;
 }
 
-/** The summary under an opened line: counts, sentence, alerts, the list, and links. */
-export function planCard(plan: Plan, where: string, open: (url: string) => void, prUrl: string): HTMLElement {
-  const card = el("div", "plan-card");
-  const head = el("div", "plan-where");
-  if (plan.env) head.append(el("span", `plan-env${plan.production ? " plan-env--prod" : ""}`, plan.env));
-  head.append(el("span", undefined, where));
-  card.append(head);
-  if (CHIPS.some((op) => plan[op] > 0)) {
-    const chips = el("div", "plan-chips");
-    for (const op of CHIPS) chips.append(el("span", `plan-chip plan-chip--${op}${plan[op] > 0 ? " on" : ""}`, `${SIGNS[op]}${plan[op]}`));
-    card.append(chips);
-  }
-  card.append(el("div", "plan-sum", sentence(plan)));
-  for (const alert of alerts(plan)) card.append(el("div", `plan-alert${alert.hot ? " plan-alert--hot" : ""}`, alert.text));
+/** A plan's summary (#161), inside its Atlantis card (#173): the sentence, the alerts and the list. */
+export function planSummary(plan: Plan): HTMLElement[] {
+  const parts: HTMLElement[] = [el("div", "plan-sum", sentence(plan))];
+  for (const alert of alerts(plan)) parts.push(el("div", `plan-alert${alert.hot ? " plan-alert--hot" : ""}`, alert.text));
   if (plan.groups.length > 0) {
     const list = el("ul", "plan-groups");
     list.dataset.scroll = "plan";
@@ -193,38 +183,7 @@ export function planCard(plan: Plan, where: string, open: (url: string) => void,
       list.append(item);
     }
     if (plan.projects > 1 && plan.unchanged > 0) list.append(el("li", "plan-project", t("plan.unchanged", plan.unchanged)));
-    card.append(list);
+    parts.push(list);
   }
-  const actions = el("div", "plan-actions");
-  actions.append(button("btn-neutral", t("plan.openPr"), () => open(prUrl)));
-  if (plan.comment_url) {
-    const url = plan.comment_url;
-    actions.append(button("btn-neutral", t("plan.full"), () => open(url)));
-  }
-  card.append(actions);
-  return card;
-}
-
-/** A run still going, or waiting on a lock: a gray line, no sound. */
-export interface PlanRun {
-  key: string;
-  say: string;
-  detail: string;
-  url: string;
-  going: boolean;
-}
-
-/** The pull requests' runs still going, each once. */
-export function planRuns(pulls: PullRequest[]): PlanRun[] {
-  const runs = new Map<string, PlanRun>();
-  for (const pull of pulls) {
-    const plan = pull.plan;
-    if (!plan || runs.has(pull.url)) continue;
-    const detail = `${pull.repo.split("/").at(-1) ?? pull.repo} #${pull.number}${plan.env ? ` · ${plan.env}` : ""}`;
-    const run = { key: `run:${pull.url}`, detail, url: pull.url };
-    if (plan.stage === "planning") runs.set(pull.url, { ...run, say: plan.projects > 0 ? t("run.planningDone", plan.projects) : t("run.planning"), going: true });
-    else if (plan.stage === "applying") runs.set(pull.url, { ...run, say: t("run.applying"), going: true });
-    else if (plan.stage === "locked") runs.set(pull.url, { ...run, say: plan.locked_by ? t("run.lockedBy", plan.locked_by) : t("run.locked"), going: false });
-  }
-  return [...runs.values()];
+  return parts;
 }

@@ -30,6 +30,8 @@ const MAX_DETAIL_CHARS: usize = 60;
 /// A title inside a phrase, its "…" included: the island is at most 460
 /// points wide, and the phrase must keep "was approved!" in sight.
 const MAX_TITLE_CHARS: usize = 24;
+/// Pull requests in the Atlantis tab (#173).
+const MAX_WATCHED: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -200,6 +202,59 @@ pub fn notices(summary: &GithubSummary) -> Vec<Notice> {
         }
     }
     out
+}
+
+/// A pull request in the island's Atlantis tab (#173).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Watched {
+    pub pull: PullRequest,
+    /// The user's own; else it asks for their review.
+    pub own: bool,
+    pub merged: bool,
+}
+
+/// The Atlantis tab (#173): runs going first, then locked plans, then the
+/// rest that moved in the last hour, the latest first. What has not moved
+/// for an hour stays only on the GitHub card; a merged pull request shows
+/// only for its apply.
+pub fn watched(summary: &GithubSummary) -> Vec<Watched> {
+    let recent = iso_utc(summary.fetched_at_ms.saturating_sub(APPLIED_WINDOW_MS));
+    let all = summary
+        .mine
+        .iter()
+        .map(|p| (p, true, false))
+        .chain(summary.review_requests.iter().map(|p| (p, false, false)))
+        .chain(summary.merged.iter().map(|p| (p, true, true)));
+    let mut out: Vec<(u8, &str, Watched)> = Vec::new();
+    for (pull, own, merged) in all {
+        let Some(plan) = &pull.plan else {
+            continue;
+        };
+        let order = match plan.stage {
+            _ if merged && plan.stage != Stage::Applied => continue,
+            Stage::Planning | Stage::Applying => 0,
+            _ if plan.at < recent => continue,
+            Stage::Locked => 1,
+            _ => 2,
+        };
+        if out.iter().any(|(_, _, w)| w.pull.url == pull.url) {
+            continue;
+        }
+        out.push((
+            order,
+            plan.at.as_str(),
+            Watched {
+                pull: pull.clone(),
+                own,
+                merged,
+            },
+        ));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(a.1)));
+    out.into_iter()
+        .take(MAX_WATCHED)
+        .map(|(_, _, w)| w)
+        .collect()
 }
 
 fn short(repo: &str) -> &str {
@@ -698,6 +753,13 @@ mod tests {
             error: None,
             locked_by: None,
             comment_url: None,
+            envs: vec![crate::atlantis::Env {
+                name: "pre-prod".into(),
+                production: false,
+            }],
+            live: None,
+            runs: vec![],
+            runs_hidden: 0,
             failed: 0,
             checks_failed: false,
             drift: false,
@@ -718,6 +780,7 @@ mod tests {
             merged: vec![],
             failed_runs: vec![],
             notices: vec![],
+            atlantis: vec![],
         }
     }
 
@@ -789,6 +852,56 @@ mod tests {
             notices[3].plan.is_none(),
             "the plan that destroys has its own notice"
         );
+    }
+
+    #[test]
+    fn the_atlantis_tab_lists_runs_going_then_locks_then_the_last_hour() {
+        let now = 1_795_000_000_000;
+        let ago = |minutes: u64| iso_utc(now - minutes * 60 * 1000);
+        let with = |number: u64, stage: Stage, at: String| {
+            let mut p = pull("acme/infra", number);
+            let mut run = plan(stage, 1, 0);
+            run.at = at;
+            p.plan = Some(run);
+            p
+        };
+        let mut s = summary();
+        s.fetched_at_ms = now;
+        s.mine = vec![
+            with(1, Stage::Planned, ago(10)),
+            // Running for long is still running.
+            with(2, Stage::Planning, ago(300)),
+            with(3, Stage::Locked, ago(20)),
+            // Not moved for an hour: only on the GitHub card.
+            with(4, Stage::Planned, ago(61)),
+            pull("acme/infra", 5),
+        ];
+        s.review_requests = vec![
+            with(6, Stage::Applying, ago(2)),
+            with(7, Stage::PlanFailed, ago(5)),
+        ];
+        s.merged = vec![
+            with(8, Stage::Applied, ago(30)),
+            with(9, Stage::Planned, ago(1)),
+        ];
+        let tab = watched(&s);
+        let found: Vec<(u64, bool, bool)> = tab
+            .iter()
+            .map(|w| (w.pull.number, w.own, w.merged))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (6, false, false),
+                (2, true, false),
+                (3, true, false),
+                (7, false, false),
+                (1, true, false),
+                (8, true, true),
+            ]
+        );
+        s.mine = (10..30).map(|n| with(n, Stage::Planning, ago(n))).collect();
+        assert_eq!(watched(&s).len(), MAX_WATCHED);
     }
 
     #[test]
@@ -1111,6 +1224,7 @@ mod tests {
             merged: Vec::new(),
             failed_runs: Vec::new(),
             notices: keys.iter().map(|k| keyed(k)).collect(),
+            atlantis: Vec::new(),
         }
     }
 

@@ -170,15 +170,16 @@ export function poke(): void {
 
 /**
  * The island's color rose: the jump it always had and, when the mascot is
- * lively, eyes that say why: a smile for green and for the pink welcome back
- * (#157), wide for the rest, a shake for red. Nothing while the screen is locked.
+ * lively, eyes that say why: a smile for green, Atlantis's turquoise (#173)
+ * and the pink welcome back (#157), wide for the rest, a shake for red.
+ * Nothing while the screen is locked.
  */
-export function react(tone: "green" | "blue" | "amber" | "red" | "pink"): void {
+export function react(tone: "green" | "atlantis" | "blue" | "amber" | "red" | "pink"): void {
   if (!node || (lively && !awake)) return;
   setBusy(true);
   if (lively && tone === "red") move("shake");
   else jump();
-  if (live()) feel(tone === "green" || tone === "pink" ? "happy" : "wide", 900);
+  if (live()) feel(tone === "green" || tone === "atlantis" || tone === "pink" ? "happy" : "wide", 900);
 }
 
 function jump(): void {

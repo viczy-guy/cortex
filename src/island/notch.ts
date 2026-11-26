@@ -7,9 +7,10 @@ import { el } from "../shared/dom";
 import type { SessionView } from "../shared/ipc";
 
 /** One meaning per color, on the mascot and the border at once. */
-export type Tone = "gray" | "green" | "blue" | "amber" | "red";
+export type Tone = "gray" | "green" | "atlantis" | "blue" | "amber" | "red";
 
-const RANK: Record<Tone, number> = { gray: 0, green: 1, blue: 2, amber: 3, red: 4 };
+// Atlantis's turquoise (#173): a plan of yours ready asks less than a review does.
+const RANK: Record<Tone, number> = { gray: 0, green: 1, atlantis: 2, blue: 3, amber: 4, red: 5 };
 
 export const rank = (tone: Tone): number => RANK[tone];
 
@@ -74,6 +75,28 @@ export function agentTag(session: SessionView, tone: Tone, label: string): HTMLE
 }
 
 const SVG = "http://www.w3.org/2000/svg";
+
+/**
+ * Atlantis's sign (#173): waves on a disc, ours. The official logo is the
+ * Linux Foundation's trademark, and the ring turning around it would alter it.
+ */
+export function atlantisIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "atl-icon");
+  svg.setAttribute("aria-hidden", "true");
+  const disc = document.createElementNS(SVG, "circle");
+  disc.setAttribute("cx", "8");
+  disc.setAttribute("cy", "8");
+  disc.setAttribute("r", "7.4");
+  svg.append(disc);
+  for (const d of ["M3.3 7.3c1-.9 2-.9 3 0s2 .9 3 0 2-.9 3.1 0", "M4.1 10.4c.9-.8 1.9-.8 2.8 0s1.9.8 2.8 0 1.8-.8 2.6 0"]) {
+    const wave = document.createElementNS(SVG, "path");
+    wave.setAttribute("d", d);
+    svg.append(wave);
+  }
+  return svg;
+}
 
 /** Two branches meeting: the pull request sign. */
 export function prIcon(): SVGSVGElement {

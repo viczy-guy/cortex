@@ -504,8 +504,8 @@ function renderIsland(): void {
   if (soundsMessage) soundsBlock.append(el("div", "note note-error", fromRust(soundsMessage)));
 }
 
-// The four colors, each with its sound to try (#131).
-const TONES = ["green", "blue", "amber", "red", "pink"] as const;
+// The colors, each with its sound to try (#131): Atlantis's turquoise too (#173).
+const TONES = ["green", "atlantis", "blue", "amber", "red", "pink"] as const;
 colorsBlock.append(el("div", "note", t("colors.note")));
 for (const tone of TONES) {
   const name = t(`tone.${tone}`);

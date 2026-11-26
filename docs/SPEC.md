@@ -44,8 +44,10 @@ are doing.
   someone asks for the user's review, and also when an own pull request is
   approved (#135, blue since #141; not a draft; it stands while approved,
   whatever its checks do), red also when an own pull request or an action the user started
-  failed, or an Atlantis plan destroys something (see [GitHub](#github)). The
-  most urgent shows: red, amber, blue, green. Amber from a card lasts until
+  failed, or an Atlantis plan destroys something (see [GitHub](#github)), and
+  **turquoise** (Atlantis's, #173) when an own Atlantis plan is ready and
+  only adds or changes, or is applied. The most urgent shows: red, amber,
+  blue, turquoise, green. Amber from a card lasts until
   the card is answered or expires. Every other notice lasts until its cause
   goes (the agent moves on, the checks pass, the review is given) or the user
   clicks; green and red stay even after the session is gone. A click on the
@@ -63,7 +65,7 @@ are doing.
   mouse coming near the island, an agent, a notice or a click wakes it. A
   click on the island (not on a button) squashes it with a smile; three
   within 1.5 s make it dizzy for 2 s. When the color rises it jumps with wide
-  eyes, smiling for green and shaking for red. Only while the mascot is lively,
+  eyes, smiling for green and turquoise and shaking for red. Only while the mascot is lively,
   Cortex reads the cursor ten times a second while it moves and a few times a
   second once it rests (on macOS straight from Core Graphics, never waking
   the main thread); it tells the island only when the direction changes, one
@@ -79,7 +81,7 @@ are doing.
   failed", "A PR failed!", "An action failed!", "An agent failed" (red); "An
   agent needs you" (amber); "A PR needs your review" and "Your PR #128 (Short
   title) was approved!" (blue); "Plan ready: 10 to add, 2 to change",
-  "Applied: 10 added", "An agent finished" (green); beside it the
+  "Applied: 10 added" (turquoise); "An agent finished" (green); beside it the
   repository and number (the repository alone when the phrase names the pull
   request), the workflow and branch, or the agent and its folder. When a new one comes (an agent's state change that has a phrase, or
   a GitHub notice not there before), the folded island widens with its phrase
@@ -93,24 +95,45 @@ are doing.
   GitHub. With two or more, "Clear all" on top of the list clears every one,
   as a click on the island does. An Atlantis notice (#161) carries its plan:
   its row shows the counts that are not zero (`+` add, `~` change, `±`
-  replace, `−` destroy) and a click opens its summary under it instead of
-  GitHub; the most urgent opens by itself each time the list opens, and one
-  at a time stays open. The summary: the environment (red when production),
-  the four counts, one sentence of what the plan does (the most dangerous
+  replace, `−` destroy), and a click clears it and opens its pull request's
+  card in the Atlantis tab (#173), with the plan's summary inside, instead
+  of GitHub. The summary: one sentence of what the plan does (the most dangerous
   first, the commonest AWS types by name, "and N more", where or across how
   many projects), the alerts (data at risk: an RDS database, an S3 bucket, a
   DynamoDB table, a KMS key, a secret, a user pool, a DNS zone… destroyed or
   replaced; production; drift, "the apply undoes it"; a long plan whose list
   is partial), the changes grouped by project and type, the most dangerous
-  project first, "N projects without changes", and Open PR and Full plan
-  (the plan comment), which open GitHub and clear the notice. A create-only
-  plan on a review request rides on its review notice. After the notices,
-  gray rows for the runs still going, without color or sound: "Planning… 3
-  done", "Applying…", "Locked by #331" (a click opens the pull request). Each account's first GitHub answer (after
+  project first, "N projects without changes". A create-only
+  plan on a review request rides on its review notice. Each account's first GitHub answer (after
   launch, after turning GitHub on, or once the account is shown again) speaks
   nothing: what was there is not news; a notice that went and comes back
   is. In the session cards the "working" dot is gray, as on the island: blue
   is the review's.
+- Atlantis, live (#173). While plans or applies run on the user's pull
+  requests or on those asking for their review, the island shows Atlantis's
+  sign beside the pull request count: a round icon of our own (waves on a
+  disc; Atlantis's logo is the Linux Foundation's trademark), a ring turning
+  around it, and how many run now (a plan waiting on another pull request's
+  lock does not count). A click on it, or on an Atlantis notice, opens the
+  Atlantis tab, and the island stays open until a click outside it (on
+  macOS Rust reports that click, as over a waiting card). With Atlantis to
+  show, the list has two tabs, Notices and Atlantis; it starts on Notices
+  while any stands. The Atlantis tab has one card per pull request (runs
+  going first, then locked plans, then the rest that moved in the last hour,
+  at most 8; a merged one only for its apply, for an hour; the one a notice
+  opened even when older): its number and title, whose it is, one tag per
+  account its projects are in (production in red), and five steps, Prepare
+  → Plan → Approval → Apply → Merge, the one now turning, with its clock
+  ("2 ready", "+3 ~1", "your review", "your turn", "1 of 3", "by #331").
+  One card at a time is open (the first, or the one picked): what runs now
+  and for how long ("Preparing Atlantis" while its pre-workflow hooks run,
+  "Planning `data/rds` 0:43") with its live log, or what it waits for
+  ("Approved. Now comment `atlantis apply`", "Locked by #331"); the plan's
+  summary once planned; the projects (running, failed, queued, done with
+  their counts, without changes), each with its log; Open PR and Full plan.
+  The clocks tick once a second, only while the tab shows them. Nothing
+  turns while nobody is looking (#51), and with reduced motion the rings
+  stay still.
 - While you were away (#157): nobody is looking while the screen is locked
   (macOS), after ten minutes without mouse or keyboard input (macOS and
   Windows), or while the computer sleeps, seen as a jump of the wall clock
@@ -159,7 +182,8 @@ exponential fade), played once per change: a session's state turning done
 (green), waiting for the user or a new card (amber), or failed (red); and a
 new GitHub notice at least as urgent as the island's color (the rule for its
 phrase), in its color, blue being the "Toque" (two notes up, softer than the
-alert: a request, not an emergency). If several come together, the most urgent
+alert: a request, not an emergency), and turquoise green's "Alerta" until
+the maintainer picks Atlantis's own (#173). If several come together, the most urgent
 plays; a lower one arriving while a higher one plays is not played. Coming
 back to a pink summary plays "Suave" once (two low notes up), under any other
 sound. Sounds are on by default and can be muted or sampled in Settings →
@@ -370,11 +394,18 @@ changed since their comments were last read (the least recently tried first,
 per account), their last 8 comments (#161).
 
 Atlantis (#161, `cortex_core::atlantis`): the summary query also reads the
-statuses of each pull request's last commit, and the user's last 5 merged
-pull requests. `atlantis/plan` and `atlantis/apply` tell the stage (planning,
-planned, plan failed, applying, applied, apply failed; an apply counts when
-it came after the latest plan), each `atlantis/plan: <project>` its counts
-("Plan: 2 to add, 1 to change, 0 to destroy.", or "No changes."). The
+statuses of each pull request's last commit, with their links, and the
+user's last 5 merged pull requests. `atlantis/plan` and `atlantis/apply`
+tell the stage (planning, planned, plan failed, applying, applied, apply
+failed; an apply counts when it came after the latest plan), each
+`atlantis/plan: <project>` its counts ("Plan: 2 to add, 1 to change, 0 to
+destroy.", or "No changes."). While a run goes (#173), a pending
+`atlantis/pre_workflow_hook: …` means Atlantis prepares, else a pending
+project status is the project running, since its time; a running plan lists
+only the projects of this run, an apply each planned project (queued,
+running, done, failed, or skipped without changes). A status's link is kept
+only when the account that wrote the `atlantis/plan` status wrote it too,
+over https, at most 512 characters. The
 comments add the detail: the latest "Ran Plan for…" and its "Continued…"
 parts (a quote does not count), project by project ("### 1. project: `a`
 dir: `b`…"), each resource line (`# aws_x.y will be created`, `updated
@@ -403,9 +434,11 @@ destroys or replaces something (own or review), an own plan ready that only
 adds or changes, a failed plan, an own apply done (for an hour, merged or
 not) or failed, a failed action (opening the repository's Actions page, since
 GitHub's notice names no run; one on the branch of an own pull request is left
-to that pull request's notice). An Atlantis notice is new with each run.
+to that pull request's notice). An Atlantis notice is new with each run. The
+summary also carries the Atlantis tab's pull requests (#173).
 
-Cortex opens GitHub links from the current summaries, the fixed GitHub device
+Cortex opens GitHub links from the current summaries (Atlantis's live logs
+included, #173), the fixed GitHub device
 login page, and the GitHub CLI site through the OS with the URL as one argument
 and no shell.
 

@@ -152,16 +152,16 @@ pub const QUERY: &str = r#"query {
   mine: search(query: "is:open is:pr author:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt headRefName repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt targetUrl creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
   }
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt targetUrl creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
   }
   merged: search(query: "is:pr is:merged author:@me archived:false sort:updated-desc", type: ISSUE, first: 5) {
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
-      commits(last: 1) { nodes { commit { status { contexts { context state description createdAt creator { login } } } } } } } }
+      commits(last: 1) { nodes { commit { status { contexts { context state description createdAt targetUrl creator { login } } } } } } } }
   }
 }"#;
 
@@ -218,6 +218,8 @@ pub struct GithubSummary {
     pub failed_runs: Vec<crate::notices::FailedRun>,
     /// What the island tells about this account, from all of the above.
     pub notices: Vec<crate::notices::Notice>,
+    /// The pull requests in the island's Atlantis tab (#173).
+    pub atlantis: Vec<crate::notices::Watched>,
 }
 impl GithubSummary {
     /// Own pull requests whose checks are failing.
@@ -228,20 +230,18 @@ impl GithubSummary {
             .count()
     }
     /// Whether the URL is one of the links in this summary, a plan
-    /// comment's included.
+    /// comment's and an Atlantis live log's included (#173).
     pub fn has_url(&self, url: &str) -> bool {
-        let comment = |plan: Option<&crate::atlantis::Plan>| {
-            plan.and_then(|p| p.comment_url.as_deref()) == Some(url)
-        };
+        let in_plan = |plan: Option<&crate::atlantis::Plan>| plan.is_some_and(|p| p.has_link(url));
         self.mine
             .iter()
             .chain(&self.review_requests)
             .chain(&self.merged)
-            .any(|p| p.url == url || comment(p.plan.as_ref()))
+            .any(|p| p.url == url || in_plan(p.plan.as_ref()))
             || self
                 .notices
                 .iter()
-                .any(|n| n.url == url || comment(n.plan.as_ref()))
+                .any(|n| n.url == url || in_plan(n.plan.as_ref()))
     }
 }
 /// A link the island may open: on github.com, bounded, in one piece.
@@ -360,6 +360,7 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
             .unwrap_or_default(),
         failed_runs: Vec::new(),
         notices: Vec::new(),
+        atlantis: Vec::new(),
     })
 }
 #[cfg(test)]

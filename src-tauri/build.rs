@@ -13,6 +13,7 @@ const COMMANDS: &[&str] = &[
     "open_url",
     "snapshot",
     "island_fit",
+    "island_pin",
     "island_cutout",
     "island_prefs",
     "autostart_status",
