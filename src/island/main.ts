@@ -405,7 +405,8 @@ function atlantisCards(pick = focus): Watched[] {
   for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) {
     const own = summary.mine.find((p) => p.url === pick);
     const pull = own ?? summary.review_requests.find((p) => p.url === pick);
-    if (pull?.plan) return [{ pull, own: own !== undefined, merged: false, order: 2, at: "" }, ...atlantisNow];
+    // In the cap too: the last card gives way.
+    if (pull?.plan) return [{ pull, own: own !== undefined, merged: false, order: 2, at: "" }, ...atlantisNow].slice(0, MAX_CARDS);
   }
   return atlantisNow;
 }

@@ -279,7 +279,7 @@ pub fn from_statuses(contexts: &Value) -> Option<Plan> {
         }
     }
     let (add, change, destroy, projects, unchanged, failed) = plan_totals(&planned);
-    let envs = accounts(planned.iter().map(|(name, _)| *name));
+    let envs = accounts(planned.iter().filter_map(|(name, _)| environment(name)));
     let plan_run = plan_run?;
     let (plan_at, author) = (plan_run.at, plan_run.creator);
     let planned_stage = match plan_run.state {
@@ -381,9 +381,9 @@ fn plan_totals(planned: &[(&str, Entry)]) -> (u32, u32, u32, u32, u32, u32) {
 }
 
 /// Each account once, production first, as many as a card names.
-fn accounts<'a>(names: impl Iterator<Item = &'a str>) -> Vec<Env> {
+fn accounts<'a>(found: impl Iterator<Item = &'a str>) -> Vec<Env> {
     let mut envs: Vec<&str> = Vec::new();
-    for env in names.filter_map(environment) {
+    for env in found {
         if !envs.contains(&env) {
             envs.push(env);
         }
@@ -445,6 +445,10 @@ fn runs(
             let counts = plan_counts(e.description);
             let no_changes = e.description.contains("No changes") || counts == Some((0, 0, 0));
             let (state, when) = match apply {
+                // Left pending by an apply that stopped: it did not finish.
+                Some(a) if a.pending() && !(stage == Stage::Applying && a.at >= at) => {
+                    (RunState::Queued, a.at)
+                }
                 Some(a) => (state_of(a), a.at),
                 None if no_changes => (RunState::Skipped, e.at),
                 // Changes not applied: waiting, or left out of a partial apply.
@@ -553,7 +557,10 @@ fn is_job_url(url: &str) -> bool {
         && url
             .strip_prefix("https://")
             .and_then(|rest| rest.split_once('/'))
-            .is_some_and(|(h, path)| host(h) && format!("/{path}").contains("/jobs/"))
+            .is_some_and(|(h, rest)| {
+                let path = rest.split(['?', '#']).next().unwrap_or("");
+                host(h) && format!("/{path}").contains("/jobs/")
+            })
 }
 
 impl Plan {
@@ -1099,6 +1106,26 @@ fn merge(plan: &mut Plan, section: &Section) {
         // The folders tell the accounts, whatever the projects are named.
         plan.envs = accounts(envs.into_iter());
     }
+    // A plan status without a description may hide changes the comment shows.
+    for run in plan
+        .runs
+        .iter_mut()
+        .filter(|r| r.state == RunState::Skipped)
+    {
+        let Some(project) = section.projects.iter().find(|p| p.name == run.name) else {
+            continue;
+        };
+        if !project.changes.is_empty() {
+            let [destroy, replace, change, add] = project.ops;
+            run.state = RunState::Queued;
+            (run.add, run.change, run.destroy) = (
+                add.saturating_add(replace),
+                change,
+                destroy.saturating_add(replace),
+            );
+            plan.runs_total = plan.runs_total.saturating_add(1);
+        }
+    }
     if plan.stage == Stage::PlanFailed {
         let locked: Vec<&Project> = section
             .projects
@@ -1484,6 +1511,7 @@ mod tests {
         assert!(!is_job_url(
             "https://atlantis.acme.dev@elsewhere.dev/jobs/1"
         ));
+        assert!(!is_job_url("https://atlantis.acme.dev/login?next=/jobs/1"));
     }
 
     #[test]
@@ -1585,6 +1613,43 @@ mod tests {
         assert_eq!(states, [("b", RunState::Running), ("a", RunState::Done)]);
         assert_eq!((plan.runs_done, plan.runs_total), (1, 2));
         assert_eq!(plan.live.unwrap().project.as_deref(), Some("b"));
+        // The apply stopped with b left pending, then ended: b did not finish.
+        let ended = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "2/2 projects planned successfully.",
+                "2026-11-25T10:05:00Z"
+            ),
+            job(
+                "atlantis/plan: b",
+                "SUCCESS",
+                "Plan: 0 to add, 2 to change, 0 to destroy.",
+                "2026-11-25T10:04:30Z"
+            ),
+            job(
+                "atlantis/apply: b",
+                "PENDING",
+                "Apply in progress...",
+                "2026-11-25T10:32:40Z"
+            ),
+            job(
+                "atlantis/apply: c",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:40:00Z"
+            ),
+            status(
+                "atlantis/apply",
+                "SUCCESS",
+                "1/1 projects applied successfully.",
+                "2026-11-25T10:41:00Z"
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(ended.stage, Stage::Applied);
+        let b = ended.runs.iter().find(|r| r.name == "b").unwrap();
+        assert_eq!(b.state, RunState::Queued);
     }
 
     #[test]
@@ -1652,11 +1717,18 @@ mod tests {
         let section = Section {
             url: "https://github.com/o/r/pull/1#c1".into(),
             created_at: POSTED.into(),
-            projects: vec![Project {
-                name: "dns".into(),
-                dir: "live/production/sa-east-1/dns".into(),
-                ..Project::default()
-            }],
+            projects: vec![
+                Project {
+                    name: "dns".into(),
+                    dir: "live/production/sa-east-1/dns".into(),
+                    ..Project::default()
+                },
+                Project {
+                    name: "cdn".into(),
+                    dir: "live/staging/sa-east-1/cdn".into(),
+                    ..Project::default()
+                },
+            ],
             ..Section::default()
         };
         let detail = Detail {
@@ -1664,8 +1736,60 @@ mod tests {
             apply: None,
         };
         let plan = with_detail(plan, Some(&detail));
-        assert_eq!(names(&plan.envs), ["production"]);
-        assert!(plan.envs[0].production);
+        assert_eq!(names(&plan.envs), ["production", "staging"]);
+        assert!(plan.envs[0].production && !plan.envs[1].production);
+    }
+
+    #[test]
+    fn a_plan_status_without_a_description_takes_its_changes_from_the_comment() {
+        let plan = from_statuses(&json!([
+            status(
+                "atlantis/plan",
+                "SUCCESS",
+                "1/1 projects planned successfully.",
+                AT
+            ),
+            job("atlantis/plan: web", "SUCCESS", "", AT),
+            status(
+                "atlantis/apply",
+                "SUCCESS",
+                "0/0 projects applied.",
+                "2026-11-25T10:20:00Z"
+            ),
+            job(
+                "atlantis/apply: other",
+                "SUCCESS",
+                "Apply succeeded.",
+                "2026-11-25T10:19:00Z"
+            ),
+        ]))
+        .unwrap();
+        let web = plan.runs.iter().find(|r| r.name == "web").unwrap();
+        assert_eq!(web.state, RunState::Skipped);
+        let mut project = Project {
+            name: "web".into(),
+            dir: "live/staging/sa-east-1/web".into(),
+            ops: [0, 1, 0, 2],
+            ..Project::default()
+        };
+        project.changes.insert(
+            (Op::Add, "aws_instance".into()),
+            (2, "aws_instance.web".into()),
+        );
+        let detail = Detail {
+            plan: Some(Section {
+                url: "https://github.com/o/r/pull/1#c1".into(),
+                created_at: POSTED.into(),
+                projects: vec![project],
+                ..Section::default()
+            }),
+            apply: None,
+        };
+        let total = plan.runs_total;
+        let plan = with_detail(plan, Some(&detail));
+        let web = plan.runs.iter().find(|r| r.name == "web").unwrap();
+        assert_eq!((web.state, web.add, web.destroy), (RunState::Queued, 3, 1));
+        assert_eq!(plan.runs_total, total + 1);
     }
 
     #[test]
