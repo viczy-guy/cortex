@@ -775,12 +775,27 @@ let morph: { animation: Animation; from: Size; to: Size } | undefined;
 let fitTurn = 0;
 /** The size last fitted; none yet: the first fit shows the island at once. */
 let lastFit: Size | undefined;
+/** The size last asked of the window: the asks run in order, so it ends there. */
+let asked: Size | undefined;
+/** Asks not answered yet: until then the window may still pass through each. */
+const asking: Size[] = [];
+
+async function fitWindow(size: Size): Promise<void> {
+  asked = size;
+  asking.push(size);
+  try {
+    await api.islandFit(size.width, size.height);
+  } finally {
+    asking.splice(asking.indexOf(size), 1);
+  }
+}
 
 const fitSize = (rect: DOMRect): Size => ({
   width: Math.ceil(rect.width),
   height: Math.min(MAX_HEIGHT, Math.ceil(rect.height)),
 });
 const sameSize = (a: Size, b: Size): boolean => a.width === b.width && a.height === b.height;
+const holds = (a: Size, b: Size): boolean => a.width >= b.width && a.height >= b.height;
 /** What the island shows before a redraw: measured only while it eases. */
 const sizeBefore = (): Size | undefined => (morph ? fitSize(root.getBoundingClientRect()) : lastFit);
 
@@ -796,6 +811,7 @@ async function fitWindowToContent(before: Size | undefined, fade: boolean): Prom
   const turn = ++fitTurn;
   const running = morph;
   const elapsed = running?.animation.currentTime;
+  const started = running?.animation.startTime;
   running?.animation.cancel();
   morph = undefined;
   root.classList.remove("island--morphing");
@@ -804,7 +820,7 @@ async function fitWindowToContent(before: Size | undefined, fade: boolean): Prom
   const from = carryOn ? running.from : before;
   if (from === undefined || reducedMotion.matches || sameSize(from, to)) {
     lastFit = to;
-    await api.islandFit(to.width, to.height);
+    await fitWindow(to);
     return;
   }
   const inner = root.firstElementChild?.getBoundingClientRect().width ?? to.width;
@@ -814,9 +830,21 @@ async function fitWindowToContent(before: Size | undefined, fade: boolean): Prom
     [{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }],
     { duration: MORPH_MS, easing: "cubic-bezier(0.32, 0.72, 0, 1)", fill: "both" },
   );
-  // Held where it is until the window can show the new size.
-  animation.pause();
-  if (carryOn) animation.currentTime = elapsed;
+  const grown = { width: Math.max(from.width, to.width), height: Math.max(from.height, to.height) };
+  // Held where it is until the window can show the new size. A window that
+  // holds it already (a fold, a redraw mid-way), and is not on its way to a
+  // smaller size, lets it run on: every hold costs a frame, and busy agents
+  // redraw many times in one ease (#171).
+  const ready =
+    asked !== undefined &&
+    holds(asked, grown) &&
+    asking.every((size) => holds(size, grown)) &&
+    holds({ width: window.innerWidth, height: window.innerHeight }, grown);
+  if (!ready) animation.pause();
+  // A new ease stands still for a frame before it moves: on the same start
+  // it goes on as if it had never stopped.
+  if (carryOn && ready && typeof started === "number") animation.startTime = started;
+  else if (carryOn) animation.currentTime = elapsed;
   morph = { animation, from, to };
   // Opening or folding, the new content comes in softly (it goes with its
   // nodes on the next render); a redraw of what is shown must not blink.
@@ -826,15 +854,16 @@ async function fitWindowToContent(before: Size | undefined, fade: boolean): Prom
     }
   }
   try {
-    const grown = { width: Math.max(from.width, to.width), height: Math.max(from.height, to.height) };
-    await api.islandFit(grown.width, grown.height);
-    // The page learns its new size a frame or so after the window: easing
-    // before that would push the island off its edge for a frame.
-    for (let i = 0; i < 3 && (window.innerWidth < grown.width || window.innerHeight < grown.height); i++) {
-      await new Promise(requestAnimationFrame);
+    if (!ready) {
+      await fitWindow(grown);
+      // The page learns its new size a frame or so after the window: easing
+      // before that would push the island off its edge for a frame.
+      for (let i = 0; i < 3 && (window.innerWidth < grown.width || window.innerHeight < grown.height); i++) {
+        await new Promise(requestAnimationFrame);
+      }
+      if (turn !== fitTurn) return;
+      animation.play();
     }
-    if (turn !== fitTurn) return;
-    animation.play();
     await animation.finished;
   } catch {
     // Cancelled by a newer change, which then owns the window; or the IPC
@@ -846,7 +875,7 @@ async function fitWindowToContent(before: Size | undefined, fade: boolean): Prom
   morph = undefined;
   lastFit = to;
   root.classList.remove("island--morphing");
-  await api.islandFit(to.width, to.height).catch(() => { /* The next redraw fits it again. */ });
+  await fitWindow(to).catch(() => { /* The next redraw fits it again. */ });
 }
 
 // ---------------------------------------------------------------------------

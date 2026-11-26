@@ -6,6 +6,11 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- The island no longer stutters while it opens or folds, as right after a
+  click on a notice: a redraw on the way (every agent event is one) stopped
+  it for a frame or more, and now it keeps moving. (#171)
+
 ## [0.9.0] - 2026-11-25
 
 ### Added
