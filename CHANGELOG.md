@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-26
+
 ### Changed
 - **Atlantis, live.** While Atlantis runs on your pull requests, or on those
   that ask for your review, the island shows Atlantis's sign beside the pull
