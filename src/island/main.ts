@@ -777,10 +777,17 @@ let fitTurn = 0;
 let lastFit: Size | undefined;
 /** The size last asked of the window: the asks run in order, so it ends there. */
 let asked: Size | undefined;
+/** Asks not answered yet: until then the window may still pass through each. */
+const asking: Size[] = [];
 
-function fitWindow(size: Size): Promise<void> {
+async function fitWindow(size: Size): Promise<void> {
   asked = size;
-  return api.islandFit(size.width, size.height);
+  asking.push(size);
+  try {
+    await api.islandFit(size.width, size.height);
+  } finally {
+    asking.splice(asking.indexOf(size), 1);
+  }
 }
 
 const fitSize = (rect: DOMRect): Size => ({
@@ -788,6 +795,7 @@ const fitSize = (rect: DOMRect): Size => ({
   height: Math.min(MAX_HEIGHT, Math.ceil(rect.height)),
 });
 const sameSize = (a: Size, b: Size): boolean => a.width === b.width && a.height === b.height;
+const holds = (a: Size, b: Size): boolean => a.width >= b.width && a.height >= b.height;
 /** What the island shows before a redraw: measured only while it eases. */
 const sizeBefore = (): Size | undefined => (morph ? fitSize(root.getBoundingClientRect()) : lastFit);
 
@@ -824,14 +832,14 @@ async function fitWindowToContent(before: Size | undefined, fade: boolean): Prom
   );
   const grown = { width: Math.max(from.width, to.width), height: Math.max(from.height, to.height) };
   // Held where it is until the window can show the new size. A window that
-  // holds it already (a fold, a redraw mid-way) lets it run on: every hold
-  // costs a frame, and busy agents redraw many times in one ease (#171).
+  // holds it already (a fold, a redraw mid-way), and is not on its way to a
+  // smaller size, lets it run on: every hold costs a frame, and busy agents
+  // redraw many times in one ease (#171).
   const ready =
     asked !== undefined &&
-    asked.width >= grown.width &&
-    asked.height >= grown.height &&
-    window.innerWidth >= grown.width &&
-    window.innerHeight >= grown.height;
+    holds(asked, grown) &&
+    asking.every((size) => holds(size, grown)) &&
+    holds({ width: window.innerWidth, height: window.innerHeight }, grown);
   if (!ready) animation.pause();
   // A new ease stands still for a frame before it moves: on the same start
   // it goes on as if it had never stopped.
