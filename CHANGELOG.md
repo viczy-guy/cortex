@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- A downloaded update no longer waits in memory for your click (up to 82 MB
+  on Linux): it waits in a private file in Cortex's data folder, and its
+  signature is checked again before it installs. A package changed or gone
+  since the download is downloaded again, and the download stops past
+  256 MB. (#72)
+
 ## [0.9.1] - 2026-11-26
 
 ### Changed
