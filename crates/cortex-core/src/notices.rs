@@ -211,6 +211,10 @@ pub struct Watched {
     /// The user's own; else it asks for their review.
     pub own: bool,
     pub merged: bool,
+    /// 0 while its run goes, 1 locked, 2 moved in the last hour; with
+    /// `at`, when it moved, the island orders the accounts' tabs as one.
+    pub order: u8,
+    pub at: String,
 }
 
 /// The Atlantis tab (#173): runs going first, then locked plans, then the
@@ -225,7 +229,7 @@ pub fn watched(summary: &GithubSummary) -> Vec<Watched> {
         .map(|p| (p, true, false))
         .chain(summary.review_requests.iter().map(|p| (p, false, false)))
         .chain(summary.merged.iter().map(|p| (p, true, true)));
-    let mut out: Vec<(u8, &str, Watched)> = Vec::new();
+    let mut out: Vec<Watched> = Vec::new();
     for (pull, own, merged) in all {
         let Some(plan) = &pull.plan else {
             continue;
@@ -237,24 +241,20 @@ pub fn watched(summary: &GithubSummary) -> Vec<Watched> {
             Stage::Locked => 1,
             _ => 2,
         };
-        if out.iter().any(|(_, _, w)| w.pull.url == pull.url) {
+        if out.iter().any(|w| w.pull.url == pull.url) {
             continue;
         }
-        out.push((
+        out.push(Watched {
+            pull: pull.clone(),
+            own,
+            merged,
             order,
-            plan.at.as_str(),
-            Watched {
-                pull: pull.clone(),
-                own,
-                merged,
-            },
-        ));
+            at: plan.at.clone(),
+        });
     }
-    out.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(a.1)));
-    out.into_iter()
-        .take(MAX_WATCHED)
-        .map(|(_, _, w)| w)
-        .collect()
+    out.sort_by(|a, b| a.order.cmp(&b.order).then(b.at.cmp(&a.at)));
+    out.truncate(MAX_WATCHED);
+    out
 }
 
 fn short(repo: &str) -> &str {
@@ -760,6 +760,8 @@ mod tests {
             live: None,
             runs: vec![],
             runs_hidden: 0,
+            runs_done: 0,
+            runs_total: 0,
             failed: 0,
             checks_failed: false,
             drift: false,

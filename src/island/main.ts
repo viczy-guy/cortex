@@ -344,12 +344,18 @@ function clearAll(): void {
 function setPinned(on: boolean): void {
   if (pinned === on) return;
   pinned = on;
-  void api.islandPin(on).catch(() => { /* A pin Rust missed folds on the next hover out. */ });
+  // Unpinned in Rust, an outside click would never come: fold on hover out instead.
+  void api.islandPin(on).catch(() => { if (on) pinned = false; });
 }
 
 /** The Atlantis tab on a pull request's card, open until a click outside (#173). */
 function openAtlantis(url: string | null): void {
   setPinned(true);
+  // Out of the session cards; a waiting card still comes first.
+  if (snapshot.approvals.length === 0) {
+    expanded = false;
+    autoExpanded = false;
+  }
   tab = "atlantis";
   focus = url;
   scrollToFocus = true;
@@ -368,14 +374,22 @@ function goToCard(notice: ViewNotice): void {
   openAtlantis(url);
 }
 
-/** The Atlantis tab's pull requests, of every account shown, each once: runs going first. */
+/** At most this many cards in the Atlantis tab, as each account sends them. */
+const MAX_CARDS = 8;
+
+/** The Atlantis tab's pull requests, of every account shown, each once, in the core's order. */
 function watchedNow(): Watched[] {
   if (!github?.enabled) return [];
   const byUrl = new Map<string, Watched>();
   for (const { summary } of shownAccounts(github.accounts)) {
     for (const watched of summary.atlantis) if (!byUrl.has(watched.pull.url)) byUrl.set(watched.pull.url, watched);
   }
-  return [...byUrl.values()].sort((a, b) => Number(running(b.pull.plan)) - Number(running(a.pull.plan)));
+  return [...byUrl.values()].sort((a, b) => a.order - b.order || b.at.localeCompare(a.at)).slice(0, MAX_CARDS);
+}
+
+/** The sign's click: the first run going now, read at the click, not when drawn. */
+function openFirstRun(): void {
+  openAtlantis(atlantisNow.find((w) => running(w.pull.plan))?.pull.url ?? null);
 }
 
 /** The pull requests in the Atlantis tab, with the one a notice opened even when it moved over an hour ago. */
@@ -384,7 +398,7 @@ function atlantisCards(pick = focus): Watched[] {
   for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) {
     const own = summary.mine.find((p) => p.url === pick);
     const pull = own ?? summary.review_requests.find((p) => p.url === pick);
-    if (pull?.plan) return [{ pull, own: own !== undefined, merged: false }, ...atlantisNow];
+    if (pull?.plan) return [{ pull, own: own !== undefined, merged: false, order: 2, at: "" }, ...atlantisNow];
   }
   return atlantisNow;
 }
@@ -537,8 +551,8 @@ function render(): void {
     const totals = prTotals();
     const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
     // Atlantis running (#173): its sign beside the pull requests, a click opens its tab.
-    const runs = atlantisNow.filter((w) => running(w.pull.plan));
-    if (runs.length > 0) right.push(atlantisSign(runs.length, () => openAtlantis(runs[0]?.pull.url ?? null)));
+    const runs = atlantisNow.filter((w) => running(w.pull.plan)).length;
+    if (runs > 0) right.push(atlantisSign(runs, openFirstRun));
     // A new notice says what happened for a few seconds, and the pink summary
     // stays until a click (#157); beside the camera, on a row under it.
     const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNow, seeAll, dismissSummary) : [];
@@ -727,8 +741,8 @@ function bar(): HTMLElement {
     pr.append(prCount(prTotals()));
     right.push(pr);
   }
-  const runs = atlantisNow.filter((w) => running(w.pull.plan));
-  if (runs.length > 0) right.push(atlantisSign(runs.length, () => openAtlantis(runs[0]?.pull.url ?? null)));
+  const runs = atlantisNow.filter((w) => running(w.pull.plan)).length;
+  if (runs > 0) right.push(atlantisSign(runs, openFirstRun));
   if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
     chips.unshift(button("btn-chip", t("island.connect"), () => void openOnboarding()));
   }
@@ -1025,9 +1039,16 @@ async function start(): Promise<void> {
     awayChanged = true;
     away = payload;
     if (away) {
-      // The notch is drawn once more without the phrase, then waits.
+      // The notch is drawn once more without the phrase, then waits. An
+      // island left open by a click folds: open, every event redraws it (#51).
       stopSaying();
       awayDrawn = false;
+      if (pinned) {
+        setPinned(false);
+        window.clearTimeout(hideTimer);
+        hideTimer = undefined;
+        hovered = false;
+      }
     } else if (cardWhileAway) {
       cardWhileAway = false;
       // Back with an agent waiting: its card comes first, and rings once (#157).

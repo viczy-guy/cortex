@@ -308,6 +308,9 @@ export interface Plan {
   runs: AtlantisRun[];
   /** Projects left out of `runs` for size. */
   runs_hidden: number;
+  /** Of the run shown, the projects done and those it runs, counted before `runs` is cut. */
+  runs_done: number;
+  runs_total: number;
 }
 export interface PullRequest {
   repo: string;
@@ -340,6 +343,9 @@ export interface Watched {
   /** The user's own; else it asks for their review. */
   own: boolean;
   merged: boolean;
+  /** 0 while its run goes, 1 locked, 2 moved in the last hour; `at`, when it moved (ISO 8601). */
+  order: number;
+  at: string;
 }
 export interface GithubSummary {
   login: string;

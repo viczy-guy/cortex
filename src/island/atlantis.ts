@@ -102,8 +102,7 @@ function counts(plan: Plan): string {
 
 /** Preparar → Plan → Aprovação → Apply → Merge, as the run stands. */
 function steps(w: Watched, plan: Plan): Step[] {
-  const { stage, live } = plan;
-  const done = plan.runs.filter((r) => r.state === "done").length;
+  const { stage, live, runs_done: done, runs_total: total } = plan;
   const approved = w.pull.review === "approved";
   const prepare: Step = stage === "planning" && live?.preparing ? { state: "run", since: live.since } : { state: "done" };
   const planStep: Step =
@@ -122,7 +121,6 @@ function steps(w: Watched, plan: Plan): Step[] {
       : !w.own
         ? { state: "wait", sub: t("atl.yourReview") }
         : approved ? { state: "done", sub: t("atl.approved") } : { state: "wait", sub: t("atl.waiting") };
-  const total = plan.runs.filter((r) => r.state !== "skipped").length;
   const apply: Step =
     stage === "applying"
       ? live?.preparing ? { state: "run", sub: t("atl.preparing"), since: live.since } : { state: "run", sub: t("atl.of", done, total) }
@@ -216,7 +214,7 @@ function projectList(plan: Plan, open: (url: string) => void): HTMLElement | nul
     name.title = run.name;
     const right = el("span", "atl-right");
     if (run.state === "running" && plan.live?.project === run.name) right.append(timer(plan.live.since));
-    else if (run.state === "queued") right.append(el("span", undefined, t("atl.queued")));
+    else if (run.state === "queued") right.append(el("span", undefined, t(plan.stage === "applying" ? "atl.queued" : "atl.notApplied")));
     else if (run.state === "failed") right.append(el("span", undefined, t("atl.failed")));
     else if (run.state === "done" && run.add + run.change + run.destroy > 0) right.append(planChips({ ...run, replace: 0 }));
     else if (run.state !== "running") right.append(el("span", undefined, t("atl.noChanges")));
