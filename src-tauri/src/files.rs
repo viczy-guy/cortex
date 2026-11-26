@@ -35,6 +35,16 @@ pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
 }
 
 pub fn read_bounded(path: &Path, max_bytes: u64) -> std::io::Result<Option<String>> {
+    let Some(bytes) = read_bounded_bytes(path, max_bytes)? else {
+        return Ok(None);
+    };
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// The whole file, or `None` when it is missing or larger than `max_bytes`.
+pub fn read_bounded_bytes(path: &Path, max_bytes: u64) -> std::io::Result<Option<Vec<u8>>> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -49,9 +59,7 @@ pub fn read_bounded(path: &Path, max_bytes: u64) -> std::io::Result<Option<Strin
     if bytes.len() as u64 > max_bytes {
         return Ok(None);
     }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    Ok(Some(bytes))
 }
 #[cfg(test)]
 mod tests {

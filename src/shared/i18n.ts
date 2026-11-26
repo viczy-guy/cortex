@@ -713,6 +713,9 @@ const FROM_RUST_PATTERNS: [RegExp, string][] = [
   [/^Update failed: /, "A atualização falhou: "],
   [/^Update (\S+) took too long to download$/, "A atualização $1 demorou demais para baixar"],
   [/^Update (\S+) rejected: /, "A atualização $1 foi recusada: "],
+  [/^Update (\S+) is too large$/, "A atualização $1 é grande demais"],
+  [/^Update (\S+) not saved: /, "A atualização $1 não foi salva: "],
+  [/the saved update is missing or too large$/, "a atualização salva não está no disco ou é grande demais"],
   [/\. The removed rules come back when Cortex restarts\.$/, ". As regras removidas voltam quando o Cortex reiniciar."],
 ];
 
