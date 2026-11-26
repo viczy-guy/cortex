@@ -119,8 +119,8 @@ are doing.
   macOS Rust reports that click, as over a waiting card). With Atlantis to
   show, the list has two tabs, Notices and Atlantis; it starts on Notices
   while any stands. The Atlantis tab has one card per pull request (runs
-  going first, then locked plans, then the rest that moved in the last hour,
-  at most 8; a merged one only for its apply, for an hour; the one a notice
+  going first, then locked plans however long they wait, then the rest that
+  moved in the last hour, at most 8 for all accounts; a merged one only for its apply, for an hour; the one a notice
   opened even when older): its number and title, whose it is, one tag per
   account its projects are in (production in red), and five steps, Prepare
   → Plan → Approval → Apply → Merge, the one now turning, with its clock
@@ -403,9 +403,10 @@ destroy.", or "No changes."). While a run goes (#173), a pending
 `atlantis/pre_workflow_hook: …` means Atlantis prepares, else a pending
 project status is the project running, since its time; a running plan lists
 only the projects of this run, an apply each planned project (queued,
-running, done, failed, or skipped without changes). A status's link is kept
-only when the account that wrote the `atlantis/plan` status wrote it too,
-over https, at most 512 characters. The
+running, done, failed, not applied, or skipped without changes). A status's
+link is kept only when the account that wrote the `atlantis/plan` status,
+one whose name has "atlantis" in it, wrote it too, and only as an https link
+to a host's `/jobs/` page, at most 512 characters. The
 comments add the detail: the latest "Ran Plan for…" and its "Continued…"
 parts (a quote does not count), project by project ("### 1. project: `a`
 dir: `b`…"), each resource line (`# aws_x.y will be created`, `updated
