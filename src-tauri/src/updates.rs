@@ -3,6 +3,8 @@
 use crate::{prefs, state::AppState};
 use serde::Serialize;
 use std::{
+    io::Read,
+    path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
     time::Duration,
 };
@@ -19,6 +21,11 @@ const CHECK_EVERY: Duration = Duration::from_secs(60);
 const CHECK_AFTER_BAD_PACKAGE: Duration = Duration::from_secs(6 * 60 * 60);
 /// A download that stalls must not hold the checker (and its buffer) forever.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// The largest package Cortex takes: the Linux AppImage is ~82 MB (#72).
+const MAX_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
+/// The verified package waits for the click here, in the data folder, not
+/// in memory: days of an 82 MB buffer otherwise (#72).
+const PACKAGE_FILE: &str = "update-package";
 
 #[derive(Clone, Serialize)]
 pub struct UpdateStatus {
@@ -33,9 +40,8 @@ pub struct UpdateStatus {
 
 struct Inner {
     status: UpdateStatus,
-    // shortcut: the verified package stays in RAM until installed (the Linux
-    // AppImage is the largest, ~80 MB); spill it to a temp file if that hurts.
-    ready: Option<(Update, Vec<u8>)>,
+    /// The update found and its verified package, saved to disk (#72).
+    ready: Option<(Update, PathBuf)>,
     /// Bumped on every toggle, so a check started before it is discarded.
     revision: u64,
     /// The user clicked **Update and restart**: only then may the update
@@ -132,6 +138,7 @@ pub fn updates_set_enabled(
     prefs::update(|p| p.updates = Some(enabled))?;
     inner.revision += 1;
     inner.ready = None;
+    forget_package();
     inner.armed = false;
     let status = &mut inner.status;
     status.enabled = Some(enabled);
@@ -189,22 +196,25 @@ pub async fn updates_install(
 ) -> Result<(), String> {
     crate::keep_splash();
     no_cards(&board)?;
-    let (update, bytes, revision) = {
+    let (update, path, revision) = {
         let mut inner = state.lock();
         if !inner.armed || inner.installing {
             return Err("No update is ready.".into());
         }
-        let Some((update, bytes)) = inner.ready.take() else {
+        let Some((update, path)) = inner.ready.take() else {
             return Err("No update is ready.".into());
         };
         inner.installing = true;
-        (update, bytes, inner.revision)
+        (update, path, inner.revision)
     };
-    // `install` checks the signature again before it touches the app. It
-    // unpacks for a while: off the main thread, so the screen keeps moving.
-    let (update, bytes, result) = tauri::async_runtime::spawn_blocking(move || {
-        let result = update.install(&bytes);
-        (update, bytes, result)
+    // `install` checks the signature again before it touches the app: a
+    // package changed on disk since the download is refused. It unpacks for
+    // a while: off the main thread, so the screen keeps moving.
+    let (update, path, result) = tauri::async_runtime::spawn_blocking(move || {
+        let result = read_package_at(&path, MAX_PACKAGE_BYTES)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| update.install(&bytes).map_err(|e| e.to_string()));
+        (update, path, result)
     })
     .await
     .map_err(|e| format!("Update failed: {e}"))?;
@@ -220,10 +230,13 @@ pub async fn updates_install(
         let mut inner = state.lock();
         inner.installing = false;
         if inner.revision == revision && inner.ready.is_none() {
-            inner.ready = Some((update, bytes));
+            inner.ready = Some((update, path));
         }
         return Err(message);
     }
+    // Windows never gets here (its installer exits the app): the next
+    // launch removes the package.
+    let _ = std::fs::remove_file(&path);
     crate::server::release_endpoint();
     app.restart()
 }
@@ -232,6 +245,8 @@ pub async fn updates_install(
 /// downloaded and verified right away, then waits for the user's click.
 pub async fn checker(app: AppHandle) {
     let state = app.state::<UpdateState>();
+    // A package left by an earlier run is never installed: it is found again.
+    forget_package();
     loop {
         let mut bad_package = false;
         let due = {
@@ -260,10 +275,10 @@ pub async fn checker(app: AppHandle) {
                 bad_package = result.is_err() && inner.status.state == "downloading";
                 let unchanged = quiet && matches!(result, Ok(None));
                 match result {
-                    Ok(Some((update, bytes))) => {
+                    Ok(Some((update, path))) => {
                         inner.status.state = "ready";
                         inner.status.version = Some(update.version.clone());
-                        inner.ready = Some((update, bytes));
+                        inner.ready = Some((update, path));
                     }
                     Ok(None) => inner.status.state = "idle",
                     Err(message) => {
@@ -288,8 +303,9 @@ pub async fn checker(app: AppHandle) {
 }
 
 /// The manifest request, then the package. `download` rejects a package
-/// whose signature does not match the public key compiled into the app.
-async fn fetch(app: &AppHandle, revision: u64) -> Result<Option<(Update, Vec<u8>)>, String> {
+/// whose signature does not match the public key compiled into the app; the
+/// verified package is saved to disk, and only its path is kept (#72).
+async fn fetch(app: &AppHandle, revision: u64) -> Result<Option<(Update, PathBuf)>, String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let Some(update) = updater
         .check()
@@ -308,9 +324,100 @@ async fn fetch(app: &AppHandle, revision: u64) -> Result<Option<(Update, Vec<u8>
         inner.status.version = Some(update.version.clone());
         inner.emit(app);
     }
-    let bytes = tokio::time::timeout(DOWNLOAD_TIMEOUT, update.download(|_, _| {}, || {}))
+    // A package past the limit, announced or received, stops the download:
+    // dropping it ends the transfer.
+    let too_large = Notify::new();
+    let mut received = 0u64;
+    let download = update.download(
+        |chunk, announced| {
+            received = received.saturating_add(chunk as u64);
+            if too_large_package(received, announced) {
+                too_large.notify_one();
+            }
+        },
+        || {},
+    );
+    let bytes = tokio::select! {
+        biased;
+        () = too_large.notified() => return Err(format!("Update {} is too large", update.version)),
+        result = tokio::time::timeout(DOWNLOAD_TIMEOUT, download) => result
+            .map_err(|_| format!("Update {} took too long to download", update.version))?
+            .map_err(|e| format!("Update {} rejected: {e}", update.version))?,
+    };
+    let path = package_path()?;
+    let saved = path.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::files::write_private(&saved, &bytes))
         .await
-        .map_err(|_| format!("Update {} took too long to download", update.version))?
-        .map_err(|e| format!("Update {} rejected: {e}", update.version))?;
-    Ok(Some((update, bytes)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("Update {} not saved: {e}", update.version))?;
+    Ok(Some((update, path)))
+}
+
+fn package_path() -> Result<PathBuf, String> {
+    Ok(crate::hooks::data_dir()?.join(PACKAGE_FILE))
+}
+
+/// The saved package goes: after an install, at launch, and when the user
+/// turns updates on or off. Only a package found by this run is installed.
+fn forget_package() {
+    if let Ok(path) = package_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn too_large_package(received: u64, announced: Option<u64>) -> bool {
+    received > MAX_PACKAGE_BYTES || announced.is_some_and(|n| n > MAX_PACKAGE_BYTES)
+}
+
+/// The saved package, whole, or an error: a file grown past the limit since
+/// is never read into memory.
+fn read_package_at(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(std::io::Error::other("the saved update is too large"));
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(label: &str) -> PathBuf {
+        std::env::temp_dir()
+            .join(format!("cortex-update-{label}-{}", std::process::id()))
+            .join(PACKAGE_FILE)
+    }
+
+    #[test]
+    fn a_saved_package_is_private_and_read_back_whole() {
+        let path = temp("save");
+        let package = vec![7u8; 300_000];
+        crate::files::write_private(&path, &package).unwrap();
+        assert_eq!(read_package_at(&path, MAX_PACKAGE_BYTES).unwrap(), package);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_package_past_the_limit_is_never_read_or_downloaded_whole() {
+        let path = temp("large");
+        crate::files::write_private(&path, &[1u8; 11]).unwrap();
+        assert!(read_package_at(&path, 10).is_err());
+        assert_eq!(read_package_at(&path, 11).unwrap().len(), 11);
+        assert!(read_package_at(&path.with_file_name("missing"), 10).is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        assert!(!too_large_package(MAX_PACKAGE_BYTES, None));
+        assert!(too_large_package(MAX_PACKAGE_BYTES + 1, None));
+        assert!(too_large_package(0, Some(MAX_PACKAGE_BYTES + 1)));
+        assert!(!too_large_package(10, Some(82 * 1024 * 1024)));
+    }
 }
