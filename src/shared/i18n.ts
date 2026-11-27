@@ -140,7 +140,7 @@ const en = {
   "tone.red": "Failed",
   "tone.red.text": "Something failed (an agent, a pull request, an action, an Atlantis plan or apply), or a plan destroys or replaces something.",
   "tone.pink": "While you were away",
-  "tone.pink.text": "What came while the screen was locked, the computer slept or nobody touched it for ten minutes, and GitHub's notices from while Cortex was closed. It stays until See all or Dismiss.",
+  "tone.pink.text": "What came while the screen was locked, the computer slept or nobody touched it for ten minutes, and GitHub's notices that came while Cortex was closed. It stays until See all or Dismiss.",
 
   "create.title": "Create an agent",
   "create.note": "Pick the model, the folder, the instructions, the tools and the knowledge sources. Coming in a new version.",
@@ -455,7 +455,7 @@ const pt: Messages = {
   "tone.red": "Falhou",
   "tone.red.text": "Algo falhou (um agente, um pull request, uma action, um plan ou apply do Atlantis), ou um plan destrói ou troca algo.",
   "tone.pink": "Enquanto você estava fora",
-  "tone.pink.text": "O que chegou com a tela bloqueada, o computador dormindo ou ninguém mexendo por dez minutos, e os avisos do GitHub de quando o Cortex estava fechado. Fica até Ver tudo ou Dispensar.",
+  "tone.pink.text": "O que chegou com a tela bloqueada, o computador dormindo ou ninguém mexendo por dez minutos, e os avisos do GitHub que chegaram com o Cortex fechado. Fica até Ver tudo ou Dispensar.",
 
   "create.title": "Criar um agente",
   "create.note": "Escolha o modelo, a pasta, as instruções, as ferramentas e as fontes de conhecimento. Chega numa nova versão.",
@@ -685,7 +685,7 @@ const FROM_RUST: Record<string, string> = {
   "executable has no parent directory": "o executável não tem pasta",
   "relay path has no parent": "o caminho do relay não tem pasta",
   "cannot determine the home directory": "não foi possível achar a pasta de início",
-  "This copy of Cortex cannot open at login.": "Esta cópia do Cortex não pode abrir ao ligar.",
+  "This copy of Cortex cannot open at login.": "Esta cópia do Cortex não pode abrir ao iniciar a sessão.",
   "island window not found": "janela da ilha não encontrada",
   "Unknown island position.": "Posição da ilha desconhecida.",
   "Unknown screen.": "Tela desconhecida.",
