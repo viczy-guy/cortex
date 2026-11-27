@@ -8,6 +8,12 @@ assert.ok(newer("0.10.0", "0.9.2"));
 assert.ok(newer("1.0", "0.99.99"));
 assert.ok(!newer("0.9.1", "0.9.1"));
 assert.ok(!newer("0.9.1", "0.9.2"));
+// Pre-releases come before their release; a build changes nothing.
+assert.ok(newer("0.9.1", "0.9.1-beta.2"));
+assert.ok(!newer("0.9.1-beta.2", "0.9.1"));
+assert.ok(newer("0.9.2", "0.9.1+build.7"));
+assert.ok(!newer("0.9.1+build.7", "0.9.1"));
+assert.ok(!newer("0.9.1", "0.9.1+build.7"));
 
 const releases = ["0.7.0", "0.9.2", "0.8.0", "0.9.0", "0.9.1", "0.6.0"].map((version) => ({ version }));
 const versions = (list) => list.map((r) => r.version);

@@ -130,7 +130,8 @@ async function news(root: HTMLElement, releases: Release[]): Promise<void> {
   }
 
   const foot = el("footer", "news-foot");
-  if (current) {
+  // `open_url` takes the running version's notes only: shown when they are the list's.
+  if (current && latest?.version === current) {
     const notes = releaseNotesUrl(current);
     foot.append(button("btn-neutral", t("news.github"), () => {
       api.openUrl(notes).catch(() => { /* Nothing to undo. */ });

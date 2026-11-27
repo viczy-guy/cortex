@@ -210,7 +210,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background: var(--surface-raised-solid);
 }
 
@@ -230,7 +230,7 @@ body {
 
 details.news-fixes, details.news-version {
   padding: 9px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-btn);
   background: var(--surface-solid);
 }
 

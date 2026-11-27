@@ -301,22 +301,27 @@ fn splash_news(app: AppHandle, height: f64) -> Result<(), String> {
     } else {
         NEWS_HEIGHT
     };
+    let mut width = NEWS_WIDTH;
     if let Ok(Some(monitor)) = window.current_monitor() {
+        // A screen too small (one in portrait) keeps the X and the buttons in sight.
         let room = monitor
             .work_area()
             .size
-            .to_logical::<f64>(monitor.scale_factor())
-            .height;
-        height = height.min((room - 80.0).max(NEWS_MIN_HEIGHT));
+            .to_logical::<f64>(monitor.scale_factor());
+        height = height.min((room.height - 80.0).max(NEWS_MIN_HEIGHT));
+        width = width.min((room.width - 40.0).max(SPLASH_WIDTH));
     }
     window
-        .set_size(tauri::LogicalSize::new(NEWS_WIDTH, height))
+        .set_size(tauri::LogicalSize::new(width, height))
         .map_err(|e| e.to_string())?;
     window.center().map_err(|e| e.to_string())?;
     opening_closed(&app);
     Ok(())
 }
 
+/// The opening and update screens in logical points.
+const SPLASH_WIDTH: f64 = 420.0;
+const SPLASH_HEIGHT: f64 = 280.0;
 /// What's new in logical points: the width as `.news--measuring` in
 /// src/splash/splash.css, the height at least and at most.
 const NEWS_WIDTH: f64 = 560.0;
@@ -331,7 +336,9 @@ async fn news_open(app: AppHandle) -> Result<(), String> {
     if app.get_webview_window("splash").is_some() {
         return Ok(());
     }
+    // A second click made it meanwhile: that one shows.
     open_splash(&app, Some("mode=news"))
+        .or_else(|err| app.get_webview_window("splash").map(|_| ()).ok_or(err))
 }
 
 /// An always-on-top window in the middle of the screen must go even when
@@ -386,6 +393,9 @@ fn open_splash(app: &AppHandle, query: Option<&str>) -> Result<(), String> {
         let mut url = window.url().map_err(|e| e.to_string())?;
         url.set_query(query);
         window.navigate(url).map_err(|e| e.to_string())?;
+        // What's new made it bigger (#180).
+        let _ = window.set_size(tauri::LogicalSize::new(SPLASH_WIDTH, SPLASH_HEIGHT));
+        let _ = window.center();
     } else {
         let page = match query {
             Some(query) => format!("splash.html?{query}"),
@@ -393,7 +403,7 @@ fn open_splash(app: &AppHandle, query: Option<&str>) -> Result<(), String> {
         };
         tauri::WebviewWindowBuilder::new(app, "splash", tauri::WebviewUrl::App(page.into()))
             .title("Cortex")
-            .inner_size(420.0, 280.0)
+            .inner_size(SPLASH_WIDTH, SPLASH_HEIGHT)
             .resizable(false)
             .decorations(false)
             .transparent(true)

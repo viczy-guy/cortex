@@ -6,7 +6,10 @@
 /** The screen keeps to the last few versions, as the app carries their images. */
 export const MAX_SHOWN = 5;
 
-const parts = (version: string): number[] => version.split(".").map(Number);
+/** "1.0.0" of "1.0.0-beta.2+abc", as numbers. */
+const parts = (version: string): number[] => (version.split(/[-+]/)[0] ?? "").split(".").map(Number);
+/** "1.0.0-beta.2" comes before "1.0.0"; "+abc" (a build) changes nothing. */
+const prerelease = (version: string): boolean => /^[^+]*-/.test(version);
 
 /** `a` is a later version than `b` ("0.10.0" after "0.9.2"). */
 export function newer(a: string, b: string): boolean {
@@ -15,7 +18,7 @@ export function newer(a: string, b: string): boolean {
     const [m, n] = [x[i] ?? 0, y[i] ?? 0];
     if (m !== n) return m > n;
   }
-  return false;
+  return prerelease(b) && !prerelease(a);
 }
 
 /**
