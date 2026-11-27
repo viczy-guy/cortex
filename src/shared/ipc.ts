@@ -147,6 +147,8 @@ export interface IslandPrefs {
   position: IslandPosition;
   /** Where it was dragged along its edge, 0 to 1 (#184); `null` is the middle. */
   offset: number | null;
+  /** Whether it can be dragged there (#184). */
+  drags: boolean;
   screen: string | null;
   sound: boolean;
   /** The lively mascot (#145). */
