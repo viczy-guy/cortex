@@ -21,6 +21,8 @@ const COMMANDS: &[&str] = &[
     "island_set_mascot",
     "island_screens",
     "island_set_position",
+    "island_center",
+    "island_drag",
     "island_set_screen",
     "island_set_sound",
     "island_set_lively",
