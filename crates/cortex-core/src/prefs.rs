@@ -1,8 +1,8 @@
 //! Versioned, opt-in application preferences.
 use crate::github::{is_valid_login, MAX_ACCOUNTS};
-use crate::placement::is_position;
+use crate::placement::{is_offset, is_position, CENTER};
 use serde_json::Value;
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Prefs {
     pub github: bool,
     pub github_hidden: Vec<String>,
@@ -17,6 +17,9 @@ pub struct Prefs {
     /// Launch at login (#81). `None` until the first launch turns it on.
     pub launch_at_login: Option<bool>,
     pub island_position: Option<String>,
+    /// Where the island was dragged along its edge (#184), 0 to 1; `None`
+    /// is the middle.
+    pub island_offset: Option<f64>,
     pub island_screen: Option<String>,
     /// The version of the last launch: another one now means an update (#127).
     pub last_version: Option<String>,
@@ -138,6 +141,10 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
             .as_str()
             .filter(|s| is_position(s))
             .map(str::to_owned),
+        // Off the edge, or the middle itself: the middle.
+        island_offset: v["island_offset"]
+            .as_f64()
+            .filter(|o| is_offset(*o) && *o != CENTER),
         island_screen: v["island_screen"]
             .as_str()
             .filter(|s| is_screen_name(s))
@@ -154,12 +161,27 @@ pub fn checked_prefs_from_json(json: &str) -> Option<Prefs> {
 }
 
 pub fn prefs_to_json(prefs: &Prefs) -> String {
-    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"lively":prefs.lively,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_screen":prefs.island_screen,"last_version":prefs.last_version,"language":prefs.language})
+    serde_json::json!({"version":1,"github":prefs.github,"github_hidden":prefs.github_hidden,"updates":prefs.updates,"mascot":prefs.mascot,"sound":prefs.sound,"lively":prefs.lively,"launch_at_login":prefs.launch_at_login,"island_position":prefs.island_position,"island_offset":prefs.island_offset,"island_screen":prefs.island_screen,"last_version":prefs.last_version,"language":prefs.language})
         .to_string()
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dragged_island_offset_round_trips_and_a_broken_one_is_the_middle() {
+        let p = Prefs {
+            island_offset: Some(0.25),
+            ..Prefs::default()
+        };
+        assert_eq!(prefs_from_json(&prefs_to_json(&p)), p);
+        for stored in ["1.5", "-0.1", "0.5", "\"left\"", "null"] {
+            let json = format!(r#"{{"version":1,"github":true,"island_offset":{stored}}}"#);
+            let p = prefs_from_json(&json);
+            assert!(p.github, "{stored} cost the other settings");
+            assert_eq!(p.island_offset, None, "{stored}");
+        }
+    }
 
     #[test]
     fn the_language_round_trips_and_follows_the_system_until_picked() {

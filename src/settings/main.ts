@@ -489,7 +489,14 @@ function renderIsland(): void {
     liveToggle.disabled = toggleBusy;
     liveRow.append(el("span", lively ? "status-dot connected" : "status-dot"), el("span", undefined, lively ? t("island.livelyOn") : t("island.livelyOff")), liveToggle);
     const liveNote = el("div", "note", t("island.livelyNote"));
-    islandBlock.append(gallery, el("h3", undefined, t("island.lively")), liveNote, liveRow, el("h3", undefined, t("island.position")), positions, el("h3", undefined, t("island.screen")), displays);
+    // The bottom corners stay put; the other edges slide (#184).
+    const along: HTMLElement[] = [];
+    if (prefs.position === "top" || prefs.position === "left" || prefs.position === "right") {
+      const center = el("div", "status-row");
+      center.append(el("span", "note", t("island.dragNote")), islandChoice(t("island.center"), false, prefs.offset === null ? undefined : () => api.islandCenter()));
+      along.push(center);
+    }
+    islandBlock.append(gallery, el("h3", undefined, t("island.lively")), liveNote, liveRow, el("h3", undefined, t("island.position")), positions, ...along, el("h3", undefined, t("island.screen")), displays);
     const on = prefs.sound;
     const row = el("div", "status-row");
     const toggle = button(on ? "btn-neutral" : "btn-allow", on ? t("common.turnOff") : t("common.turnOn"), () => void changeToggle(() => api.islandSetSound(!on), true));

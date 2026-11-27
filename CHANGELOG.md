@@ -22,6 +22,12 @@ follows [Semantic Versioning](https://semver.org).
   standing pill: the mascot on top, the counts under it. A phrase, and the
   pink summary, come in a balloon beside it, in the notice's color; open, the
   panel grows from the edge as before. The bottom corners stay as they were.
+- **Drag the island along its edge** (#184): sideways on top, up and down at
+  the left and right. The drag starts once the pointer moves 6 points pressed,
+  so a click stays a click, and the island stays folded while it moves. Near
+  the middle it snaps back; only there it wraps the camera. Cortex remembers
+  where it went; another position starts in the middle, and Settings →
+  Island → Position has **Center**.
 - Three texts in Settings read more clearly. In Portuguese, "Abrir ao ligar"
   becomes "Abrir ao iniciar a sessão" and the updates note says the option must
   be on; in both languages, the pink summary says that of what came while
