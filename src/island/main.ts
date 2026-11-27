@@ -66,6 +66,8 @@ let updates: UpdateStatus | null = null;
 let updatesError: string | null = null;
 let mascot: Mascot = "eyes";
 let position: IslandPosition = "top";
+/** It can be dragged along its edge (#184); Rust says where. */
+let draggable = true;
 let cutout: IslandCutout | null = null;
 let sound = true;
 let soundReady = false;
@@ -145,6 +147,17 @@ const reviewsSeen = new Set<string>();
 let reviewsOwed: ViewNotice[] = [];
 /** New review requests came: the pull request count hops once, when next drawn. */
 let hopReviews = false;
+/** A press on the island's edge part; past `DRAG_POINTS` it is a drag along the edge (#184). */
+let press: { x: number; y: number; id: number; dragging: boolean } | null = null;
+/** Just dropped: the pointer passing over it as it lands does not open it. */
+let droppedUntil = 0;
+/** The click that ends a drag is not a click on the island; the next press is. */
+let swallowClick = false;
+/** The latest move of a drag, sent once a frame. */
+let dragTo = { dx: 0, dy: 0 };
+let dragFrame: number | undefined;
+/** A click stays a click: a drag starts once the pointer went this far, pressed. */
+const DRAG_POINTS = 6;
 
 /**
  * No card demanding eyes and nobody looking: the island folds into the
@@ -575,6 +588,79 @@ function shownTone(open: boolean): Tone | "pink" {
 /** At the left or right edge the folded island stands (#183); the bottom corners lie as on top. */
 const standing = (): boolean => position === "left" || position === "right";
 
+/**
+ * Press and drag the island along its edge (#184): sideways on top, up and
+ * down at the sides. It folds while it moves and Rust moves the window; a
+ * short press stays a click.
+ */
+function listenForDrags(): void {
+  const cardInView = (): boolean => snapshot.approvals.some((a) => !dismissed.has(a.request_id));
+  /** The drag ends where the pointer is: Rust moves the window there and saves it. */
+  const finish = (): void => {
+    const moved = press?.dragging === true;
+    press = null;
+    if (dragFrame !== undefined) cancelAnimationFrame(dragFrame);
+    dragFrame = undefined;
+    if (!moved) return;
+    void api.islandDrag("end", dragTo.dx, dragTo.dy).catch(() => { /* Unsaved: back where it was next launch. */ });
+    swallowClick = true;
+    droppedUntil = Date.now() + 1000;
+    render();
+  };
+  root.addEventListener("pointerdown", (event) => {
+    swallowClick = false;
+    press = null;
+    // Anywhere but a card and the list's scroll bar: hovered, the island is open by the time it is pressed.
+    const grip = event.target instanceof Element && !event.target.matches(".panel") && !event.target.closest(".card");
+    const busy = cardInView() || onboarding.phase !== "closed" || askingUpdates(updates);
+    if (event.button !== 0 || !grip || busy || !draggable) return;
+    press = { x: event.screenX, y: event.screenY, id: event.pointerId, dragging: false };
+    dragTo = { dx: 0, dy: 0 };
+  });
+  root.addEventListener("pointermove", (event) => {
+    if (!press || event.pointerId !== press.id) return;
+    // Released where the island did not hear it, or a card came to answer.
+    if ((event.buttons & 1) === 0 || cardInView()) {
+      finish();
+      return;
+    }
+    dragTo = { dx: event.screenX - press.x, dy: event.screenY - press.y };
+    if (!press.dragging) {
+      // Only along the edge: across it, the press stays a click.
+      if (Math.abs(position === "top" ? dragTo.dx : dragTo.dy) < DRAG_POINTS) return;
+      press.dragging = true;
+      root.setPointerCapture(event.pointerId);
+      void api.islandDrag("start", 0, 0).catch(() => { /* It stays where it was. */ });
+      setPinned(false);
+      window.clearTimeout(hideTimer);
+      hideTimer = undefined;
+      hovered = false;
+      expanded = false;
+      autoExpanded = false;
+      render();
+    }
+    dragFrame ??= requestAnimationFrame(() => {
+      dragFrame = undefined;
+      void api.islandDrag("move", dragTo.dx, dragTo.dy).catch(() => { /* The next move tries again. */ });
+    });
+  });
+  const release = (event: PointerEvent): void => {
+    if (!press || event.pointerId !== press.id) return;
+    if (event.type === "pointerup") dragTo = { dx: event.screenX - press.x, dy: event.screenY - press.y };
+    finish();
+  };
+  root.addEventListener("pointerup", release);
+  root.addEventListener("pointercancel", release);
+  root.addEventListener("lostpointercapture", release);
+  window.addEventListener("blur", () => finish());
+  root.addEventListener("click", (event) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+  }, { capture: true });
+}
+
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
 function setClass(open: boolean, folded = false): void {
   // Away, nothing turns (#51, #173): a turning ring repaints on every frame.
@@ -799,6 +885,8 @@ function foldAway(): void {
 }
 
 function setHovered(inside: boolean): void {
+  // Moved by hand, it opens once the pointer comes back to it (#184).
+  if (inside && (press?.dragging || Date.now() < droppedUntil)) return;
   window.clearTimeout(hideTimer);
   hideTimer = undefined;
   if (inside) {
@@ -1163,6 +1251,7 @@ async function installUpdate(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  listenForDrags();
   let awayChanged = false;
   await listen<boolean>(AWAY_EVENT, ({ payload }) => {
     awayChanged = true;
@@ -1230,6 +1319,7 @@ async function start(): Promise<void> {
       if (saying) saying = saying.again();
     }
     if (!relabel && mascot === payload.mascot && position === payload.position) return;
+    draggable = payload.drags;
     mascot = payload.mascot;
     // The camera is only on top; Rust's word on it comes apart from this one.
     if (payload.position !== "top" && cutout) setCutout(null);
@@ -1255,7 +1345,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); setLanguage(value.language); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position, drags: draggable } = value); setLively(value.lively); setLanguage(value.language); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;

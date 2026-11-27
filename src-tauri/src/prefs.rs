@@ -12,6 +12,10 @@ pub const ISLAND_PREFS_EVENT: &str = "cortex://island-prefs";
 pub struct IslandPrefs {
     pub mascot: String,
     pub position: String,
+    /// Where it was dragged along its edge (#184); `None` is the middle.
+    pub offset: Option<f64>,
+    /// Whether it can be dragged there: the bottom corners stay (#184).
+    pub drags: bool,
     pub screen: Option<String>,
     pub sound: bool,
     pub lively: bool,
@@ -26,6 +30,8 @@ impl From<&Prefs> for IslandPrefs {
         Self {
             mascot: prefs.mascot.as_deref().unwrap_or(DEFAULT_MASCOT).to_owned(),
             position: prefs.island_position.as_deref().unwrap_or("top").to_owned(),
+            offset: prefs.island_offset,
+            drags: cortex_core::placement::drags(prefs.island_position.as_deref().unwrap_or("top")),
             screen: prefs.island_screen.clone(),
             sound: prefs.sound.unwrap_or(true),
             lively: prefs.lively.unwrap_or(true),

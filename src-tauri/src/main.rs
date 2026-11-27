@@ -22,7 +22,9 @@ mod macos;
 use std::sync::Mutex;
 
 use cortex_core::autostart::OpeningScreen;
-use cortex_core::placement::{is_position, island_origin, island_width, Rect};
+use cortex_core::placement::{
+    dragged, drags, is_position, island_origin, island_width, top_snap, Rect, CENTER,
+};
 use cortex_core::prefs::is_screen_name;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -472,6 +474,10 @@ struct IslandPlacement {
     width: f64,
     height: f64,
     cutout: Option<IslandCutout>,
+    /// Along its edge, 0 to 1 (#184); saved when a drag ends.
+    offset: f64,
+    /// Where a drag started, while one goes.
+    drag_from: Option<f64>,
 }
 
 #[tauri::command]
@@ -547,7 +553,72 @@ fn island_set_position(app: AppHandle, position: String) -> Result<(), String> {
     if !is_position(&position) {
         return Err("Unknown island position.".into());
     }
-    set_island_placement(&app, |p| p.island_position = Some(position))
+    // Another edge starts in its middle (#184); the same one stays where it was dragged.
+    set_island_placement(&app, |p| {
+        if p.island_position.as_deref().unwrap_or("top") != position {
+            p.island_offset = None;
+        }
+        p.island_position = Some(position);
+    })
+}
+
+/// "Center" in Settings (#184).
+#[tauri::command]
+fn island_center(app: AppHandle) -> Result<(), String> {
+    set_island_placement(&app, |p| p.island_offset = None)
+}
+
+/// A drag of the island along its edge (#184), in points from where it
+/// started: "start", "move"s, then "end", which moves it there and saves it.
+/// Rust moves the window, inside the screen; the bottom corners stay.
+#[tauri::command]
+fn island_drag(app: AppHandle, phase: String, dx: f64, dy: f64) -> Result<(), String> {
+    let state = app.state::<Mutex<IslandPlacement>>();
+    let (position, name, from, width, height) = {
+        let mut placement = state.lock().expect("island placement lock");
+        let from = match phase.as_str() {
+            "start" => {
+                placement.drag_from = drags(&placement.position).then_some(placement.offset);
+                return Ok(());
+            }
+            "move" => placement.drag_from,
+            "end" => placement.drag_from.take(),
+            _ => return Err("Unknown drag phase.".into()),
+        };
+        // No drag going: none started, or the edge or the screen changed (`set_island_placement`).
+        let Some(from) = from else {
+            return Ok(());
+        };
+        (
+            placement.position.clone(),
+            placement.screen.clone(),
+            from,
+            placement.width,
+            placement.height,
+        )
+    };
+    let offset = match island_monitor(&app, name) {
+        Some((screen, _, _)) if position == "top" => {
+            #[cfg(target_os = "macos")]
+            let notch = macos::camera_cutout(screen.x, screen.y, screen.width, screen.height)
+                .map(|(width, _)| width);
+            #[cfg(not(target_os = "macos"))]
+            let notch = None;
+            dragged(from, dx, screen.width, width, top_snap(notch, width))
+        }
+        Some((_, work, _)) => dragged(from, dy, work.height, height, 0.0),
+        // Its screen went: it ends, and stays, where the last move took it.
+        None if phase == "end" => state.lock().expect("island placement lock").offset,
+        None => return Ok(()),
+    };
+    if phase == "end" {
+        return set_island_placement(&app, |p| {
+            p.island_offset = (offset != CENTER).then_some(offset);
+        });
+    }
+    state.lock().expect("island placement lock").offset = offset;
+    place_island(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -576,11 +647,38 @@ fn set_island_placement(
         let island = prefs::IslandPrefs::from(&prefs::update(change)?);
         placement.position.clone_from(&island.position);
         placement.screen.clone_from(&island.screen);
+        placement.offset = island.offset.unwrap_or(CENTER);
+        placement.drag_from = None;
         island
     };
     prefs::emit(app, island);
     place_island(app);
     Ok(())
+}
+
+/// The island's screen, its work area (in points) and its scale: the one
+/// picked, else the primary monitor.
+fn island_monitor(app: &AppHandle, name: Option<String>) -> Option<(Rect, Rect, f64)> {
+    let monitor = name
+        .and_then(|name| {
+            app.available_monitors()
+                .ok()?
+                .into_iter()
+                .find(|m| m.name() == Some(&name))
+        })
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    let rect = |origin: tauri::PhysicalPosition<i32>, size: tauri::PhysicalSize<u32>| Rect {
+        x: origin.x as f64 / scale,
+        y: origin.y as f64 / scale,
+        width: size.width as f64 / scale,
+        height: size.height as f64 / scale,
+    };
+    Some((
+        rect(*monitor.position(), *monitor.size()),
+        rect(monitor.work_area().position, monitor.work_area().size),
+        scale,
+    ))
 }
 
 /// Fit the island at its chosen edge, falling back to the primary monitor.
@@ -589,38 +687,24 @@ fn place_island(app: &AppHandle) {
         return;
     };
     let state = app.state::<Mutex<IslandPlacement>>();
-    let (position, name, width, height) = {
+    let (position, name, width, height, offset) = {
         let placement = state.lock().expect("island placement lock");
         (
             placement.position.clone(),
             placement.screen.clone(),
             placement.width,
             placement.height,
+            placement.offset,
         )
     };
-    let monitor = name
-        .and_then(|name| {
-            app.available_monitors()
-                .ok()?
-                .into_iter()
-                .find(|m| m.name() == Some(&name))
-        })
-        .or_else(|| app.primary_monitor().ok().flatten());
-    let Some(monitor) = monitor else {
+    let Some((screen, work, scale)) = island_monitor(app, name) else {
         return;
     };
-
-    let scale = monitor.scale_factor();
-    let rect = |origin: tauri::PhysicalPosition<i32>, size: tauri::PhysicalSize<u32>| Rect {
-        x: origin.x as f64 / scale,
-        y: origin.y as f64 / scale,
-        width: size.width as f64 / scale,
-        height: size.height as f64 / scale,
-    };
-    let screen = rect(*monitor.position(), *monitor.size());
-    let work = rect(monitor.work_area().position, monitor.work_area().size);
+    #[cfg(not(target_os = "windows"))]
+    let _ = scale;
+    // Around the camera only in the middle (#184); elsewhere a plain pill.
     #[cfg(target_os = "macos")]
-    let cutout = if position == "top" {
+    let cutout = if position == "top" && offset == CENTER {
         macos::camera_cutout(screen.x, screen.y, screen.width, screen.height)
             .map(|(width, height)| IslandCutout { width, height })
     } else {
@@ -635,7 +719,7 @@ fn place_island(app: &AppHandle) {
     let width =
         island_width(width, cutout.map(|cutout| cutout.width), ISLAND_WIDTH).min(screen.width);
     let height = height.min(screen.height);
-    let (x, y) = island_origin(&position, screen, work, width, height);
+    let (x, y) = island_origin(&position, screen, work, width, height, offset);
     let size = tauri::LogicalSize::new(width, height);
     let origin = tauri::LogicalPosition::new(x, y);
     // Windows uses physical desktop coordinates and the old monitor's DPI
@@ -678,6 +762,8 @@ fn main() {
             width: ISLAND_WIDTH,
             height: ISLAND_START_HEIGHT,
             cutout: None,
+            offset: island.offset.unwrap_or(CENTER),
+            drag_from: None,
         }))
         .invoke_handler(tauri::generate_handler![
             updates::updates_status,
@@ -702,6 +788,8 @@ fn main() {
             prefs::island_set_mascot,
             island_screens,
             island_set_position,
+            island_center,
+            island_drag,
             island_set_screen,
             prefs::island_set_sound,
             prefs::island_set_lively,

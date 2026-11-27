@@ -145,6 +145,10 @@ export interface IslandScreen {
 export interface IslandPrefs {
   mascot: Mascot;
   position: IslandPosition;
+  /** Where it was dragged along its edge, 0 to 1 (#184); `null` is the middle. */
+  offset: number | null;
+  /** Whether it can be dragged there (#184). */
+  drags: boolean;
   screen: string | null;
   sound: boolean;
   /** The lively mascot (#145). */
@@ -215,6 +219,9 @@ export const api = {
   islandSetMascot: (mascot: Mascot) => invoke<void>("island_set_mascot", { mascot }),
   islandScreens: () => invoke<IslandScreen[]>("island_screens"),
   islandSetPosition: (position: IslandPosition) => invoke<void>("island_set_position", { position }),
+  islandCenter: () => invoke<void>("island_center"),
+  /** A drag along the edge (#184), in points from where it started; Rust moves the window. */
+  islandDrag: (phase: "start" | "move" | "end", dx: number, dy: number) => invoke<void>("island_drag", { phase, dx, dy }),
   islandSetScreen: (screen: string | null) => invoke<void>("island_set_screen", { screen }),
   islandSetSound: (enabled: boolean) => invoke<void>("island_set_sound", { enabled }),
   islandSetLively: (enabled: boolean) => invoke<void>("island_set_lively", { enabled }),

@@ -6,6 +6,45 @@ pub fn is_position(position: &str) -> bool {
     POSITIONS.contains(&position)
 }
 
+/// Where along its edge the island sits (#184), from 0 (the left, or the
+/// top) to 1; in the middle by default.
+pub const CENTER: f64 = 0.5;
+/// Within this many points of the middle, a dragged island snaps to it.
+pub const SNAP_POINTS: f64 = 24.0;
+
+pub fn is_offset(offset: f64) -> bool {
+    (0.0..=1.0).contains(&offset)
+}
+
+/// Off the middle on top, the island must clear the camera: it snaps back
+/// until its side passes the notch's (#184).
+pub fn top_snap(notch_width: Option<f64>, size: f64) -> f64 {
+    notch_width.map_or(SNAP_POINTS, |notch| SNAP_POINTS.max((notch + size) / 2.0))
+}
+
+/// The top slides sideways and the side edges up and down; the bottom
+/// corners stay where they are.
+pub fn drags(position: &str) -> bool {
+    matches!(position, "top" | "left" | "right")
+}
+
+/// Where a drag of `delta` points takes an island `size` points long from
+/// `from`, along an edge `length` points long: never past the edge, and
+/// snapped to the middle within `snap` points of it.
+pub fn dragged(from: f64, delta: f64, length: f64, size: f64, snap: f64) -> f64 {
+    if !(length > 0.0 && from.is_finite() && delta.is_finite() && size.is_finite()) {
+        return CENTER;
+    }
+    let half = (size.max(0.0) / 2.0 / length).min(CENTER);
+    let to = (from + delta / length).clamp(half, 1.0 - half);
+    // A hair over, for the rounding of `delta / length`.
+    if ((to - CENTER) * length).abs() <= snap.max(SNAP_POINTS) + 1e-6 {
+        CENTER
+    } else {
+        to
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
     pub x: f64,
@@ -21,22 +60,31 @@ pub fn island_width(width: f64, cutout_width: Option<f64>, max_width: f64) -> f6
     })
 }
 
+/// The island's top-left corner: at its edge, centered on `offset` along it
+/// (#184), inside the screen; at the sides, inside the work area too.
 pub fn island_origin(
     position: &str,
     screen: Rect,
     work: Rect,
     width: f64,
     height: f64,
+    offset: f64,
 ) -> (f64, f64) {
+    let offset = if is_offset(offset) { offset } else { CENTER };
     let right = work.x + work.width - width;
-    let middle = work.y + (work.height - height) / 2.0;
+    // Taller than the work area: centered on it, as before (#184).
+    let along = if height < work.height {
+        (work.y + offset * work.height - height / 2.0).clamp(work.y, work.y + work.height - height)
+    } else {
+        work.y + (work.height - height) / 2.0
+    };
     let bottom = work.y + work.height - height;
     let (x, y) = match position {
-        "left" => (work.x, middle),
-        "right" => (right, middle),
+        "left" => (work.x, along),
+        "right" => (right, along),
         "bottom-left" => (work.x, bottom),
         "bottom-right" => (right, bottom),
-        _ => (screen.x + (screen.width - width) / 2.0, screen.y),
+        _ => (screen.x + offset * screen.width - width / 2.0, screen.y),
     };
     (
         x.clamp(screen.x, screen.x + (screen.width - width).max(0.0)),
@@ -72,7 +120,7 @@ mod tests {
     #[test]
     fn top_centers_on_the_full_screen() {
         assert_eq!(
-            island_origin("top", SCREEN, WORK, 200.0, 100.0),
+            island_origin("top", SCREEN, WORK, 200.0, 100.0, CENTER),
             (-700.0, 50.0)
         );
     }
@@ -80,7 +128,7 @@ mod tests {
     #[test]
     fn left_centers_on_the_left_edge_of_the_work_area() {
         assert_eq!(
-            island_origin("left", SCREEN, WORK, 200.0, 100.0),
+            island_origin("left", SCREEN, WORK, 200.0, 100.0, CENTER),
             (-1180.0, 395.0)
         );
     }
@@ -88,7 +136,7 @@ mod tests {
     #[test]
     fn right_centers_on_the_right_edge_of_the_work_area() {
         assert_eq!(
-            island_origin("right", SCREEN, WORK, 200.0, 100.0),
+            island_origin("right", SCREEN, WORK, 200.0, 100.0, CENTER),
             (-230.0, 395.0)
         );
     }
@@ -96,7 +144,7 @@ mod tests {
     #[test]
     fn bottom_left_uses_the_lower_left_corner_of_the_work_area() {
         assert_eq!(
-            island_origin("bottom-left", SCREEN, WORK, 200.0, 100.0),
+            island_origin("bottom-left", SCREEN, WORK, 200.0, 100.0, CENTER),
             (-1180.0, 710.0)
         );
     }
@@ -104,7 +152,7 @@ mod tests {
     #[test]
     fn bottom_right_uses_the_lower_right_corner_of_the_work_area() {
         assert_eq!(
-            island_origin("bottom-right", SCREEN, WORK, 200.0, 100.0),
+            island_origin("bottom-right", SCREEN, WORK, 200.0, 100.0, CENTER),
             (-230.0, 710.0)
         );
     }
@@ -112,15 +160,84 @@ mod tests {
     #[test]
     fn an_unknown_position_uses_the_top() {
         assert_eq!(
-            island_origin("middle", SCREEN, WORK, 200.0, 100.0),
+            island_origin("middle", SCREEN, WORK, 200.0, 100.0, CENTER),
             (-700.0, 50.0)
+        );
+    }
+
+    #[test]
+    fn a_dragged_island_sits_along_its_edge_and_stays_inside() {
+        // Top: centered on the offset, along the whole screen.
+        assert_eq!(
+            island_origin("top", SCREEN, WORK, 200.0, 100.0, 0.25),
+            (-1000.0, 50.0)
+        );
+        assert_eq!(
+            island_origin("top", SCREEN, WORK, 200.0, 100.0, 0.0),
+            (-1200.0, 50.0)
+        );
+        // Sides: along the work area, never under the menu bar or the Dock.
+        assert_eq!(
+            island_origin("left", SCREEN, WORK, 200.0, 100.0, 0.25),
+            (-1180.0, 212.5)
+        );
+        assert_eq!(
+            island_origin("right", SCREEN, WORK, 200.0, 100.0, 1.0),
+            (-230.0, 710.0)
+        );
+        // The bottom corners ignore it; a broken one is the middle.
+        assert_eq!(
+            island_origin("bottom-left", SCREEN, WORK, 200.0, 100.0, 0.1),
+            (-1180.0, 710.0)
+        );
+        assert_eq!(
+            island_origin("top", SCREEN, WORK, 200.0, 100.0, f64::NAN),
+            (-700.0, 50.0)
+        );
+    }
+
+    #[test]
+    fn a_drag_follows_the_pointer_snaps_to_the_middle_and_keeps_the_island_in() {
+        // 1200 points of edge: 120 points is a tenth.
+        assert_eq!(dragged(CENTER, -360.0, 1200.0, 200.0, SNAP_POINTS), 0.2);
+        // Within 24 points of the middle, it snaps.
+        assert_eq!(dragged(0.2, 340.0, 1200.0, 200.0, SNAP_POINTS), CENTER);
+        assert_eq!(dragged(CENTER, 24.0, 1200.0, 200.0, SNAP_POINTS), CENTER);
+        assert!(dragged(CENTER, 30.0, 1200.0, 200.0, SNAP_POINTS) > CENTER);
+        // Never past the edge: half the island stays in.
+        assert_eq!(
+            dragged(CENTER, -5000.0, 1200.0, 200.0, SNAP_POINTS),
+            100.0 / 1200.0
+        );
+        assert_eq!(
+            dragged(CENTER, 5000.0, 1200.0, 200.0, SNAP_POINTS),
+            1.0 - 100.0 / 1200.0
+        );
+        // Nothing to measure: the middle.
+        assert_eq!(dragged(0.2, f64::NAN, 1200.0, 200.0, SNAP_POINTS), CENTER);
+        assert_eq!(dragged(0.2, 10.0, 0.0, 200.0, SNAP_POINTS), CENTER);
+        // Under a 200-point notch, a 120-point pill snaps back until it clears it.
+        let snap = top_snap(Some(200.0), 120.0);
+        assert_eq!(snap, 160.0);
+        assert_eq!(dragged(CENTER, 150.0, 1200.0, 120.0, snap), CENTER);
+        assert!(dragged(CENTER, 170.0, 1200.0, 120.0, snap) > CENTER);
+        assert_eq!(top_snap(None, 120.0), SNAP_POINTS);
+        assert!(drags("top") && drags("left") && drags("right"));
+        assert!(!drags("bottom-left") && !drags("bottom-right"));
+    }
+
+    #[test]
+    fn a_side_island_taller_than_the_work_area_is_centered_on_it() {
+        assert_eq!(
+            island_origin("left", SCREEN, WORK, 200.0, 780.0, 0.1),
+            (-1180.0, 55.0)
         );
     }
 
     #[test]
     fn a_window_taller_than_the_work_area_stays_inside_the_screen() {
         assert_eq!(
-            island_origin("bottom-right", SCREEN, WORK, 200.0, 780.0),
+            island_origin("bottom-right", SCREEN, WORK, 200.0, 780.0, CENTER),
             (-230.0, 50.0)
         );
     }
