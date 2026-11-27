@@ -23,8 +23,8 @@ Issues and PRs are welcome. The short version of how this codebase stays clean:
 - Big decisions get a one-page ADR in `docs/adr/`.
 - Every release updates `CHANGELOG.md`, and adds its entry on top of
   `src/splash/news.ts` (What's new, #180): one to four cards in English and
-  Portuguese, each with a release-note picture squeezed to about 50 KB, or
-  only `fixes` when there is nothing to see. The oldest entry beyond five goes,
+  Portuguese, each with its release-note picture squeezed to about 50 KB when
+  it has one, or only `fixes` when there is nothing to see. The oldest entry beyond five goes,
   with its pictures.
 
 ## Dev setup

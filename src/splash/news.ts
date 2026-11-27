@@ -15,6 +15,8 @@ import away from "./news/v0.7.0-away.jpg";
 import plans from "./news/v0.8.0-plans.jpg";
 import islandPt from "./news/v0.9.0-island-pt.jpg";
 import atlantisTab from "./news/v0.9.1-atlantis-tab.jpg";
+import reviewsTab from "./news/v0.9.2-reviews-tab.jpg";
+import standing from "./news/v0.9.2-standing.jpg";
 
 type Text = Record<Language, string>;
 
@@ -28,6 +30,43 @@ export interface Release {
 }
 
 export const RELEASES: Release[] = [
+  {
+    version: "0.9.2",
+    date: "2026-11-27",
+    items: [
+      {
+        image: reviewsTab,
+        title: { en: "A new review always speaks", pt: "Revisão nova sempre avisa" },
+        text: {
+          en: "A new review request rings once and says so, even on an amber or red island; the Reviews tab lists every pull request waiting for you, the new ones on top.",
+          pt: "Um pedido de revisão novo toca uma vez e avisa, mesmo com a ilha âmbar ou vermelha; a aba Revisões lista todos os PRs que esperam você, os novos no topo.",
+        },
+      },
+      {
+        image: standing,
+        title: { en: "Standing at the sides", pt: "De pé nas laterais" },
+        text: {
+          en: "At the left or right edge the island stands, and a notice's phrase comes in a balloon beside it.",
+          pt: "Na esquerda ou na direita a ilha fica de pé, e a frase de um aviso aparece num balão ao lado.",
+        },
+      },
+      {
+        title: { en: "Drag it along its edge", pt: "Arraste pela borda" },
+        text: {
+          en: "Press and drag the island sideways on top, or up and down at the sides; near the middle it snaps back. Settings → Island → Position has Center.",
+          pt: "Clique, segure e arraste a ilha para os lados no topo, ou para cima e para baixo nas laterais; perto do meio, ela volta ao centro. Em Ajustes → Ilha → Posição tem Centralizar.",
+        },
+      },
+      {
+        title: { en: "What's new", pt: "Novidades" },
+        text: {
+          en: "This screen: after each update, what the new version brings. To open it again, go to Settings → About → What's new.",
+          pt: "Esta tela: depois de cada atualização, o que a versão nova traz. Para reabrir esta tela, vá a Ajustes → Sobre → Novidades.",
+        },
+      },
+    ],
+    fixes: [{ en: "Three texts in Settings read more clearly.", pt: "Três textos dos Ajustes ficaram mais claros." }],
+  },
   {
     version: "0.9.1",
     date: "2026-11-26",

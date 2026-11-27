@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-27
+
 ### Added
 - **What's new.** After an update, "Update complete" grows into the
   version's news: a card with a picture and a sentence for each, the fixes
@@ -14,7 +16,7 @@ follows [Semantic Versioning](https://semver.org).
   offers them under a small **What changed**. Settings → About → **What's
   new** opens the same list, in the app's language. (#180)
 
-### Fixed
+### Changed
 - **A new review request always speaks** (#179). It rings blue once and says
   so, even when the island is amber or red; the color stays the most urgent
   one's. Requests that come together get one phrase and one sound ("3 new
@@ -36,6 +38,8 @@ follows [Semantic Versioning](https://semver.org).
   the middle it snaps back; only there it wraps the camera. Cortex remembers
   where it went; another position starts in the middle, and Settings →
   Island → Position has **Center**.
+
+### Fixed
 - Three texts in Settings read more clearly. In Portuguese, "Abrir ao ligar"
   becomes "Abrir ao iniciar a sessão" and the updates note says the option must
   be on; in both languages, the pink summary says that of what came while
