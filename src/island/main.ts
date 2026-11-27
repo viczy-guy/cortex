@@ -139,8 +139,8 @@ let atlantisRuns = 0;
 let clockTimer: number | undefined;
 /** Review requests that came as news: NEW in the Reviews tab until opened or seen there (#179). */
 const arrived = new Set<string>();
-/** The Reviews tab was in sight: once the island folds, its new ones are not new anymore. */
-let reviewsSeen = false;
+/** The new ones the Reviews tab showed: once the island folds, they are not new anymore. */
+const reviewsSeen = new Set<string>();
 /** New review requests whose phrase waits for another phrase or a card to go (#179). */
 let reviewsOwed: ViewNotice[] = [];
 /** New review requests came: the pull request count hops once, when next drawn. */
@@ -203,6 +203,8 @@ function stopSaying(): void {
  * again) is not news; a notice that went and comes back is.
  */
 function freshGithubNotices(): ViewNotice[] {
+  // Standing already, in another account shown: not news.
+  const before = new Set(githubNow.map((n) => n.key));
   githubNow = allGithubNotices();
   const standing = new Set(githubNow.map((n) => n.key));
   for (const key of seenNotices) if (!standing.has(key)) seenNotices.delete(key);
@@ -228,7 +230,7 @@ function freshGithubNotices(): ViewNotice[] {
     }
     for (const notice of summary.notices) {
       const view = githubNotice(notice);
-      if (!known.has(view.key) && !seenNotices.has(view.key) && !fresh.some((f) => f.key === view.key)) fresh.push(view);
+      if (!known.has(view.key) && !before.has(view.key) && !seenNotices.has(view.key) && !fresh.some((f) => f.key === view.key)) fresh.push(view);
     }
   }
   for (const view of fresh) if (isReview(view)) arrived.add(view.key);
@@ -309,9 +311,11 @@ function sayReviews(standing: Set<string>): void {
   const owed = reviewsOwed.filter((n, i) => standing.has(n.key) && reviewsOwed.findIndex((m) => m.key === n.key) === i);
   reviewsOwed = [];
   if (owed.length === 0) return;
-  saying = reviewBatch(owed, reviewPulls());
+  // Open, the list shows them already: the sound and the hop, no phrase.
+  if (isHidden()) saying = reviewBatch(owed, reviewPulls());
   hopReviews = true;
-  if (sound) playSound("blue");
+  // Under a louder sound, a moment later: a new review always rings.
+  if (sound && !playSound("blue")) window.setTimeout(() => sound && !away && playSound("blue"), 2500);
 }
 
 /** Every pull request waiting for the user's review, of every account shown, each once. */
@@ -329,9 +333,10 @@ function reviewsNow(): { rows: ReviewRow[]; more: number } {
     const key = `github:review:${pull.url}`;
     return { pull, key, fresh: arrived.has(key) };
   });
-  let total = 0;
-  for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) total += summary.review_requests_total;
-  return { rows: reviewOrder(rows), more: Math.max(0, total - rows.length) };
+  // GitHub listed up to 20 per account; the rest are only counted.
+  let more = 0;
+  for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) more += Math.max(0, summary.review_requests_total - summary.review_requests.length);
+  return { rows: reviewOrder(rows), more };
 }
 
 /** A click on a review row: it opens on GitHub, and its notice goes. */
@@ -509,6 +514,7 @@ function actOn(notice: ViewNotice): void {
   if (saying?.key === notice.key) stopSaying();
   if (notice.url) {
     seenNotices.add(notice.key);
+    arrived.delete(notice.key);
     void api.openUrl(notice.url).catch(() => { /* The notice is cleared either way. */ });
     render();
     return;
@@ -602,8 +608,8 @@ function render(): void {
     autoExpanded = false;
     // A list opened again starts on its notices and its first card (#173).
     tab = null;
-    if (reviewsSeen) arrived.clear();
-    reviewsSeen = false;
+    for (const key of reviewsSeen) arrived.delete(key);
+    reviewsSeen.clear();
     focus = null;
     setPinned(false);
     setClock(false);
@@ -639,9 +645,11 @@ function render(): void {
     const node = el("div", saying || pink ? "notch notch--say" : "notch");
     const left = mascotNode();
     const totals = prTotals();
-    const right = totals.reviews > 0 || totals.failing > 0 ? [prCount(totals)] : [];
+    // Without the camera, a phrase takes the counts' place: they are drawn (and hop, #179) once it goes.
+    const counts = cutout !== null || !(saying || pink);
+    const right = counts && (totals.reviews > 0 || totals.failing > 0) ? [prCount(totals)] : [];
     // Atlantis running (#173): its sign beside the pull requests, a click opens its tab.
-    if (atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
+    if (counts && atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
     // A new notice says what happened for a few seconds, and the pink summary
     // stays until a click (#157); beside the camera, on a row under it.
     const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNow, seeAll, dismissSummary) : [];
@@ -945,7 +953,7 @@ function panelContent(): HTMLElement[] {
     });
     if (shown === "notices") return [...question, tabs, notices.length > 0 ? rows : el("div", "atl-empty", t("atl.empty"))];
     if (shown === "reviews") {
-      reviewsSeen = true;
+      for (const row of reviews.rows) if (row.fresh) reviewsSeen.add(row.key);
       return [...question, tabs, reviewRows(reviews.rows, reviews.more, openReview)];
     }
     // A pick that left the list falls back to the first card; "" keeps them all closed.

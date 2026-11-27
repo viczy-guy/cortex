@@ -157,7 +157,7 @@ pub const QUERY: &str = r#"query {
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
-      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 5) { nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } } } }
+      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } } } } }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt targetUrl creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
   }
   merged: search(query: "is:pr is:merged author:@me archived:false sort:updated-desc", type: ISSUE, first: 5) {
@@ -202,9 +202,11 @@ pub struct PullRequest {
     #[serde(skip)]
     pub head: String,
     /// On a review request: when the user's review was asked for, as GitHub
-    /// writes it (ISO 8601), for how long it waits.
+    /// writes it (ISO 8601), for how long it waits; and who asked (#179).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GithubSummary {
@@ -259,22 +261,40 @@ pub(crate) fn is_github_url(url: &str) -> bool {
 fn count(v: &Value) -> u32 {
     v["issueCount"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32
 }
-/// When the viewer's review was last asked for: the latest request naming
-/// them, else the latest one (a team's).
-fn requested_at(n: &Value, viewer: &str) -> Option<String> {
+/// When the viewer's review was last asked for, and by whom: the latest
+/// request naming them, else the latest one naming no user (a team's); else
+/// unknown.
+fn requested(n: &Value, viewer: &str) -> (Option<String>, Option<String>) {
+    // "2026-11-26T10:00:00Z", or with a fraction or an offset.
     fn at(e: &Value) -> Option<&str> {
-        e["createdAt"]
-            .as_str()
-            .filter(|t| !t.is_empty() && t.len() <= 25)
+        e["createdAt"].as_str().filter(|t| {
+            let b = t.as_bytes();
+            (20..=25).contains(&b.len())
+                && b[..4].iter().all(u8::is_ascii_digit)
+                && b[4] == b'-'
+                && b[10] == b'T'
+        })
     }
-    let events = n.pointer("/timelineItems/nodes")?.as_array()?;
-    let mine = events
+    let Some(events) = n.pointer("/timelineItems/nodes").and_then(Value::as_array) else {
+        return (None, None);
+    };
+    let event = events
         .iter()
         .rev()
-        .find(|e| e["requestedReviewer"]["login"].as_str() == Some(viewer) && at(e).is_some());
-    mine.or_else(|| events.iter().rev().find(|e| at(e).is_some()))
-        .and_then(at)
-        .map(str::to_owned)
+        .find(|e| e["requestedReviewer"]["login"].as_str() == Some(viewer) && at(e).is_some())
+        .or_else(|| {
+            events
+                .iter()
+                .rev()
+                .find(|e| e["requestedReviewer"]["login"].is_null() && at(e).is_some())
+        });
+    let Some(event) = event else {
+        return (None, None);
+    };
+    let by = event["actor"]["login"]
+        .as_str()
+        .filter(|s| !s.is_empty() && s.chars().count() <= MAX_LOGIN_CHARS);
+    (at(event).map(str::to_owned), by.map(str::to_owned))
 }
 fn pulls(v: &Value, viewer: &str) -> Vec<PullRequest> {
     v["nodes"]
@@ -317,6 +337,7 @@ fn pulls(v: &Value, viewer: &str) -> Vec<PullRequest> {
                 .as_str()
                 .filter(|t| t.len() <= 25)
                 .unwrap_or_default();
+            let (requested_at, requested_by) = requested(n, viewer);
             Some(PullRequest {
                 repo: repo.into(),
                 number,
@@ -351,7 +372,8 @@ fn pulls(v: &Value, viewer: &str) -> Vec<PullRequest> {
                     .filter(|h| h.chars().count() <= 255)
                     .unwrap_or_default()
                     .into(),
-                requested_at: requested_at(n, viewer),
+                requested_at,
+                requested_by,
             })
         })
         .take(MAX_PULLS)
@@ -603,7 +625,7 @@ mod tests {
     }
     #[test]
     fn a_review_request_waits_since_the_viewer_was_last_asked() {
-        let event = |at: &str, who: Value| json!({"createdAt": at, "requestedReviewer": who});
+        let event = |at: &str, who: Value| json!({"createdAt": at, "requestedReviewer": who, "actor": {"login": "carol"}});
         let mut n = node();
         n["timelineItems"] = json!({"nodes": [
             event("2026-11-26T10:00:00Z", json!({"login": "alice"})),
@@ -617,18 +639,27 @@ mod tests {
             s.review_requests[0].requested_at.as_deref(),
             Some("2026-11-26T11:00:00Z")
         );
-        // Asked through a team: the latest request; none, or too long: unknown.
-        n["timelineItems"]["nodes"] = json!([event("2026-11-26T09:00:00Z", json!({}))]);
+        assert_eq!(s.review_requests[0].requested_by.as_deref(), Some("carol"));
+        // Asked through a team: its latest request, never another user's;
+        // none, or too long: unknown.
+        n["timelineItems"]["nodes"] = json!([
+            event("2026-11-26T09:00:00Z", json!({})),
+            event("2026-11-26T12:00:00Z", json!({"login": "bob"})),
+        ]);
         v["data"]["reviews"]["nodes"] = json!([n.clone()]);
         let s = parse_summary(&v.to_string(), 0).unwrap();
         assert_eq!(
             s.review_requests[0].requested_at.as_deref(),
             Some("2026-11-26T09:00:00Z")
         );
-        n["timelineItems"]["nodes"] = json!([event(&"9".repeat(26), json!({"login": "alice"}))]);
+        n["timelineItems"]["nodes"] = json!([
+            event(&"9".repeat(26), json!({"login": "alice"})),
+            event("abc", json!({"login": "alice"})),
+        ]);
         v["data"]["reviews"]["nodes"] = json!([n]);
         let s = parse_summary(&v.to_string(), 0).unwrap();
         assert_eq!(s.review_requests[0].requested_at, None);
+        assert_eq!(s.review_requests[0].requested_by, None);
         assert_eq!(s.mine.len(), 0);
         assert_eq!(
             parse_summary(&response(vec![node()]).to_string(), 0)

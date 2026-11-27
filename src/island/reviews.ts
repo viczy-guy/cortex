@@ -33,7 +33,7 @@ export function reviewBatch(notices: ViewNotice[], pulls: Map<string, PullReques
   const [first] = notices;
   if (first && notices.length === 1) return first;
   const known = notices.map((n) => pulls.get(n.url ?? "")).filter((p): p is PullRequest => p !== undefined).sort(newestFirst);
-  const authors = new Set(known.map((p) => p.author));
+  const authors = new Set(known.map((p) => p.requested_by ?? p.author));
   const [author] = authors;
   const one = authors.size === 1 && known.length === notices.length ? author : null;
   return {
@@ -46,7 +46,10 @@ export function reviewBatch(notices: ViewNotice[], pulls: Map<string, PullReques
   };
 }
 
-/** "now", "3 min ago", "4 h ago", "2 days ago": how long a review waits. */
+/**
+ * "now", "3 min ago", "4 h ago", "2 days ago": how long a review waits.
+ * shortcut: worked out when drawn, so it stands still while the list stays open without a redraw; tick it like Atlantis's clocks if that shows.
+ */
 export function waited(iso: string | undefined, now = Date.now()): string {
   const ms = iso ? now - Date.parse(iso) : NaN;
   if (!Number.isFinite(ms)) return "";
