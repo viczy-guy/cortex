@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Three texts in Settings read more clearly: "Open at login" in Portuguese now
+  says "when the session starts", the updates note says the option must be on,
+  and the pink summary says that only GitHub's notices come back from while
+  Cortex was closed.
+
 ## [0.9.1] - 2026-11-26
 
 ### Changed

@@ -140,7 +140,7 @@ const en = {
   "tone.red": "Failed",
   "tone.red.text": "Something failed (an agent, a pull request, an action, an Atlantis plan or apply), or a plan destroys or replaces something.",
   "tone.pink": "While you were away",
-  "tone.pink.text": "What came while the screen was locked, the computer slept, Cortex was closed or nobody touched it for ten minutes. It stays until See all or Dismiss.",
+  "tone.pink.text": "What came while the screen was locked, the computer slept or nobody touched it for ten minutes, and GitHub's notices from while Cortex was closed. It stays until See all or Dismiss.",
 
   "create.title": "Create an agent",
   "create.note": "Pick the model, the folder, the instructions, the tools and the knowledge sources. Coming in a new version.",
@@ -341,7 +341,7 @@ const pt: Messages = {
   "block.rules": "Regras Sempre",
   "block.colors": "Cores",
   "block.sounds": "Sons",
-  "block.startup": "Abrir ao ligar",
+  "block.startup": "Abrir ao iniciar a sessão",
   "block.updates": "Atualizações",
   "block.language": "Idioma",
 
@@ -422,7 +422,7 @@ const pt: Messages = {
   "updates.downloading": (version: string) => `Baixando o Cortex ${version}…`,
   "updates.ready": (version: string) => `O Cortex ${version} está pronto`,
   "updates.failed": "A verificação de atualização falhou",
-  "updates.note": "Ligado, o Cortex pergunta ao GitHub se há versão nova ao abrir e a cada minuto, e não envia mais nada. Uma atualização só é instalada se tiver a assinatura do Cortex, e só quando você clicar em Atualizar e reiniciar.",
+  "updates.note": "Com esta opção ligada, o Cortex pergunta ao GitHub se há versão nova ao abrir e a cada minuto, e não envia mais nada. Uma atualização só é instalada se tiver a assinatura do Cortex, e só quando você clicar em Atualizar e reiniciar.",
   "updates.restart": "Atualizar e reiniciar",
   "updates.question": "Procurar atualizações sozinho?",
   "updates.questionNote": "O Cortex perguntaria ao GitHub se há versão nova ao abrir e a cada minuto, e não enviaria mais nada. Uma atualização só é instalada se tiver a assinatura do Cortex, e só quando você clicar para reiniciar. Dá para mudar isso nos Ajustes.",
@@ -455,7 +455,7 @@ const pt: Messages = {
   "tone.red": "Falhou",
   "tone.red.text": "Algo falhou (um agente, um pull request, uma action, um plan ou apply do Atlantis), ou um plan destrói ou troca algo.",
   "tone.pink": "Enquanto você estava fora",
-  "tone.pink.text": "O que chegou com a tela bloqueada, o computador dormindo, o Cortex fechado ou ninguém mexendo por dez minutos. Fica até Ver tudo ou Dispensar.",
+  "tone.pink.text": "O que chegou com a tela bloqueada, o computador dormindo ou ninguém mexendo por dez minutos, e os avisos do GitHub de quando o Cortex estava fechado. Fica até Ver tudo ou Dispensar.",
 
   "create.title": "Criar um agente",
   "create.note": "Escolha o modelo, a pasta, as instruções, as ferramentas e as fontes de conhecimento. Chega numa nova versão.",
@@ -469,7 +469,7 @@ const pt: Messages = {
   "start.githubButton": "Configurar…",
 
   "startup.unavailable": "Não disponível nesta cópia: abra o Cortex de onde ele está instalado.",
-  "startup.on": "Ligado · abre ao ligar",
+  "startup.on": "Ligado · abre ao iniciar a sessão",
   "startup.note": "O Cortex abre quando você entra na sessão, direto na ilha, sem a tela de abertura.",
 
   "language.note": "Todo texto do Cortex, em todas as janelas. Sistema segue o idioma do computador.",
