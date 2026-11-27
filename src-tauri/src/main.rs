@@ -23,7 +23,7 @@ use std::sync::Mutex;
 
 use cortex_core::autostart::OpeningScreen;
 use cortex_core::placement::{
-    dragged, drags, is_position, island_origin, island_width, Rect, CENTER,
+    dragged, drags, is_position, island_origin, island_width, top_snap, Rect, CENTER,
 };
 use cortex_core::prefs::is_screen_name;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -496,10 +496,12 @@ fn island_set_position(app: AppHandle, position: String) -> Result<(), String> {
     if !is_position(&position) {
         return Err("Unknown island position.".into());
     }
-    // Another edge starts in its middle (#184).
+    // Another edge starts in its middle (#184); the same one stays where it was dragged.
     set_island_placement(&app, |p| {
+        if p.island_position.as_deref().unwrap_or("top") != position {
+            p.island_offset = None;
+        }
         p.island_position = Some(position);
-        p.island_offset = None;
     })
 }
 
@@ -538,13 +540,19 @@ fn island_drag(app: AppHandle, phase: String, dx: f64, dy: f64) -> Result<(), St
             placement.height,
         )
     };
-    let Some((screen, work, _)) = island_monitor(&app, name) else {
-        return Ok(());
-    };
-    let offset = if position == "top" {
-        dragged(from, dx, screen.width, width)
-    } else {
-        dragged(from, dy, work.height, height)
+    let offset = match island_monitor(&app, name) {
+        Some((screen, _, _)) if position == "top" => {
+            #[cfg(target_os = "macos")]
+            let notch = macos::camera_cutout(screen.x, screen.y, screen.width, screen.height)
+                .map(|(width, _)| width);
+            #[cfg(not(target_os = "macos"))]
+            let notch = None;
+            dragged(from, dx, screen.width, width, top_snap(notch, width))
+        }
+        Some((_, work, _)) => dragged(from, dy, work.height, height, 0.0),
+        // Its screen went: it ends, and stays, where the last move took it.
+        None if phase == "end" => state.lock().expect("island placement lock").offset,
+        None => return Ok(()),
     };
     if phase == "end" {
         return set_island_placement(&app, |p| {
@@ -591,7 +599,6 @@ fn set_island_placement(
     Ok(())
 }
 
-/// Fit the island at its chosen edge, falling back to the primary monitor.
 /// The island's screen, its work area (in points) and its scale: the one
 /// picked, else the primary monitor.
 fn island_monitor(app: &AppHandle, name: Option<String>) -> Option<(Rect, Rect, f64)> {
@@ -617,6 +624,7 @@ fn island_monitor(app: &AppHandle, name: Option<String>) -> Option<(Rect, Rect, 
     ))
 }
 
+/// Fit the island at its chosen edge, falling back to the primary monitor.
 fn place_island(app: &AppHandle) {
     let Some(window) = app.get_webview_window("island") else {
         return;

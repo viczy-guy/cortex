@@ -489,9 +489,8 @@ function renderIsland(): void {
     liveToggle.disabled = toggleBusy;
     liveRow.append(el("span", lively ? "status-dot connected" : "status-dot"), el("span", undefined, lively ? t("island.livelyOn") : t("island.livelyOff")), liveToggle);
     const liveNote = el("div", "note", t("island.livelyNote"));
-    // The bottom corners stay put; the other edges slide (#184).
     const along: HTMLElement[] = [];
-    if (prefs.position === "top" || prefs.position === "left" || prefs.position === "right") {
+    if (prefs.drags) {
       const center = el("div", "status-row");
       center.append(el("span", "note", t("island.dragNote")), islandChoice(t("island.center"), false, prefs.offset === null ? undefined : () => api.islandCenter()));
       along.push(center);

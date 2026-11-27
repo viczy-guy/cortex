@@ -66,6 +66,8 @@ let updates: UpdateStatus | null = null;
 let updatesError: string | null = null;
 let mascot: Mascot = "eyes";
 let position: IslandPosition = "top";
+/** It can be dragged along its edge (#184); Rust says where. */
+let draggable = true;
 let cutout: IslandCutout | null = null;
 let sound = true;
 let soundReady = false;
@@ -607,10 +609,11 @@ function listenForDrags(): void {
   };
   root.addEventListener("pointerdown", (event) => {
     swallowClick = false;
+    press = null;
     // Anywhere but a card and the list's scroll bar: hovered, the island is open by the time it is pressed.
     const grip = event.target instanceof Element && !event.target.matches(".panel") && !event.target.closest(".card");
     const busy = cardInView() || onboarding.phase !== "closed" || askingUpdates(updates);
-    if (event.button !== 0 || !grip || busy || !(position === "top" || standing())) return;
+    if (event.button !== 0 || !grip || busy || !draggable) return;
     press = { x: event.screenX, y: event.screenY, id: event.pointerId, dragging: false };
     dragTo = { dx: 0, dy: 0 };
   });
@@ -884,7 +887,6 @@ function foldAway(): void {
 function setHovered(inside: boolean): void {
   // Moved by hand, it opens once the pointer comes back to it (#184).
   if (inside && (press?.dragging || Date.now() < droppedUntil)) return;
-  if (!inside) droppedUntil = 0;
   window.clearTimeout(hideTimer);
   hideTimer = undefined;
   if (inside) {
@@ -1317,6 +1319,7 @@ async function start(): Promise<void> {
       if (saying) saying = saying.again();
     }
     if (!relabel && mascot === payload.mascot && position === payload.position) return;
+    draggable = payload.drags;
     mascot = payload.mascot;
     // The camera is only on top; Rust's word on it comes apart from this one.
     if (payload.position !== "top" && cutout) setCutout(null);
@@ -1342,7 +1345,7 @@ async function start(): Promise<void> {
     snapshot = event.payload;
     render();
   });
-  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position } = value); setLively(value.lively); setLanguage(value.language); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
+  const [initialSnapshot] = await Promise.all([api.snapshot(), refreshHooksStatus(), api.githubStatus().then((value) => { if (!githubChanged) github = value; }).catch(() => { /* GitHub is optional. */ }), api.updatesStatus().then((value) => { if (!updatesChanged) updates = value; }).catch(() => { /* Without a status the question waits for the next event. */ }), api.islandPrefs().then((value) => { if (!islandChanged) { ({ mascot, sound, position, drags: draggable } = value); setLively(value.lively); setLanguage(value.language); } }).catch(() => { /* Keep the island defaults. */ }), api.islandCutout().then((value) => { if (!cutoutChanged) setCutout(value); }).catch(() => { /* Keep the regular layout. */ })]);
   if (!snapshotChanged) snapshot = initialSnapshot;
   render();
   soundReady = true;
