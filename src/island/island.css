@@ -78,6 +78,8 @@ body {
 .island--morphing {
   overflow: hidden;
   align-items: center;
+  /* It eases from the size it had, a standing pill narrower than this included. */
+  min-width: 0;
 }
 .island--morphing > * {
   flex: none;
@@ -124,8 +126,16 @@ body {
   min-width: 0;
   padding: 0;
   background: none;
-  border-color: transparent;
+  border-width: 0;
   box-shadow: none;
+}
+/* Folding into the pill, the panel still shrinks in sight. */
+.island.island--standing.island--morphing { background: var(--notch); }
+/* Hovered at a side, the bar is as tall as the pill it came from. */
+.island[data-position="left"]:not(.island--standing),
+.island[data-position="right"]:not(.island--standing) {
+  min-height: var(--stand-height, 0px);
+  justify-content: center;
 }
 .side-row {
   display: flex;
@@ -166,7 +176,7 @@ body {
   padding: 7px 11px;
   background: var(--notch);
   border: 1.5px solid var(--tone);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   font-size: 12px;
   white-space: nowrap;
 }

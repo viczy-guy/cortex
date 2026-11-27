@@ -576,9 +576,9 @@ function shownTone(open: boolean): Tone | "pink" {
 const standing = (): boolean => position === "left" || position === "right";
 
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
-function setClass(open: boolean): void {
+function setClass(open: boolean, folded = false): void {
   // Away, nothing turns (#51, #173): a turning ring repaints on every frame.
-  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${!open && standing() ? " island--standing" : ""}${cutout ? " island--cutout" : ""}${away ? " island--away" : ""}`;
+  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${folded && standing() ? " island--standing" : ""}${cutout ? " island--cutout" : ""}${away ? " island--away" : ""}`;
   if (root.className !== name) root.className = name;
   if (root.dataset.position !== position) root.dataset.position = position;
 }
@@ -644,7 +644,7 @@ function render(): void {
     awayDrawn = away;
     const before = sizeBefore();
     const fade = folded === null;
-    setClass(false);
+    setClass(false, true);
     const side = standing();
     const node = el("div", side ? "side-pill" : saying || pink ? "notch notch--say" : "notch");
     const left = mascotNode();
@@ -697,6 +697,8 @@ function render(): void {
     });
     folded = foldedKey();
     root.replaceChildren(top);
+    // Hovered, the bar is at least as tall as the pill: the pointer that came in stays in (#183).
+    if (side) root.style.setProperty("--stand-height", `${node.offsetHeight}px`);
     void fitWindowToContent(before, fade);
     return;
   }
@@ -1229,6 +1231,8 @@ async function start(): Promise<void> {
     }
     if (!relabel && mascot === payload.mascot && position === payload.position) return;
     mascot = payload.mascot;
+    // The camera is only on top; Rust's word on it comes apart from this one.
+    if (payload.position !== "top" && cutout) setCutout(null);
     position = payload.position;
     render();
   });
