@@ -732,6 +732,8 @@ mod tests {
             updated_at: String::new(),
             plan: None,
             head: format!("feat/{number}"),
+            requested_at: None,
+            requested_by: None,
         }
     }
 

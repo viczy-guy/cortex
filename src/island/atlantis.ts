@@ -14,8 +14,8 @@ import { planChips, planSummary } from "./plans";
 /** A plan or an apply going now. */
 export const running = (plan: Plan | null): boolean => plan?.stage === "planning" || plan?.stage === "applying";
 
-/** The list's two tabs, once Atlantis has something to show. */
-export type Tab = "notices" | "atlantis";
+/** The list's tabs, once there are reviews (#179) or Atlantis runs to show. */
+export type Tab = "notices" | "reviews" | "atlantis";
 
 /** A small ring turning, for a run going. */
 const mini = (): HTMLElement => el("span", "atl-mini");
@@ -41,8 +41,16 @@ export function atlantisSign(count: number, open: () => void): HTMLButtonElement
   return sign;
 }
 
-/** "Notices" and "Atlantis", each with its count. */
-export function atlantisTabs(shown: Tab, notices: number, runs: number, pick: (tab: Tab) => void): HTMLElement {
+/** What each tab counts; `null`: the tab is not there. */
+export interface TabCounts {
+  notices: number;
+  reviews: number | null;
+  /** Runs going, with the Atlantis tab there. */
+  runs: number | null;
+}
+
+/** "Notices", "Reviews" and "Atlantis", each with its count. */
+export function atlantisTabs(shown: Tab, counts: TabCounts, pick: (tab: Tab) => void): HTMLElement {
   const tabs = el("div", "atl-tabs");
   tabs.setAttribute("role", "tablist");
   const tab = (id: Tab, label: string, extra: HTMLElement[]): HTMLButtonElement => {
@@ -52,10 +60,10 @@ export function atlantisTabs(shown: Tab, notices: number, runs: number, pick: (t
     node.append(el("span", undefined, label), ...extra);
     return node;
   };
-  tabs.append(
-    tab("notices", t("atl.tab.notices"), notices > 0 ? [el("span", "atl-n", String(notices))] : []),
-    tab("atlantis", t("atl.tab.atlantis"), runs > 0 ? [mini(), el("span", "atl-n", String(runs))] : []),
-  );
+  const n = (count: number): HTMLElement[] => (count > 0 ? [el("span", "atl-n", String(count))] : []);
+  tabs.append(tab("notices", t("atl.tab.notices"), n(counts.notices)));
+  if (counts.reviews !== null) tabs.append(tab("reviews", t("atl.tab.reviews"), n(counts.reviews)));
+  if (counts.runs !== null) tabs.append(tab("atlantis", t("atl.tab.atlantis"), counts.runs > 0 ? [mini(), ...n(counts.runs)] : []));
   return tabs;
 }
 
