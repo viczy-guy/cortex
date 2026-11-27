@@ -146,6 +146,26 @@ body {
   align-items: stretch;
 }
 .island[data-position="right"] .side-open { flex-direction: row-reverse; }
+.spine .tag { flex-direction: column; gap: 3px; padding: 4px 5px; }
+.spine .btn-icon { margin: auto 0 0; }
+.side-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.side-body .panel { padding: 10px 10px 10px 0; }
+.side-body .chip-row { padding: 10px 10px 0 0; }
+.island[data-position="right"] .side-body .panel { padding: 10px 0 10px 10px; }
+.island[data-position="right"] .side-body .chip-row { padding: 10px 0 0 10px; }
+.side-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.island[data-position="right"] .side-row { flex-direction: row-reverse; }
+/* The spine is the standing pill grown: one shape, so the pointer that came in stays in. */
+.side-pill,
 .spine {
   display: flex;
   flex-direction: column;
@@ -155,28 +175,7 @@ body {
   width: 40px;
   padding: 12px 0;
 }
-.spine .tag { flex-direction: column; gap: 3px; padding: 4px 5px; }
-.spine .btn-icon { margin: auto 0 0; }
-.side-open .panel {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 10px 10px 0;
-}
-.island[data-position="right"] .side-open .panel { padding: 10px 0 10px 10px; }
-.side-open .chip-row { padding-bottom: 0; }
-.side-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.island[data-position="right"] .side-row { flex-direction: row-reverse; }
 .side-pill {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  width: 40px;
-  padding: 12px 0;
   background: var(--notch);
   border: 1.5px solid transparent;
 }

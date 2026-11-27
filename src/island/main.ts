@@ -812,28 +812,33 @@ function render(): void {
 
   const panel = panelContent();
   const before = sizeBefore();
-  // At a side the panel comes out of the spine, and the wide chips ride on top of it (#189).
-  const side = standing();
-  // The full width is for a list or a card: chips alone keep the island narrow, as on top.
   setClass(panel.length > 0);
-  const chips = side ? barChips(snapshot.sessions.length) : [];
-  if (chips.length > 0) {
-    const row = el("div", "chip-row");
-    row.append(...chips);
-    panel.unshift(row);
+  let list: HTMLElement | null = null;
+  if (panel.length > 0) {
+    list = el("div", "panel");
+    list.dataset.scroll = "panel";
+    list.append(...panel);
   }
-  const holder = side ? el("div", "side-open") : root;
-  if (side) {
-    holder.append(spine());
-    root.replaceChildren(holder);
+  if (standing()) {
+    // At a side the panel comes out of the spine (#189), the wide chips over
+    // it and out of its scroll; chips alone keep the island narrow, as on top.
+    const row = el("div", "side-open");
+    row.append(spine());
+    const chips = barChips(snapshot.sessions.length);
+    if (chips.length > 0 || list) {
+      const body = el("div", "side-body");
+      if (chips.length > 0) {
+        const top = el("div", "chip-row");
+        top.append(...chips);
+        body.append(onClick(top, false));
+      }
+      if (list) body.append(list);
+      row.append(body);
+    }
+    root.replaceChildren(row);
   } else {
     root.replaceChildren(bar());
-  }
-  if (panel.length > 0) {
-    const node = el("div", "panel");
-    node.dataset.scroll = "panel";
-    node.append(...panel);
-    holder.append(node);
+    if (list) root.append(list);
   }
   root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => {
     const top = scrolled.get(n.dataset.scroll ?? "");
