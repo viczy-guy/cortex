@@ -567,35 +567,24 @@ fn island_center(app: AppHandle) -> Result<(), String> {
 }
 
 /// A drag of the island along its edge (#184), in points from where it
-/// started: "start", then "move"s, then "end", which saves where it went.
+/// started: "start", "move"s, then "end", which moves it there and saves it.
 /// Rust moves the window, inside the screen; the bottom corners stay.
 #[tauri::command]
 fn island_drag(app: AppHandle, phase: String, dx: f64, dy: f64) -> Result<(), String> {
     let state = app.state::<Mutex<IslandPlacement>>();
     let (position, name, from, width, height) = {
         let mut placement = state.lock().expect("island placement lock");
-        if !drags(&placement.position) {
-            return Ok(());
-        }
-        match phase.as_str() {
+        let from = match phase.as_str() {
             "start" => {
-                placement.drag_from = Some(placement.offset);
+                placement.drag_from = drags(&placement.position).then_some(placement.offset);
                 return Ok(());
             }
-            "move" => {}
-            "end" => {
-                let Some(_) = placement.drag_from.take() else {
-                    return Ok(());
-                };
-                let offset = placement.offset;
-                drop(placement);
-                return set_island_placement(&app, |p| {
-                    p.island_offset = (offset != CENTER).then_some(offset);
-                });
-            }
+            "move" => placement.drag_from,
+            "end" => placement.drag_from.take(),
             _ => return Err("Unknown drag phase.".into()),
-        }
-        let Some(from) = placement.drag_from else {
+        };
+        // No drag going: none started, or the edge or the screen changed (`set_island_placement`).
+        let Some(from) = from else {
             return Ok(());
         };
         (
@@ -614,6 +603,11 @@ fn island_drag(app: AppHandle, phase: String, dx: f64, dy: f64) -> Result<(), St
     } else {
         dragged(from, dy, work.height, height)
     };
+    if phase == "end" {
+        return set_island_placement(&app, |p| {
+            p.island_offset = (offset != CENTER).then_some(offset);
+        });
+    }
     state.lock().expect("island placement lock").offset = offset;
     place_island(&app);
     Ok(())
@@ -646,6 +640,7 @@ fn set_island_placement(
         placement.position.clone_from(&island.position);
         placement.screen.clone_from(&island.screen);
         placement.offset = island.offset.unwrap_or(CENTER);
+        placement.drag_from = None;
         island
     };
     prefs::emit(app, island);

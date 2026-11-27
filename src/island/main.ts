@@ -149,8 +149,8 @@ let hopReviews = false;
 let press: { x: number; y: number; id: number; dragging: boolean } | null = null;
 /** Just dropped: the pointer passing over it as it lands does not open it. */
 let droppedUntil = 0;
-/** The click that ends a drag is not a click on the island. */
-let swallowClickUntil = 0;
+/** The click that ends a drag is not a click on the island; the next press is. */
+let swallowClick = false;
 /** The latest move of a drag, sent once a frame. */
 let dragTo = { dx: 0, dy: 0 };
 let dragFrame: number | undefined;
@@ -592,18 +592,39 @@ const standing = (): boolean => position === "left" || position === "right";
  * short press stays a click.
  */
 function listenForDrags(): void {
+  const cardInView = (): boolean => snapshot.approvals.some((a) => !dismissed.has(a.request_id));
+  /** The drag ends where the pointer is: Rust moves the window there and saves it. */
+  const finish = (): void => {
+    const moved = press?.dragging === true;
+    press = null;
+    if (dragFrame !== undefined) cancelAnimationFrame(dragFrame);
+    dragFrame = undefined;
+    if (!moved) return;
+    void api.islandDrag("end", dragTo.dx, dragTo.dy).catch(() => { /* Unsaved: back where it was next launch. */ });
+    swallowClick = true;
+    droppedUntil = Date.now() + 1000;
+    render();
+  };
   root.addEventListener("pointerdown", (event) => {
+    swallowClick = false;
     // Anywhere but a card and the list's scroll bar: hovered, the island is open by the time it is pressed.
     const grip = event.target instanceof Element && !event.target.matches(".panel") && !event.target.closest(".card");
-    const card = snapshot.approvals.some((a) => !dismissed.has(a.request_id));
-    if (event.button !== 0 || !grip || card || !(position === "top" || standing())) return;
+    const busy = cardInView() || onboarding.phase !== "closed" || askingUpdates(updates);
+    if (event.button !== 0 || !grip || busy || !(position === "top" || standing())) return;
     press = { x: event.screenX, y: event.screenY, id: event.pointerId, dragging: false };
+    dragTo = { dx: 0, dy: 0 };
   });
   root.addEventListener("pointermove", (event) => {
     if (!press || event.pointerId !== press.id) return;
+    // Released where the island did not hear it, or a card came to answer.
+    if ((event.buttons & 1) === 0 || cardInView()) {
+      finish();
+      return;
+    }
     dragTo = { dx: event.screenX - press.x, dy: event.screenY - press.y };
     if (!press.dragging) {
-      if (Math.hypot(dragTo.dx, dragTo.dy) < DRAG_POINTS) return;
+      // Only along the edge: across it, the press stays a click.
+      if (Math.abs(position === "top" ? dragTo.dx : dragTo.dy) < DRAG_POINTS) return;
       press.dragging = true;
       root.setPointerCapture(event.pointerId);
       void api.islandDrag("start", 0, 0).catch(() => { /* It stays where it was. */ });
@@ -622,21 +643,16 @@ function listenForDrags(): void {
   });
   const release = (event: PointerEvent): void => {
     if (!press || event.pointerId !== press.id) return;
-    const moved = press.dragging;
-    press = null;
-    if (!moved) return;
-    if (dragFrame !== undefined) cancelAnimationFrame(dragFrame);
-    dragFrame = undefined;
-    const { dx, dy } = dragTo;
-    void api.islandDrag("move", dx, dy).finally(() => api.islandDrag("end", 0, 0)).catch(() => { /* Unsaved: back where it was next launch. */ });
-    swallowClickUntil = Date.now() + 400;
-    droppedUntil = Date.now() + 1000;
-    render();
+    if (event.type === "pointerup") dragTo = { dx: event.screenX - press.x, dy: event.screenY - press.y };
+    finish();
   };
   root.addEventListener("pointerup", release);
   root.addEventListener("pointercancel", release);
+  root.addEventListener("lostpointercapture", release);
+  window.addEventListener("blur", () => finish());
   root.addEventListener("click", (event) => {
-    if (Date.now() >= swallowClickUntil) return;
+    if (!swallowClick) return;
+    swallowClick = false;
     event.stopImmediatePropagation();
     event.preventDefault();
   }, { capture: true });
@@ -868,6 +884,7 @@ function foldAway(): void {
 function setHovered(inside: boolean): void {
   // Moved by hand, it opens once the pointer comes back to it (#184).
   if (inside && (press?.dragging || Date.now() < droppedUntil)) return;
+  if (!inside) droppedUntil = 0;
   window.clearTimeout(hideTimer);
   hideTimer = undefined;
   if (inside) {

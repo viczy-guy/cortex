@@ -31,7 +31,8 @@ pub fn dragged(from: f64, delta: f64, length: f64, size: f64) -> f64 {
     }
     let half = (size.max(0.0) / 2.0 / length).min(CENTER);
     let to = (from + delta / length).clamp(half, 1.0 - half);
-    if ((to - CENTER) * length).abs() <= SNAP_POINTS {
+    // A hair over, for the rounding of `delta / length`.
+    if ((to - CENTER) * length).abs() <= SNAP_POINTS + 1e-6 {
         CENTER
     } else {
         to
@@ -192,7 +193,7 @@ mod tests {
         assert_eq!(dragged(CENTER, -360.0, 1200.0, 200.0), 0.2);
         // Within 24 points of the middle, it snaps.
         assert_eq!(dragged(0.2, 340.0, 1200.0, 200.0), CENTER);
-        assert_eq!(dragged(CENTER, 23.0, 1200.0, 200.0), CENTER);
+        assert_eq!(dragged(CENTER, 24.0, 1200.0, 200.0), CENTER);
         assert!(dragged(CENTER, 30.0, 1200.0, 200.0) > CENTER);
         // Never past the edge: half the island stays in.
         assert_eq!(dragged(CENTER, -5000.0, 1200.0, 200.0), 100.0 / 1200.0);
