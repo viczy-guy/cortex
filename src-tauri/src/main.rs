@@ -288,21 +288,26 @@ fn splash_done(app: AppHandle) {
 }
 
 /// What's new (#180): the update screen, or the one Settings opens, grows
-/// and stays until its own buttons, and the island stops waiting for it.
+/// to the `height` its page needs and stays until its own buttons, and the
+/// island stops waiting for it.
 #[tauri::command]
-fn splash_news(app: AppHandle) -> Result<(), String> {
+fn splash_news(app: AppHandle, height: f64) -> Result<(), String> {
     keep_splash();
     let window = app
         .get_webview_window("splash")
         .ok_or("opening screen not found")?;
-    let mut height = NEWS_HEIGHT;
+    let mut height = if height.is_finite() {
+        height.clamp(NEWS_MIN_HEIGHT, NEWS_HEIGHT)
+    } else {
+        NEWS_HEIGHT
+    };
     if let Ok(Some(monitor)) = window.current_monitor() {
         let room = monitor
             .work_area()
             .size
             .to_logical::<f64>(monitor.scale_factor())
             .height;
-        height = height.min((room - 80.0).max(280.0));
+        height = height.min((room - 80.0).max(NEWS_MIN_HEIGHT));
     }
     window
         .set_size(tauri::LogicalSize::new(NEWS_WIDTH, height))
@@ -312,8 +317,10 @@ fn splash_news(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// What's new in logical points, the height at most.
+/// What's new in logical points: the width as `.news--measuring` in
+/// src/splash/splash.css, the height at least and at most.
 const NEWS_WIDTH: f64 = 560.0;
+const NEWS_MIN_HEIGHT: f64 = 160.0;
 const NEWS_HEIGHT: f64 = 560.0;
 
 /// Settings → About → What's new (#180). A screen already up (an update

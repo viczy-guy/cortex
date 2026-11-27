@@ -220,7 +220,7 @@ The same window shows the updates (#127):
   saved "open at login" answer then tells an update from a new install.
 - **What's new in vX** (#180): when the versions since the one used last
   have something to see, "Update complete" shows for 2 seconds and the same
-  window grows (560×560 points at most, centered): one card per novelty
+  window grows (560 points wide, as tall as its content up to 560, centered): one card per novelty
   (picture, title, one sentence), the fixes folded, and each version skipped
   before it in a folded section of its own, the last 5 at most. It stays
   until **Let's get to work** or the X: no timer, no click elsewhere, and it

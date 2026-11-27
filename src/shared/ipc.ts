@@ -223,7 +223,7 @@ export const api = {
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),
   /** What's new (#180): the screen grows and stays until its buttons; the island appears. */
-  splashNews: () => invoke<void>("splash_news"),
+  splashNews: (height: number) => invoke<void>("splash_news", { height }),
   /** Settings → About → What's new (#180). */
   newsOpen: () => invoke<void>("news_open"),
   /** The launch's opening screen is still up: the island waits (#152). */

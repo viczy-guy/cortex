@@ -38,7 +38,9 @@ function mascotBox(): HTMLElement {
 }
 
 /** The app's version, blank if unavailable. */
-const versionLine = (): HTMLElement => el("p", "version", current ? `v${current}` : "");
+function versionLine(): HTMLElement {
+  return el("p", "version", current ? `v${current}` : "");
+}
 
 /**
  * "Welcome", or after an update (#127) straight to "Update complete". A
@@ -100,8 +102,6 @@ function opening(root: HTMLElement, updated: boolean, from: string | null): void
  * keyboard; the island appears meanwhile.
  */
 async function news(root: HTMLElement, releases: Release[]): Promise<void> {
-  // Rust makes the window bigger and keeps it; failing that, its 10 s fallback closes it.
-  await api.splashNews().catch(() => { /* Drawn anyway. */ });
   const done = (): void => {
     api.splashDone().catch(() => { /* Rust closes the splash if IPC fails. */ });
   };
@@ -137,8 +137,15 @@ async function news(root: HTMLElement, releases: Release[]): Promise<void> {
     }));
   }
   foot.append(button("btn-allow", t("news.go"), done));
-  root.className = "news";
+  // Laid out hidden at the final width, so the window grows to what it holds.
+  root.className = "news news--measuring";
   root.replaceChildren(head, body, foot);
+  // The pictures' heights count: measured once they are in.
+  await Promise.all([...root.querySelectorAll("img")].map((image) => image.decode().catch(() => { /* Measured without it. */ })));
+  const height = Math.ceil(root.getBoundingClientRect().height);
+  // Rust grows the window and keeps it; failing that, its 10 s fallback closes it.
+  await api.splashNews(height).catch(() => { /* Shown anyway. */ });
+  root.classList.remove("news--measuring");
 }
 
 /** A version's cards, then its fixes, folded unless `fixesOpen`. */
@@ -171,8 +178,9 @@ function release(r: Release, fixesOpen: boolean): HTMLElement[] {
 }
 
 /** "26 de novembro de 2026", "November 26, 2026". */
-const day = (date: string): string =>
-  new Intl.DateTimeFormat(language() === "pt" ? "pt-BR" : "en-US", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+function day(date: string): string {
+  return new Intl.DateTimeFormat(language() === "pt" ? "pt-BR" : "en-US", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+}
 
 /**
  * "Updating…" while Rust installs; on success the app restarts and this page

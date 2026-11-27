@@ -164,6 +164,9 @@ body {
   font-weight: 400;
 }
 
+/* Width as in `splash_news` (src-tauri/src/main.rs). */
+#splash.news--measuring { width: 560px; height: auto; visibility: hidden; }
+
 .news-head {
   display: flex;
   align-items: center;
