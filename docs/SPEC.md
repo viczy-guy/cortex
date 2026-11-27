@@ -16,6 +16,11 @@ are doing.
   edge. Settings remembers the selected screen and one of five positions: top
   center, left side, right side, bottom-left corner or bottom-right corner.
   Away from the top it is a tab on the edge of the work area and grows inward.
+  At the left and right sides the tab stands: folded, the mascot on top and
+  the counts under it, a phrase in a balloon beside it (#183); open, it grows
+  along the edge into a column with the bar's mascot, counts, agent tags and
+  gear, and the panel comes out of it beside, in one piece, with the update
+  and "Connect" chips on top of the panel (#189).
   If the chosen screen disconnects, the island moves to the main screen and
   returns when the chosen screen reconnects.
 - At top center on a MacBook display with a camera cutout, the top row matches

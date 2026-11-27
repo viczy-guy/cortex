@@ -585,7 +585,7 @@ function shownTone(open: boolean): Tone | "pink" {
   return !open && !saying && showsSummary() ? "pink" : tone;
 }
 
-/** At the left or right edge the folded island stands (#183); the bottom corners lie as on top. */
+/** At the left or right edge the island stands (#183) and opens along it (#189); the bottom corners lie as on top. */
 const standing = (): boolean => position === "left" || position === "right";
 
 /**
@@ -813,12 +813,32 @@ function render(): void {
   const panel = panelContent();
   const before = sizeBefore();
   setClass(panel.length > 0);
-  root.replaceChildren(bar());
+  let list: HTMLElement | null = null;
   if (panel.length > 0) {
-    const node = el("div", "panel");
-    node.dataset.scroll = "panel";
-    node.append(...panel);
-    root.append(node);
+    list = el("div", "panel");
+    list.dataset.scroll = "panel";
+    list.append(...panel);
+  }
+  if (standing()) {
+    // At a side the panel comes out of the spine (#189), the wide chips over
+    // it and out of its scroll; chips alone keep the island narrow, as on top.
+    const row = el("div", "side-open");
+    row.append(spine());
+    const chips = barChips(snapshot.sessions.length);
+    if (chips.length > 0 || list) {
+      const body = el("div", "side-body");
+      if (chips.length > 0) {
+        const top = el("div", "chip-row");
+        top.append(...chips);
+        body.append(onClick(top, false));
+      }
+      if (list) body.append(list);
+      row.append(body);
+    }
+    root.replaceChildren(row);
+  } else {
+    root.replaceChildren(bar());
+    if (list) root.append(list);
   }
   root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((n) => {
     const top = scrolled.get(n.dataset.scroll ?? "");
@@ -933,7 +953,7 @@ function splitAtCamera(node: HTMLElement, left: Element[], right: Element[]): vo
 function bar(): HTMLElement {
   const node = el("div", "bar");
   const sessions = byUrgency(snapshot.sessions, toneOf);
-  const chips = updateChips();
+  const chips = barChips(sessions.length);
   // An update chip takes the room of two tags: the bar never outgrows the window.
   // Beside the camera the right side only has room for the counter, the PR
   // count and the gear: tags stay on the left, one when "1 of N" is there too.
@@ -945,16 +965,8 @@ function bar(): HTMLElement {
   const right = tags.slice(2);
   if (sessions.length > room) right.push(el("span", "more", `+${sessions.length - room}`));
 
-  const accounts = github?.enabled ? shownAccounts(github.accounts) : [];
-  if (accounts.length > 0) {
-    const pr = button("btn-pr", "", toggle);
-    pr.append(prCount(prTotals()));
-    right.push(pr);
-  }
+  right.push(...prButton());
   if (atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
-  if (hooksInstalled === false && onboarding.phase === "closed" && sessions.length === 0) {
-    chips.unshift(button("btn-chip", t("island.connect"), () => void openOnboarding()));
-  }
   // Beside the camera the chips get a row of their own below it.
   if (!cutout) right.push(...chips);
   right.push(settingsButton());
@@ -967,6 +979,39 @@ function bar(): HTMLElement {
   below.append(...chips);
   wrap.append(node, below);
   return onClick(wrap, sessions.length > 0);
+}
+
+/**
+ * Open at the left or right edge (#189): the standing pill grown along the
+ * edge, the bar's mascot, counts, tags and gear one under the other.
+ */
+function spine(): HTMLElement {
+  const node = el("div", "spine");
+  const sessions = byUrgency(snapshot.sessions, toneOf);
+  node.append(mascotNode());
+  if (snapshot.approvals.length > 1) node.append(el("span", "queue", t("island.queueShort", snapshot.approvals.length)));
+  node.append(...prButton());
+  if (atlantisRuns > 0) node.append(atlantisSign(atlantisRuns, openFirstRun));
+  for (const session of sessions.slice(0, MAX_TAGS)) node.append(agentTag(session, toneOf(session), sessionLabel(session)));
+  if (sessions.length > MAX_TAGS) node.append(el("span", "more", `+${sessions.length - MAX_TAGS}`));
+  node.append(settingsButton());
+  return onClick(node, sessions.length > 0);
+}
+
+/** The update chip, and "Connect" while no agent can reach the island. */
+function barChips(sessions: number): HTMLElement[] {
+  const chips: HTMLElement[] = updateChips();
+  if (hooksInstalled === false && onboarding.phase === "closed" && sessions === 0) {
+    chips.unshift(button("btn-chip", t("island.connect"), () => void openOnboarding()));
+  }
+  return chips;
+}
+
+function prButton(): HTMLElement[] {
+  if (!github?.enabled || shownAccounts(github.accounts).length === 0) return [];
+  const pr = button("btn-pr", "", toggle);
+  pr.append(prCount(prTotals()));
+  return [pr];
 }
 
 /**
