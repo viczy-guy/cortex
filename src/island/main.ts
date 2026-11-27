@@ -572,10 +572,13 @@ function shownTone(open: boolean): Tone | "pink" {
   return !open && !saying && showsSummary() ? "pink" : tone;
 }
 
+/** At the left or right edge the folded island stands (#183); the bottom corners lie as on top. */
+const standing = (): boolean => position === "left" || position === "right";
+
 /** Touch the class only when it changes: any DOM change costs a repaint (#51). */
-function setClass(open: boolean): void {
+function setClass(open: boolean, folded = false): void {
   // Away, nothing turns (#51, #173): a turning ring repaints on every frame.
-  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${cutout ? " island--cutout" : ""}${away ? " island--away" : ""}`;
+  const name = `island tone-${shownTone(open)}${open ? " island--open" : ""}${folded && standing() ? " island--standing" : ""}${cutout ? " island--cutout" : ""}${away ? " island--away" : ""}`;
   if (root.className !== name) root.className = name;
   if (root.dataset.position !== position) root.dataset.position = position;
 }
@@ -641,12 +644,13 @@ function render(): void {
     awayDrawn = away;
     const before = sizeBefore();
     const fade = folded === null;
-    setClass(false);
-    const node = el("div", saying || pink ? "notch notch--say" : "notch");
+    setClass(false, true);
+    const side = standing();
+    const node = el("div", side ? "side-pill" : saying || pink ? "notch notch--say" : "notch");
     const left = mascotNode();
     const totals = prTotals();
     // Without the camera, a phrase takes the counts' place: they are drawn (and hop, #179) once it goes.
-    const counts = cutout !== null || !(saying || pink);
+    const counts = cutout !== null || side || !(saying || pink);
     const right = counts && (totals.reviews > 0 || totals.failing > 0) ? [prCount(totals)] : [];
     // Atlantis running (#173): its sign beside the pull requests, a click opens its tab.
     if (counts && atlantisRuns > 0) right.push(atlantisSign(atlantisRuns, openFirstRun));
@@ -654,7 +658,19 @@ function render(): void {
     // stays until a click (#157); beside the camera, on a row under it.
     const say = saying ? sayLine(saying, othersStanding()) : pink ? awayLine(summaryNow, seeAll, dismissSummary) : [];
     let top: HTMLElement = node;
-    if (cutout) {
+    if (side) {
+      // Standing at the edge (#183): the mascot on top, the counts under it,
+      // and the phrase in a balloon beside it, in the phrase's color.
+      node.append(left, ...right);
+      top = el("div", "side-row");
+      top.append(node);
+      if (saying || pink) {
+        const balloon = el("div", "side-balloon");
+        balloon.style.setProperty("--tone", `var(--tone-${saying ? saying.tone : "pink"})`);
+        balloon.append(...say);
+        top.append(balloon);
+      }
+    } else if (cutout) {
       splitAtCamera(node, [left], right);
       if (saying || pink) {
         top = el("div");
@@ -681,6 +697,8 @@ function render(): void {
     });
     folded = foldedKey();
     root.replaceChildren(top);
+    // Hovered, the bar is at least as tall as the pill: the pointer that came in stays in (#183).
+    if (side) root.style.setProperty("--stand-height", `${node.offsetHeight}px`);
     void fitWindowToContent(before, fade);
     return;
   }
@@ -1213,6 +1231,8 @@ async function start(): Promise<void> {
     }
     if (!relabel && mascot === payload.mascot && position === payload.position) return;
     mascot = payload.mascot;
+    // The camera is only on top; Rust's word on it comes apart from this one.
+    if (payload.position !== "top" && cutout) setCutout(null);
     position = payload.position;
     render();
   });

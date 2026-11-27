@@ -78,6 +78,8 @@ body {
 .island--morphing {
   overflow: hidden;
   align-items: center;
+  /* It eases from the size it had, a standing pill narrower than this included. */
+  min-width: 0;
 }
 .island--morphing > * {
   flex: none;
@@ -116,6 +118,67 @@ body {
 .island:not(.tone-gray) {
   border-color: var(--tone);
   box-shadow: inset var(--edge-glow) 14px -8px var(--tone);
+}
+
+/* Standing at a side edge, folded (#183): the window holds the standing
+   pill and, while a phrase speaks, its balloon; only those two paint. */
+.island.island--standing {
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+}
+/* Folding into the pill, the panel still shrinks in sight. */
+.island.island--standing.island--morphing { background: var(--notch); }
+/* Hovered at a side, the bar is as tall as the pill it came from. */
+.island[data-position="left"]:not(.island--standing),
+.island[data-position="right"]:not(.island--standing) {
+  min-height: var(--stand-height, 0px);
+  justify-content: center;
+}
+.side-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.island[data-position="right"] .side-row { flex-direction: row-reverse; }
+.side-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  width: 40px;
+  padding: 12px 0;
+  background: var(--notch);
+  border: 1.5px solid transparent;
+}
+.island[data-position="left"] .side-pill {
+  border-left-width: 0;
+  border-radius: 0 var(--radius-notch) var(--radius-notch) 0;
+}
+.island[data-position="right"] .side-pill {
+  border-right-width: 0;
+  border-radius: var(--radius-notch) 0 0 var(--radius-notch);
+}
+.island:not(.tone-gray) .side-pill {
+  border-color: var(--tone);
+  box-shadow: inset var(--edge-glow) 14px -8px var(--tone);
+}
+.side-pill .pr-count,
+.side-pill .atl-sign { flex-direction: column; gap: 2px; }
+.side-pill .pr-icon { margin: 0; padding: 0; }
+.side-balloon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 400px;
+  padding: 7px 11px;
+  background: var(--notch);
+  border: 1.5px solid var(--tone);
+  border-radius: var(--radius-card);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 /* ---- Folded: the notch and the mascot ---------------------------------- */

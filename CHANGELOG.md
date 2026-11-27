@@ -18,6 +18,10 @@ follows [Semantic Versioning](https://semver.org).
     NEW, then the one waiting the longest, with how long. A click opens it on
     GitHub. Opening the list over the phrase shows this tab.
   - **Each notice ringed in its color** in the list.
+- **The island stands at the left and right edges** (#183). Folded, it is a
+  standing pill: the mascot on top, the counts under it. A phrase, and the
+  pink summary, come in a balloon beside it, in the notice's color; open, the
+  panel grows from the edge as before. The bottom corners stay as they were.
 - Three texts in Settings read more clearly. In Portuguese, "Abrir ao ligar"
   becomes "Abrir ao iniciar a sessão" and the updates note says the option must
   be on; in both languages, the pink summary says that of what came while
