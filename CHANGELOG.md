@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-27
+
 ### Changed
 - **At the left and right edges the island opens as on top** (#189): the
   standing pill grows along the edge, with the mascot, the counts, the
