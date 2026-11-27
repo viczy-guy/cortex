@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { button, el } from "../shared/dom";
 import { diffView } from "../shared/diff-view";
 import {
-  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, githubShown, releaseNotesUrl,
+  api, HOOKS_EVENT, RULES_EVENT, GITHUB_EVENT, GITHUB_CLI_URL, GITHUB_DEVICE_URL, githubShown,
   type GithubStatus, UPDATES_EVENT, type UpdateStatus, ISLAND_PREFS_EVENT, type IslandPrefs, type AutostartStatus,
   ISLAND_SCREENS_EVENT, type IslandPosition, type IslandScreen,
   type AlwaysRule, type HooksPreview, type HooksStatus,
@@ -768,8 +768,9 @@ async function start(): Promise<void> {
     getVersion().then((version) => {
       const commit = import.meta.env.VITE_CORTEX_COMMIT;
       aboutBlock.prepend(el("div", undefined, commit ? t("about.test", version, commit) : t("about.version", version)));
+      // What's new opens in the app (#180); its "See it on GitHub" has the notes.
       aboutActions.prepend(button("btn-neutral", t("about.news"), () => {
-        api.openUrl(releaseNotesUrl(version)).catch((error: unknown) => { aboutBlock.append(el("div", "note note-error", fromRust(String(error)))); });
+        api.newsOpen().catch((error: unknown) => { aboutBlock.append(el("div", "note note-error", fromRust(String(error)))); });
       }));
     }).catch((error: unknown) => {
       aboutBlock.prepend(el("div", "note note-error", fromRust(String(error))));

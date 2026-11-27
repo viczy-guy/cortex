@@ -321,6 +321,14 @@ const en = {
   "splash.retry": "Try again",
   "splash.oops": "Oops, something got in the way.",
   "splash.whenever": "Whenever you want to try again, click below.",
+
+  // What's new, after an update and from Settings → About (#180).
+  "news.title": (version: string) => `What's new in v${version}`,
+  "news.fixes": "Fixes",
+  "news.github": "See it on GitHub",
+  "news.go": "Let's get to work",
+  "news.what": "What changed",
+  "news.close": "Close",
 };
 
 type Messages = typeof en;
@@ -632,6 +640,13 @@ const pt: Messages = {
   "splash.retry": "Tentar novamente",
   "splash.oops": "Ops, algo atrapalhou a atualização.",
   "splash.whenever": "Quando quiser tentar novamente, clique abaixo.",
+
+  "news.title": (version: string) => `Novidades da v${version}`,
+  "news.fixes": "Correções",
+  "news.github": "Ver no GitHub",
+  "news.go": "Vamos trabalhar",
+  "news.what": "O que mudou",
+  "news.close": "Fechar",
 };
 
 const TABLES: Record<Language, Messages> = { en, pt };
@@ -687,6 +702,7 @@ const FROM_RUST: Record<string, string> = {
   "cannot determine the home directory": "não foi possível achar a pasta de início",
   "This copy of Cortex cannot open at login.": "Esta cópia do Cortex não pode abrir ao iniciar a sessão.",
   "island window not found": "janela da ilha não encontrada",
+  "opening screen not found": "tela de abertura não encontrada",
   "Unknown island position.": "Posição da ilha desconhecida.",
   "Unknown screen.": "Tela desconhecida.",
   "Unknown mascot.": "Mascote desconhecido.",

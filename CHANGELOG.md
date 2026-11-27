@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- **What's new.** After an update, "Update complete" grows into the
+  version's news: a card with a picture and a sentence for each, the fixes
+  folded, and the versions you skipped below it. It stays until **Let's get
+  to work** or the X, and never takes the keyboard; a version with fixes only
+  offers them under a small **What changed**. Settings → About → **What's
+  new** opens the same list, in the app's language. (#180)
+
 ### Fixed
 - Three texts in Settings read more clearly. In Portuguese, "Abrir ao ligar"
   becomes "Abrir ao iniciar a sessão" and the updates note says the option must

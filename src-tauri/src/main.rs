@@ -287,6 +287,46 @@ fn splash_done(app: AppHandle) {
     close_splash(&app);
 }
 
+/// What's new (#180): the update screen, or the one Settings opens, grows
+/// and stays until its own buttons, and the island stops waiting for it.
+#[tauri::command]
+fn splash_news(app: AppHandle) -> Result<(), String> {
+    keep_splash();
+    let window = app
+        .get_webview_window("splash")
+        .ok_or("opening screen not found")?;
+    let mut height = NEWS_HEIGHT;
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let room = monitor
+            .work_area()
+            .size
+            .to_logical::<f64>(monitor.scale_factor())
+            .height;
+        height = height.min((room - 80.0).max(280.0));
+    }
+    window
+        .set_size(tauri::LogicalSize::new(NEWS_WIDTH, height))
+        .map_err(|e| e.to_string())?;
+    window.center().map_err(|e| e.to_string())?;
+    opening_closed(&app);
+    Ok(())
+}
+
+/// What's new in logical points, the height at most.
+const NEWS_WIDTH: f64 = 560.0;
+const NEWS_HEIGHT: f64 = 560.0;
+
+/// Settings → About → What's new (#180). A screen already up (an update
+/// installing, What's new itself) stays as it is. Async: a window made in a
+/// sync command deadlocks on Windows.
+#[tauri::command]
+async fn news_open(app: AppHandle) -> Result<(), String> {
+    if app.get_webview_window("splash").is_some() {
+        return Ok(());
+    }
+    open_splash(&app, Some("mode=news"))
+}
+
 /// An always-on-top window in the middle of the screen must go even when
 /// its page is stuck: close, and destroy if closing fails.
 fn close_splash(app: &AppHandle) {
@@ -651,6 +691,8 @@ fn main() {
             prefs::language_set,
             gaze::island_gaze_origin,
             splash_done,
+            splash_news,
+            news_open,
             opening_shown,
             away::away_now,
             open_settings,
@@ -723,7 +765,12 @@ fn main() {
             OPENING.store(screen != OpeningScreen::Nothing, Release);
             let opened = match screen {
                 OpeningScreen::Welcome => open_splash(&handle, None),
-                OpeningScreen::Updated => open_splash(&handle, Some("mode=updated")),
+                OpeningScreen::Updated => open_splash(
+                    &handle,
+                    Some(&cortex_core::autostart::updated_query(
+                        last_version.as_deref(),
+                    )),
+                ),
                 OpeningScreen::Nothing => Ok(()),
             };
             if let Err(err) = opened {

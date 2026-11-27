@@ -27,6 +27,8 @@ const COMMANDS: &[&str] = &[
     "language_set",
     "island_gaze_origin",
     "splash_done",
+    "splash_news",
+    "news_open",
     "opening_shown",
     "away_now",
     "open_settings",

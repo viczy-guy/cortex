@@ -23,6 +23,7 @@
     "allow-github-install",
     "allow-github-cancel-task",
     "allow-open-url",
+    "allow-news-open",
     "allow-quit",
     "allow-rules-list",
     "allow-rule-remove",
