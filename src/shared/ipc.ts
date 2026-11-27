@@ -222,6 +222,10 @@ export const api = {
   autostartStatus: () => invoke<AutostartStatus>("autostart_status"),
   autostartSet: (enabled: boolean) => invoke<AutostartStatus>("autostart_set", { enabled }),
   splashDone: () => invoke<void>("splash_done"),
+  /** What's new (#180): the screen grows and stays until its buttons; the island appears. */
+  splashNews: (height: number) => invoke<void>("splash_news", { height }),
+  /** Settings → About → What's new (#180). */
+  newsOpen: () => invoke<void>("news_open"),
   /** The launch's opening screen is still up: the island waits (#152). */
   openingShown: () => invoke<boolean>("opening_shown"),
   languageSet: (language: "en" | "pt" | null) => invoke<void>("language_set", { language }),

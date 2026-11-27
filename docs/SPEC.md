@@ -199,11 +199,12 @@ frame without animation for 3 seconds. Launches at login (`--autostart`)
 skip it. Rust closes the window after 10 seconds if it is still open.
 
 The island waits for this screen (and for "Update complete") and appears
-when it closes; it never stays hidden more than 12 seconds (#152). On a new
-install (no saved version and no "open at login" answer), Settings then
-opens on the Overview with **Get started**: **Connect Claude Code** (the
-reviewed installer, on Agents) and **Connect GitHub** (optional). Each line
-goes once it is done; later launches do not open Settings.
+when it closes, or when it grows into What's new (below); it never stays
+hidden more than 12 seconds (#152). On a new install (no saved version and
+no "open at login" answer), Settings then opens on the Overview with **Get
+started**: **Connect Claude Code** (the reviewed installer, on Agents) and
+**Connect GitHub** (optional). Each line goes once it is done; later
+launches do not open Settings.
 
 The same window shows the updates (#127):
 
@@ -214,10 +215,25 @@ The same window shows the updates (#127):
 - **Update complete, let's get to work?**: the new copy shows it at its
   first launch, with the mascot green and the version at the bottom, even at
   login or after a recovery restart (an update restart keeps the old
-  arguments). It closes after about 4 seconds, or on a click. Each launch
-  saves its version in the preferences (`last_version`); another one there
-  means an update, however it was installed. 0.3.0 and 0.3.1 saved none: a
-  saved "open at login" answer then tells an update from a new install.
+  arguments). It closes after about 4 seconds, or on a click, unless it
+  grows into What's new (below). Each launch saves its version in the
+  preferences (`last_version`); another one there means an update, however
+  it was installed. 0.3.0 and 0.3.1 saved none: a saved "open at login"
+  answer then tells an update from a new install.
+- **What's new in vX** (#180): when the versions since the one used last
+  have something to see, "Update complete" shows for 2 seconds and the same
+  window grows (560 points wide, as tall as its content up to 560,
+  centered): one card per novelty (picture, title, one sentence), the fixes
+  folded, and each version skipped before it in a folded section of its own,
+  the last 5 at most. It stays until **Let's get to work** or the X: no
+  timer, no click elsewhere, and it never takes the keyboard. The island
+  appears as it grows, so cards keep coming. A version with fixes only keeps
+  "Update complete" as it was, with a small **What changed** that opens the
+  list. Settings → About → **What's new** opens the same list (unless an
+  update screen is up); **See it on GitHub** in it opens the running
+  version's release notes, shown when the list starts with that version. The
+  texts and pictures ship inside the app, in English and Portuguese
+  (`src/splash/news.ts`); nothing downloaded is shown.
 - **Oops, something got in the way.**: the install failed. The mascot turns
   amber, with **Try again** and **Continue without updating**: a failed
   update never keeps the user from working. The package is kept, so the
@@ -321,8 +337,9 @@ window opens on the Overview.
 - **General** turns launch at login on or off (see below), and the update
   check, with **Update and restart** once a verified update is ready. It
   also picks the language (see [Language](#language)).
-- **About** shows the app version, a "What's new" link to the notes of that
-  version, its local-only policy, and Quit Cortex.
+- **About** shows the app version, **What's new** (the list of the update
+  screen, see [Opening screen](#opening-screen)), its local-only policy, and
+  Quit Cortex.
 
 On macOS, Cortex also has a menu-bar item with **Settings…** and **Quit
 Cortex** (**Ajustes…** and **Encerrar o Cortex** in Portuguese). It is a native menu, so it still quits when the island's web view

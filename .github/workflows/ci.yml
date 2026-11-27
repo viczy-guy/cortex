@@ -55,6 +55,7 @@ jobs:
           npm ci
           npm run lint
           npm run build
+          node scripts/check-news.mjs
 
       - name: Rust — format
         run: cargo fmt --all -- --check

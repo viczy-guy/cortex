@@ -287,6 +287,60 @@ fn splash_done(app: AppHandle) {
     close_splash(&app);
 }
 
+/// What's new (#180): the update screen, or the one Settings opens, grows
+/// to the `height` its page needs and stays until its own buttons, and the
+/// island stops waiting for it.
+#[tauri::command]
+fn splash_news(app: AppHandle, height: f64) -> Result<(), String> {
+    keep_splash();
+    let window = app
+        .get_webview_window("splash")
+        .ok_or("opening screen not found")?;
+    let mut height = if height.is_finite() {
+        height.clamp(NEWS_MIN_HEIGHT, NEWS_HEIGHT)
+    } else {
+        NEWS_HEIGHT
+    };
+    let mut width = NEWS_WIDTH;
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        // A screen too small (one in portrait) keeps the X and the buttons in sight.
+        let room = monitor
+            .work_area()
+            .size
+            .to_logical::<f64>(monitor.scale_factor());
+        height = height.min((room.height - 80.0).max(NEWS_MIN_HEIGHT));
+        width = width.min((room.width - 40.0).max(SPLASH_WIDTH));
+    }
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    window.center().map_err(|e| e.to_string())?;
+    opening_closed(&app);
+    Ok(())
+}
+
+/// The opening and update screens in logical points.
+const SPLASH_WIDTH: f64 = 420.0;
+const SPLASH_HEIGHT: f64 = 280.0;
+/// What's new in logical points: the width as `.news--measuring` in
+/// src/splash/splash.css, the height at least and at most.
+const NEWS_WIDTH: f64 = 560.0;
+const NEWS_MIN_HEIGHT: f64 = 160.0;
+const NEWS_HEIGHT: f64 = 560.0;
+
+/// Settings → About → What's new (#180). A screen already up (an update
+/// installing, What's new itself) stays as it is. Async: a window made in a
+/// sync command deadlocks on Windows.
+#[tauri::command]
+async fn news_open(app: AppHandle) -> Result<(), String> {
+    if app.get_webview_window("splash").is_some() {
+        return Ok(());
+    }
+    // A second click made it meanwhile: that one shows.
+    open_splash(&app, Some("mode=news"))
+        .or_else(|err| app.get_webview_window("splash").map(|_| ()).ok_or(err))
+}
+
 /// An always-on-top window in the middle of the screen must go even when
 /// its page is stuck: close, and destroy if closing fails.
 fn close_splash(app: &AppHandle) {
@@ -339,6 +393,9 @@ fn open_splash(app: &AppHandle, query: Option<&str>) -> Result<(), String> {
         let mut url = window.url().map_err(|e| e.to_string())?;
         url.set_query(query);
         window.navigate(url).map_err(|e| e.to_string())?;
+        // What's new made it bigger (#180).
+        let _ = window.set_size(tauri::LogicalSize::new(SPLASH_WIDTH, SPLASH_HEIGHT));
+        let _ = window.center();
     } else {
         let page = match query {
             Some(query) => format!("splash.html?{query}"),
@@ -346,7 +403,7 @@ fn open_splash(app: &AppHandle, query: Option<&str>) -> Result<(), String> {
         };
         tauri::WebviewWindowBuilder::new(app, "splash", tauri::WebviewUrl::App(page.into()))
             .title("Cortex")
-            .inner_size(420.0, 280.0)
+            .inner_size(SPLASH_WIDTH, SPLASH_HEIGHT)
             .resizable(false)
             .decorations(false)
             .transparent(true)
@@ -651,6 +708,8 @@ fn main() {
             prefs::language_set,
             gaze::island_gaze_origin,
             splash_done,
+            splash_news,
+            news_open,
             opening_shown,
             away::away_now,
             open_settings,
@@ -723,7 +782,12 @@ fn main() {
             OPENING.store(screen != OpeningScreen::Nothing, Release);
             let opened = match screen {
                 OpeningScreen::Welcome => open_splash(&handle, None),
-                OpeningScreen::Updated => open_splash(&handle, Some("mode=updated")),
+                OpeningScreen::Updated => open_splash(
+                    &handle,
+                    Some(&cortex_core::autostart::updated_query(
+                        last_version.as_deref(),
+                    )),
+                ),
                 OpeningScreen::Nothing => Ok(()),
             };
             if let Err(err) = opened {

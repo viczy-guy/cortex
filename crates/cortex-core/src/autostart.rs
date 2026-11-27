@@ -62,6 +62,17 @@ pub fn was_updated(
     }
 }
 
+/// The update screen's page, told the version used last: What's new shows
+/// the versions skipped since (#180). `last` is a checked version
+/// (`prefs::is_version`); of its characters only `+` means something else in
+/// a query.
+pub fn updated_query(last: Option<&str>) -> String {
+    match last {
+        Some(last) => format!("mode=updated&from={}", last.replace('+', "%2B")),
+        None => "mode=updated".into(),
+    }
+}
+
 /// A new install (#152): no version saved (every launch since 0.3.2 saves
 /// one) and no launch-at-login answer (which 0.3.0 and 0.3.1 did save).
 pub fn is_first_launch(last_version: Option<&str>, launch_at_login: Option<bool>) -> bool {
@@ -170,6 +181,17 @@ mod tests {
         assert!(was_updated(None, Some(false), "0.3.2"));
         // A new install: nothing saved yet.
         assert!(!was_updated(None, None, "0.3.2"));
+    }
+
+    #[test]
+    fn the_update_screen_learns_the_version_used_last() {
+        assert_eq!(updated_query(Some("0.9.0")), "mode=updated&from=0.9.0");
+        assert_eq!(
+            updated_query(Some("1.0.0+abc")),
+            "mode=updated&from=1.0.0%2Babc"
+        );
+        // Updated from 0.3.0 or 0.3.1, which saved no version.
+        assert_eq!(updated_query(None), "mode=updated");
     }
 
     #[test]
