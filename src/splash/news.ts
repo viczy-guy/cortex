@@ -60,8 +60,8 @@ export const RELEASES: Release[] = [
       {
         title: { en: "What's new", pt: "Novidades" },
         text: {
-          en: "This screen: after each update, what the new version brings. Settings → About → What's new opens it again.",
-          pt: "Esta tela: depois de cada atualização, o que a versão nova traz. Ajustes → Sobre → Novidades abre de novo.",
+          en: "This screen: after each update, what the new version brings. To open it again, go to Settings → About → What's new.",
+          pt: "Esta tela: depois de cada atualização, o que a versão nova traz. Para reabrir esta tela, vá a Ajustes → Sobre → Novidades.",
         },
       },
     ],
