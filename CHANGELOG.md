@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Three texts in Settings read more clearly. In Portuguese, "Abrir ao ligar"
+  becomes "Abrir ao iniciar a sessão" and the updates note says the option must
+  be on; in both languages, the pink summary says that of what came while
+  Cortex was closed, only GitHub's notices are shown.
+
 ## [0.9.1] - 2026-11-26
 
 ### Changed
