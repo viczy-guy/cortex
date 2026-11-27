@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- **At the left and right edges the island opens as on top** (#189): the
+  standing pill grows along the edge, with the mascot, the counts, the
+  agents and the gear one under the other, and the list or the card comes
+  out beside it, in one piece. The update and Connect buttons go on top of
+  the list.
+
 ## [0.9.2] - 2026-11-27
 
 ### Added
