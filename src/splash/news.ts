@@ -11,11 +11,11 @@
  */
 
 import type { Language } from "../shared/i18n";
-import away from "./news/v0.7.0-away.jpg";
 import plans from "./news/v0.8.0-plans.jpg";
 import islandPt from "./news/v0.9.0-island-pt.jpg";
 import atlantisTab from "./news/v0.9.1-atlantis-tab.jpg";
 import reviewsTab from "./news/v0.9.2-reviews-tab.jpg";
+import sideOpen from "./news/v0.9.3-side-open.jpg";
 import standing from "./news/v0.9.2-standing.jpg";
 
 type Text = Record<Language, string>;
@@ -30,6 +30,21 @@ export interface Release {
 }
 
 export const RELEASES: Release[] = [
+  {
+    version: "0.9.3",
+    date: "2026-11-27",
+    items: [
+      {
+        image: sideOpen,
+        title: { en: "Opens along the side", pt: "Abre pela lateral" },
+        text: {
+          en: "At the left or right edge the island opens as on top: it grows along the edge, and the list or the card comes out beside it.",
+          pt: "Na esquerda ou na direita, a ilha abre como no topo: cresce ao longo da borda, e a lista ou o card sai ao lado.",
+        },
+      },
+    ],
+    fixes: [],
+  },
   {
     version: "0.9.2",
     date: "2026-11-27",
@@ -107,21 +122,6 @@ export const RELEASES: Release[] = [
         text: {
           en: "The island follows each Atlantis plan to its apply, red when a plan destroys something or fails; a line opens the plan's summary.",
           pt: "A ilha acompanha cada plan do Atlantis até o apply, em vermelho quando um plan destrói algo ou falha; uma linha abre o resumo do plan.",
-        },
-      },
-    ],
-    fixes: [],
-  },
-  {
-    version: "0.7.0",
-    date: "2026-11-25",
-    items: [
-      {
-        image: away,
-        title: { en: "While you were away", pt: "Enquanto você estava fora" },
-        text: {
-          en: "Nothing rings while nobody is looking. Back, the island turns pink with what came meanwhile, until See all or Dismiss.",
-          pt: "Nada toca enquanto ninguém está olhando. Na volta, a ilha fica rosa com o que chegou, até Ver tudo ou Dispensar.",
         },
       },
     ],
