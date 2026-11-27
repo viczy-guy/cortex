@@ -22,6 +22,8 @@ export interface ViewNotice {
   around?: { before: string; title: string; after: string };
   /** An Atlantis run: its line opens its pull request's Atlantis card (#173). */
   plan?: Plan;
+  /** Review requests that came together, spoken as one (#179): their notices' keys. */
+  batch?: string[];
   /** The same notice made again, in the language shown now (#154). */
   again: () => ViewNotice;
 }
@@ -139,7 +141,8 @@ export function noticeRows(notices: ViewNotice[], actions: RowActions): HTMLElem
   const list = el("div", "notice-rows");
   if (notices.length > 1) list.append(button("btn-neutral btn-clear", t("rows.clearAll"), actions.clearAll));
   for (const notice of notices) {
-    const row = el("button", "notice-row");
+    // Ringed in its color, wherever the island is (#179).
+    const row = el("button", `notice-row tone-${notice.tone}`);
     row.type = "button";
     row.dataset.key = notice.key;
     const plan = notice.plan;

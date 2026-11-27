@@ -7,6 +7,17 @@ follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Fixed
+- **A new review request always speaks** (#179). It rings blue once and says
+  so, even when the island is amber or red; the color stays the most urgent
+  one's. Requests that come together get one phrase and one sound ("3 new
+  reviews · #1258, #1257 and #1248", or "ana asked for 3 reviews"), after a
+  more urgent phrase and once a card in view is answered, and the pull
+  request count hops.
+  - **The Reviews tab.** Beside Notices and Atlantis, every pull request
+    waiting for your review, of every account: the new ones on top, marked
+    NEW, then the one waiting the longest, with how long. A click opens it on
+    GitHub. Opening the list over the phrase shows this tab.
+  - **Each notice ringed in its color** in the list.
 - Three texts in Settings read more clearly. In Portuguese, "Abrir ao ligar"
   becomes "Abrir ao iniciar a sessão" and the updates note says the option must
   be on; in both languages, the pink summary says that of what came while

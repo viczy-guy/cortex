@@ -157,6 +157,7 @@ pub const QUERY: &str = r#"query {
   reviews: search(query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", type: ISSUE, first: 20) {
     issueCount
     nodes { ... on PullRequest { number title url isDraft reviewDecision updatedAt repository { nameWithOwner } author { login }
+      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 5) { nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } } } }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } status { contexts { context state description createdAt targetUrl creator { login } } } checkSuites(first: 10) { nodes { conclusion } } } } } } }
   }
   merged: search(query: "is:pr is:merged author:@me archived:false sort:updated-desc", type: ISSUE, first: 5) {
@@ -200,6 +201,10 @@ pub struct PullRequest {
     /// Its branch: a failed run there is this pull request failing.
     #[serde(skip)]
     pub head: String,
+    /// On a review request: when the user's review was asked for, as GitHub
+    /// writes it (ISO 8601), for how long it waits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_at: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GithubSummary {
@@ -254,7 +259,24 @@ pub(crate) fn is_github_url(url: &str) -> bool {
 fn count(v: &Value) -> u32 {
     v["issueCount"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32
 }
-fn pulls(v: &Value) -> Vec<PullRequest> {
+/// When the viewer's review was last asked for: the latest request naming
+/// them, else the latest one (a team's).
+fn requested_at(n: &Value, viewer: &str) -> Option<String> {
+    fn at(e: &Value) -> Option<&str> {
+        e["createdAt"]
+            .as_str()
+            .filter(|t| !t.is_empty() && t.len() <= 25)
+    }
+    let events = n.pointer("/timelineItems/nodes")?.as_array()?;
+    let mine = events
+        .iter()
+        .rev()
+        .find(|e| e["requestedReviewer"]["login"].as_str() == Some(viewer) && at(e).is_some());
+    mine.or_else(|| events.iter().rev().find(|e| at(e).is_some()))
+        .and_then(at)
+        .map(str::to_owned)
+}
+fn pulls(v: &Value, viewer: &str) -> Vec<PullRequest> {
     v["nodes"]
         .as_array()
         .into_iter()
@@ -329,6 +351,7 @@ fn pulls(v: &Value) -> Vec<PullRequest> {
                     .filter(|h| h.chars().count() <= 255)
                     .unwrap_or_default()
                     .into(),
+                requested_at: requested_at(n, viewer),
             })
         })
         .take(MAX_PULLS)
@@ -347,16 +370,16 @@ pub fn parse_summary(json: &str, now_ms: u64) -> Option<GithubSummary> {
     let reviews = d.get("reviews").filter(|v| v.is_object())?;
     Some(GithubSummary {
         login: login.into(),
-        mine: pulls(mine),
+        mine: pulls(mine, login),
         mine_total: count(mine),
-        review_requests: pulls(reviews),
+        review_requests: pulls(reviews, login),
         review_requests_total: count(reviews),
         fetched_at_ms: now_ms,
         // Optional: an answer without it still counts.
         merged: d
             .get("merged")
             .filter(|v| v.is_object())
-            .map(pulls)
+            .map(|v| pulls(v, login))
             .unwrap_or_default(),
         failed_runs: Vec::new(),
         notices: Vec::new(),
@@ -576,6 +599,43 @@ mod tests {
                 .mine
                 .len(),
             1
+        );
+    }
+    #[test]
+    fn a_review_request_waits_since_the_viewer_was_last_asked() {
+        let event = |at: &str, who: Value| json!({"createdAt": at, "requestedReviewer": who});
+        let mut n = node();
+        n["timelineItems"] = json!({"nodes": [
+            event("2026-11-26T10:00:00Z", json!({"login": "alice"})),
+            event("2026-11-26T11:00:00Z", json!({"login": "alice"})),
+            event("2026-11-26T12:00:00Z", json!({"login": "bob"})),
+        ]});
+        let mut v = response(vec![]);
+        v["data"]["reviews"] = json!({"issueCount": 1, "nodes": [n.clone()]});
+        let s = parse_summary(&v.to_string(), 0).unwrap();
+        assert_eq!(
+            s.review_requests[0].requested_at.as_deref(),
+            Some("2026-11-26T11:00:00Z")
+        );
+        // Asked through a team: the latest request; none, or too long: unknown.
+        n["timelineItems"]["nodes"] = json!([event("2026-11-26T09:00:00Z", json!({}))]);
+        v["data"]["reviews"]["nodes"] = json!([n.clone()]);
+        let s = parse_summary(&v.to_string(), 0).unwrap();
+        assert_eq!(
+            s.review_requests[0].requested_at.as_deref(),
+            Some("2026-11-26T09:00:00Z")
+        );
+        n["timelineItems"]["nodes"] = json!([event(&"9".repeat(26), json!({"login": "alice"}))]);
+        v["data"]["reviews"]["nodes"] = json!([n]);
+        let s = parse_summary(&v.to_string(), 0).unwrap();
+        assert_eq!(s.review_requests[0].requested_at, None);
+        assert_eq!(s.mine.len(), 0);
+        assert_eq!(
+            parse_summary(&response(vec![node()]).to_string(), 0)
+                .unwrap()
+                .mine[0]
+                .requested_at,
+            None
         );
     }
     #[test]

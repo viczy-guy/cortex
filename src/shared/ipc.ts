@@ -322,6 +322,8 @@ export interface PullRequest {
   checks: Checks;
   review: Review;
   plan: Plan | null;
+  /** On a review request: when the user's review was asked for (ISO 8601), when GitHub tells (#179). */
+  requested_at?: string;
 }
 /** Something on GitHub worth a notice (#131), most urgent first. */
 export interface GithubNotice {

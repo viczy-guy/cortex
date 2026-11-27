@@ -26,6 +26,7 @@ import {
   OPENING_CLOSED_EVENT,
   OUTSIDE_CLICK_EVENT,
   type PendingApproval,
+  type PullRequest,
   type SessionView,
   type Snapshot,
   STATE_EVENT,
@@ -43,6 +44,7 @@ import { agentShort, agentTag, byUrgency, prIcon, rank, sessionKey, sessionTone,
 import { livelyMascot, onGaze, poke, react, setBusy, setLively } from "./lively";
 import { agentNotice, awayLine, githubNotice, noticeRows, sayLine, type ViewNotice } from "./notices";
 import { type Onboarding, onboardingCard } from "./onboarding";
+import { isReview, reviewBatch, reviewOrder, type ReviewRow, reviewRows } from "./reviews";
 import { askingUpdates, updateChip, updatesQuestion } from "./updates";
 
 const MAX_HEIGHT = 440;
@@ -135,6 +137,14 @@ let atlantisNow: Watched[] = [];
 let atlantisRuns = 0;
 /** Ticks the running clocks while they are in sight (#173). */
 let clockTimer: number | undefined;
+/** Review requests that came as news: NEW in the Reviews tab until opened or seen there (#179). */
+const arrived = new Set<string>();
+/** The Reviews tab was in sight: once the island folds, its new ones are not new anymore. */
+let reviewsSeen = false;
+/** New review requests whose phrase waits for another phrase or a card to go (#179). */
+let reviewsOwed: ViewNotice[] = [];
+/** New review requests came: the pull request count hops once, when next drawn. */
+let hopReviews = false;
 
 /**
  * No card demanding eyes and nobody looking: the island folds into the
@@ -209,7 +219,10 @@ function freshGithubNotices(): ViewNotice[] {
       // Not news, except what came while Cortex was closed: that is kept for the summary (#157).
       for (const notice of summary.notices) {
         const view = githubNotice(notice);
-        if (news?.includes(notice.key) && !seenNotices.has(view.key)) kept.set(view.key, view);
+        if (news?.includes(notice.key) && !seenNotices.has(view.key)) {
+          kept.set(view.key, view);
+          if (isReview(view)) arrived.add(view.key);
+        }
       }
       continue;
     }
@@ -218,6 +231,8 @@ function freshGithubNotices(): ViewNotice[] {
       if (!known.has(view.key) && !seenNotices.has(view.key) && !fresh.some((f) => f.key === view.key)) fresh.push(view);
     }
   }
+  for (const view of fresh) if (isReview(view)) arrived.add(view.key);
+  for (const key of arrived) if (!standing.has(key)) arrived.delete(key);
   return fresh.sort((a, b) => rank(b.tone) - rank(a.tone));
 }
 
@@ -267,7 +282,8 @@ function updateTone(): void {
     summaryOwed = true;
   }
   // Only what is as urgent as the island now speaks; GitHub's ring only then.
-  const top = away ? undefined : [...spoken, ...fromGithub].sort((a, b) => rank(b.tone) - rank(a.tone))[0];
+  // A new review request always speaks (#179): after this, on its own.
+  const top = away ? undefined : [...spoken, ...fromGithub.filter((n) => !isReview(n))].sort((a, b) => rank(b.tone) - rank(a.tone))[0];
   if (soundReady && top && rank(top.tone) >= rank(tone)) {
     if (sound && fromGithub.includes(top)) playSound(top.tone);
     if (!saying || rank(top.tone) >= rank(saying.tone)) {
@@ -275,8 +291,71 @@ function updateTone(): void {
       saying = top;
     }
   }
-  // A phrase whose notice went, or that a more urgent color now covers, stops.
-  if (saying && (rank(saying.tone) < rank(tone) || !activeNotices().some((n) => n.key === saying?.key))) stopSaying();
+  if (!away && soundReady) reviewsOwed.push(...fromGithub.filter(isReview));
+  // A phrase whose notice went, or that a more urgent color now covers, stops;
+  // a review's stays its few seconds, whatever the color (#179).
+  const standing = new Set(activeNotices().map((n) => n.key));
+  if (saying && ((!isReview(saying) && !saying.batch && rank(saying.tone) < rank(tone)) || !(saying.batch ?? [saying.key]).some((key) => standing.has(key)))) stopSaying();
+  sayReviews(standing);
+}
+
+/**
+ * New review requests speak once: the blue sound and one phrase for all that
+ * came, even on an amber or red island (#179). They wait for the phrase
+ * before them, and for a card in view, to go.
+ */
+function sayReviews(standing: Set<string>): void {
+  if (reviewsOwed.length === 0 || away || saying || snapshot.approvals.some((a) => !dismissed.has(a.request_id))) return;
+  const owed = reviewsOwed.filter((n, i) => standing.has(n.key) && reviewsOwed.findIndex((m) => m.key === n.key) === i);
+  reviewsOwed = [];
+  if (owed.length === 0) return;
+  saying = reviewBatch(owed, reviewPulls());
+  hopReviews = true;
+  if (sound) playSound("blue");
+}
+
+/** Every pull request waiting for the user's review, of every account shown, each once. */
+function reviewPulls(): Map<string, PullRequest> {
+  const pulls = new Map<string, PullRequest>();
+  for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) {
+    for (const pull of summary.review_requests) if (!pulls.has(pull.url)) pulls.set(pull.url, pull);
+  }
+  return pulls;
+}
+
+/** The Reviews tab's rows, and how many more wait than GitHub listed. */
+function reviewsNow(): { rows: ReviewRow[]; more: number } {
+  const rows = [...reviewPulls().values()].map((pull) => {
+    const key = `github:review:${pull.url}`;
+    return { pull, key, fresh: arrived.has(key) };
+  });
+  let total = 0;
+  for (const { summary } of github?.enabled ? shownAccounts(github.accounts) : []) total += summary.review_requests_total;
+  return { rows: reviewOrder(rows), more: Math.max(0, total - rows.length) };
+}
+
+/** A click on a review row: it opens on GitHub, and its notice goes. */
+function openReview(row: ReviewRow): void {
+  seenNotices.add(row.key);
+  arrived.delete(row.key);
+  void api.openUrl(row.pull.url).catch(() => { /* The notice is cleared either way. */ });
+  render();
+}
+
+/** A click on a review phrase (#179): one opens its pull request; several, the Reviews tab, open until a click outside. */
+function openReviews(notice: ViewNotice): void {
+  if (!notice.batch) {
+    actOn(notice);
+    return;
+  }
+  stopSaying();
+  setPinned(true);
+  if (snapshot.approvals.length === 0) {
+    expanded = false;
+    autoExpanded = false;
+  }
+  tab = "reviews";
+  render();
 }
 
 /**
@@ -468,7 +547,8 @@ function prTotals(): { reviews: number; failing: number } {
 
 /** The "+N" beside the phrase. */
 function othersStanding(): number {
-  return activeNotices().filter((n) => n.key !== saying?.key).length;
+  const said = new Set(saying?.batch ?? [saying?.key]);
+  return activeNotices().filter((n) => !said.has(n.key)).length;
 }
 
 /** Everything the folded notch shows: the same key means nothing to repaint. */
@@ -522,6 +602,8 @@ function render(): void {
     autoExpanded = false;
     // A list opened again starts on its notices and its first card (#173).
     tab = null;
+    if (reviewsSeen) arrived.clear();
+    reviewsSeen = false;
     focus = null;
     setPinned(false);
     setClock(false);
@@ -582,6 +664,10 @@ function render(): void {
         seeAll();
         return;
       }
+      if (saying && (saying.batch || isReview(saying))) {
+        openReviews(saying);
+        return;
+      }
       acknowledge();
       setHovered(true);
     });
@@ -592,6 +678,8 @@ function render(): void {
   }
   const fade = folded !== null;
   folded = null;
+  // Open over the review phrase, the list shows the Reviews tab, the new ones on top (#179).
+  if (saying && (saying.batch || isReview(saying)) && tab === null) tab = "reviews";
   // Open, the list shows every notice: no phrase on top of it.
   stopSaying();
 
@@ -657,7 +745,8 @@ function pokeUnlessButton(event: Event): void {
 }
 
 function prCount({ reviews, failing }: { reviews: number; failing: number }): HTMLElement {
-  const node = el("span", "pr-count");
+  const node = el("span", hopReviews && reviews > 0 ? "pr-count pr-count--hop" : "pr-count");
+  if (reviews > 0) hopReviews = false;
   const notes = [t("island.prs", reviews)];
   node.append(prIcon());
   if (reviews > 0 || failing === 0) node.append(el("span", undefined, String(reviews)));
@@ -841,16 +930,24 @@ function panelContent(): HTMLElement[] {
     const listing = (hovered || pinned) && snapshot.approvals.length === 0;
     const notices = listing ? activeNotices() : [];
     const cards = listing ? atlantisCards() : [];
-    if (notices.length + cards.length === 0) return question;
+    const reviews = listing ? reviewsNow() : { rows: [], more: 0 };
+    const reviewCount = reviews.rows.length + reviews.more;
+    if (notices.length + cards.length + reviewCount === 0) return question;
     const rows = noticeRows(notices, { act: actOn, clearAll, plan: goToCard });
-    if (cards.length === 0) return [...question, rows];
-    const shown: Tab = tab ?? (notices.length > 0 ? "notices" : "atlantis");
+    if (cards.length + reviewCount === 0) return [...question, rows];
+    const has = (id: Tab): boolean => (id === "reviews" ? reviewCount > 0 : id === "atlantis" ? cards.length > 0 : true);
+    const shown: Tab = tab && has(tab) ? tab : notices.length > 0 ? "notices" : reviewCount > 0 ? "reviews" : "atlantis";
     const runs = cards.filter((w) => running(w.pull.plan)).length;
-    const tabs = atlantisTabs(shown, notices.length, runs, (picked) => {
+    const counts = { notices: notices.length, reviews: reviewCount > 0 ? reviewCount : null, runs: cards.length > 0 ? runs : null };
+    const tabs = atlantisTabs(shown, counts, (picked) => {
       tab = picked;
       render();
     });
     if (shown === "notices") return [...question, tabs, notices.length > 0 ? rows : el("div", "atl-empty", t("atl.empty"))];
+    if (shown === "reviews") {
+      reviewsSeen = true;
+      return [...question, tabs, reviewRows(reviews.rows, reviews.more, openReview)];
+    }
     // A pick that left the list falls back to the first card; "" keeps them all closed.
     const open = focus === "" ? null : cards.some((w) => w.pull.url === focus) ? focus : (cards[0]?.pull.url ?? null);
     const list = el("div", "atl-cards");
